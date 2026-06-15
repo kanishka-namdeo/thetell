@@ -1,0 +1,233 @@
+---
+description: Testing conventions for Next.js App Router with Vitest and Playwright. Covers test file naming, what to test, mocking strategies, and coverage expectations.
+globs: src/**/*.test.ts,src/**/*.test.tsx,src/**/*.spec.ts,src/**/*.spec.tsx
+---
+
+# Testing Conventions
+
+**Trigger**: Auto-applied to test files.
+
+## Testing Pyramid
+
+| Layer | Tool | Targets | Speed |
+|-------|------|---------|-------|
+| Unit | Vitest | Utilities, validators, pure functions, types | Fast |
+| Component | Vitest + Testing Library | Client Components, hooks | Fast |
+| Integration | Vitest | Route Handlers, Server Actions (isolated) | Medium |
+| E2E | Playwright | User flows, auth, async Server Components, production builds | Slow |
+
+## File Naming
+
+**Co-locate tests next to source files** with `.test.` suffix:
+
+```
+src/lib/
+  auth.ts
+  auth.test.ts
+  utils.ts
+  utils.test.ts
+src/app/
+  api/auth/register/
+    route.ts
+    route.test.ts
+src/components/
+  ui/button.tsx
+  ui/button.test.tsx
+tests/e2e/
+  login.spec.ts
+  onboarding.spec.ts
+```
+
+**E2E tests** go in `tests/e2e/` (not co-located) since they test across file boundaries.
+
+## Vitest Unit Tests
+
+**Test pure functions with input/output assertions**:
+
+```typescript
+import { describe, it, expect } from 'vitest';
+import { cn } from '@/lib/utils';
+
+describe('cn', () => {
+  it('merges conditional classes', () => {
+    expect(cn('base', true && 'active')).toBe('base active');
+  });
+
+  it('handles falsy values', () => {
+    expect(cn('base', false && 'active', null, undefined)).toBe('base');
+  });
+});
+```
+
+**Test validators with boundary cases**:
+
+```typescript
+import { describe, it, expect } from 'vitest';
+import { validateEmail } from '@/lib/validators';
+
+describe('validateEmail', () => {
+  it.each([
+    ['user@example.com', true],
+    ['invalid', false],
+    ['', false],
+  ])('%s -> %s', (email, expected) => {
+    expect(validateEmail(email)).toBe(expected);
+  });
+});
+```
+
+## Testing Route Handlers
+
+**Mock `NextResponse` and dependencies; test the function directly**:
+
+```typescript
+import { describe, it, expect, vi } from 'vitest';
+import { POST } from './route';
+import { prisma } from '@/lib/prisma';
+
+vi.mock('@/lib/prisma', () => ({
+  prisma: {
+    user: {
+      findUnique: vi.fn(),
+      create: vi.fn(),
+    },
+    workspace: {
+      create: vi.fn(),
+    },
+  },
+}));
+
+describe('POST /api/auth/register', () => {
+  it('returns 400 when email is missing', async () => {
+    const req = { json: () => Promise.resolve({ password: 'test' }) } as Request;
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toContain('required');
+  });
+});
+```
+
+## Testing Server Actions
+
+**Test the business logic in isolation** — do not test the Next.js runtime:
+
+```typescript
+import { describe, it, expect, vi } from 'vitest';
+import { createItem } from '@/app/actions/create-item';
+import { prisma } from '@/lib/prisma';
+
+vi.mock('@/lib/prisma', () => ({
+  prisma: { item: { create: vi.fn() } },
+}));
+
+vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+
+describe('createItem', () => {
+  it('creates item with valid data', async () => {
+    const formData = new FormData();
+    formData.append('name', 'Test Item');
+
+    const result = await createItem(formData);
+    expect(result).toEqual({ success: true });
+  });
+});
+```
+
+## Testing Client Components
+
+**Use Testing Library for client-side interaction testing**:
+
+```typescript
+import { describe, it, expect } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { LoginPage } from '@/app/(auth)/login/page';
+
+describe('LoginPage', () => {
+  it('shows error on invalid credentials', async () => {
+    const user = userEvent.setup();
+    render(<LoginPage />);
+
+    await user.type(screen.getByLabelText('Email'), 'test@example.com');
+    await user.type(screen.getByLabelText('Password'), 'wrong');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+    expect(await screen.findByText(/invalid/i)).toBeInTheDocument();
+  });
+});
+```
+
+## Async Server Components
+
+**Do NOT unit test async Server Components with Vitest** — they require the full Next.js runtime. Test them via E2E with Playwright:
+
+```typescript
+// tests/e2e/dashboard.spec.ts
+import { test, expect } from '@playwright/test';
+
+test('dashboard loads user data', async ({ page }) => {
+  await page.goto('/dashboard');
+  await expect(page.getByRole('heading', { name: /dashboard/i })).toBeVisible();
+});
+```
+
+## Mocking Strategies
+
+**Mock external dependencies, not your own code**:
+
+```typescript
+// GOOD — mock prisma (external DB client)
+vi.mock('@/lib/prisma', () => ({
+  prisma: { user: { findUnique: vi.fn().mockResolvedValue(null) } },
+}));
+
+// GOOD — mock next-auth
+vi.mock('next-auth', () => ({
+  auth: vi.fn().mockResolvedValue({ user: { id: '1' } }),
+}));
+
+// BAD — mock your own validators (test them directly instead)
+// vi.mock('@/lib/validators');
+```
+
+**Reset mocks between tests**:
+
+```typescript
+import { beforeEach, vi } from 'vitest';
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+```
+
+## Coverage Expectations
+
+| Category | Target | Rationale |
+|----------|--------|-----------|
+| Utilities / validators | 100% | Pure functions, easy to cover fully |
+| Route Handlers | 80%+ | Cover success, validation errors, and error paths |
+| Client Components | 80%+ | Cover render and key interactions |
+| Server Actions | 70%+ | Test logic; leave integration to E2E |
+| Server Components | E2E only | Require full runtime |
+| E2E critical paths | All happy paths + 1 error path each | Login, onboarding, key user flows |
+
+## Running Tests
+
+```powershell
+# Unit + component tests
+pnpm exec vitest run
+
+# Watch mode
+pnpm exec vitest
+
+# Single test file
+pnpm exec vitest run src/lib/utils.test.ts
+
+# E2E tests
+pnpm exec playwright test
+
+# Specific E2E test
+pnpm exec playwright test login
+```

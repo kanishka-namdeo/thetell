@@ -1,0 +1,209 @@
+---
+alwaysApply: true
+---
+# Continuous Improvement
+
+**Trigger**: After debugging a failure, receiving code review feedback, discovering an outdated pattern, a skill failing to guide correct behavior, or completing a complex feature.
+
+## Core Principle
+
+Every mistake is a rule or skill update opportunity. When you encounter a failure, anti-pattern, or outdated approach, capture it and update the relevant `.mdc` rule or `SKILL.md` file so future agents avoid the same error. This creates a compounding improvement loop.
+
+**The cycle**:
+1. **Encounter** a mistake, suboptimal pattern, or outdated approach
+2. **Identify** which existing rule or skill should prevent it (or if a new one is needed)
+3. **Research** the current best practice (2025-2026 sources)
+4. **Update** the rule or skill with the concrete lesson learned
+
+## When to Trigger
+
+### Rule Updates
+
+| Event | Action |
+|-------|--------|
+| Bug took >30 min to debug | Add prevention pattern to relevant rule |
+| Code review caught a pattern violation | Add enforcement to relevant rule |
+| Library API changed/broke | Update rule with current API pattern |
+| Discovered better approach | Add new pattern section to relevant rule |
+| Rule was ignored/violated | Strengthen the rule's enforcement language |
+
+### Skill Updates
+
+| Event | Action |
+|-------|--------|
+| Skill did not trigger when needed | Improve description density and trigger terms |
+| Skill triggered but agent still failed | Add missing constraint, workflow phase, or guardrail |
+| Skill execution produced wrong output | Add required artifact format or validation step |
+| Skill is too verbose or unfocused | Apply conciseness audit per `write-effective-skills.mdc` |
+| Skill conflicts with another skill | Clarify boundary, rename, or split |
+| Skill's companion file became stale | Update `references/`, `scripts/`, or `assets/` content |
+
+## Capture Process
+
+### 1. Classify the Mistake
+
+Determine whether the mistake belongs to a rule domain or a skill domain, then identify the target file.
+
+#### Rule Domains (coding standards, patterns, conventions)
+
+| Domain | Rule File | Examples |
+|--------|-----------|----------|
+| TypeScript | `typescript-standards.mdc` | Type errors, any usage, import issues |
+| React | `react-components.mdc` | Re-renders, hooks misuse, component coupling |
+| Next.js | `nextjs-patterns.mdc` | Routing, server components, API routes |
+| LangGraph | `langgraph-patterns.mdc` | State design, node patterns, graph compilation, conditional routing, checkpointing, tool loops |
+| Pydantic | `data-layer.mdc` | Pydantic model validation, Field constraints, model_validator, serializer issues |
+| UI/Design | `design-assets-enforcement.mdc` | Raw HTML, hardcoded colors, missing shadcn |
+| Data/DB | `data-layer.mdc` | N+1 queries, missing indexes, migration issues |
+| Testing | `testing-conventions.mdc` | Flaky tests, missing assertions |
+| Agent behavior | `general.mdc`, `agentic-reasoning-guardrails.mdc` | Tool loops, hallucinations, serial execution |
+| Layout | `layout-and-page-patterns.mdc` | Responsive breaks, spacing issues |
+
+#### Skill Domains (specialized workflows, tool usage, domain expertise)
+
+| Domain | Skill Path | Examples |
+|--------|-----------|----------|
+| Skill authoring | `write-effective-skills.mdc` | Poor descriptions, multi-mode bloat, buried constraints |
+| Git workflows | `.agents/skills/using-git-worktrees/` | Unsafe branch operations, missing isolation |
+| Code review | `.agents/skills/receiving-code-review/`, `.agents/skills/requesting-code-review/` | Ungated feedback, missing verification |
+| Debugging | `.agents/skills/systematic-debugging/` | Guessing fixes, missing root cause analysis |
+| Planning | `.agents/skills/writing-plans/`, `.agents/skills/executing-plans/` | Missing research, vague verification steps |
+| Parallel agents | `.agents/skills/dispatching-parallel-agents/` | Incorrect dependency splitting, shared state races |
+| Subagent-driven dev | `.agents/skills/subagent-driven-development/` | Missing handoff context, unclear success criteria |
+| LLM/PydanticAI | `.cursor/skills/llm-abstraction/` | PydanticAI agents, output_type validation, multi-provider LLM, RunContext DI |
+| PydanticAI | `.cursor/skills/pydanticai-agents/` | Agent definition, tool registration, structured outputs, streaming, Logfire |
+| LangGraph orchestration | `.cursor/skills/langgraph-orchestration/` | Signal pipeline graph, cross-signal inference, article generation, checkpointing, streaming |
+
+### 2. Research Current Best Practice
+
+Before updating any rule or skill, verify the current best practice:
+
+```
+Research priority:
+  Library/framework change? -> Context7 MCP + WebFetch official docs
+  Anti-pattern discovered?  -> WebSearch "[pattern] best practices 2025 2026"
+  Performance issue?        -> Context7 + official perf guides
+  Security concern?         -> OWASP + official security docs
+  Skill workflow gap?       -> Read `write-effective-skills.mdc` for structure guidance
+```
+
+**Never update a rule or skill based on assumption only**. Verify against current documentation.
+
+### 3. Format the Update
+
+#### For Rules (`.mdc` files)
+
+Updates must be concrete, executable, and verifiable — not narrative:
+
+```markdown
+## Anti-Pattern: [Name]
+
+**Problem**: What went wrong and why it matters.
+
+**Bad**: [Concrete code example of the wrong approach]
+
+**Good**: [Concrete code example of the correct approach]
+
+**Detection**: How to catch this before commit (lint rule, pattern, checklist item).
+```
+
+#### For Skills (`SKILL.md` files)
+
+Apply the SKILL.md body order from `write-effective-skills.mdc`. Skill updates should target the appropriate section:
+
+| Skill Issue | Where to Update |
+|-------------|----------------|
+| Wrong trigger behavior | `description` in frontmatter |
+| Missing constraints | Top section — `Global constraints` |
+| Incomplete workflow | Middle — `Workflow phases` |
+| Known failure modes | End — `Guardrails / gotchas` |
+| Wrong output format | Top — `Required artifacts` |
+| Unclear when to ask user | Middle-late — `Human checkpoints` |
+
+### 4. Apply the Update
+
+Edit the relevant `.mdc` or `SKILL.md` file directly. Follow these constraints:
+
+- **Keep under 500 lines**: If a rule or skill grows too large, extract into a new one and cross-reference
+- **Put most impactful first**: New anti-patterns go at the top of their section, not buried at the bottom
+- **No duplicate content**: If another rule or skill already covers this, add a cross-reference instead
+- **Preserve structure**: Add to existing sections; don't reorganize unless the structure itself is the problem
+- **For skills: preserve description routing**: Changing the `description` changes when the skill triggers — test against existing trigger patterns
+
+## Lessons Log
+
+Maintain a running log of lessons learned in `.cursor/lessons-learned.md`:
+
+```markdown
+# Lessons Learned
+
+## [Date] - [Brief Title]
+
+- **Mistake**: What happened
+- **Root cause**: Why it happened
+- **Rule/Skill updated**: Which `.mdc` or `SKILL.md` file was changed
+- **Pattern added**: One-line description of the new guidance
+```
+
+This log serves as:
+1. Audit trail for rule and skill evolution
+2. Context for future agents to understand rule/skill rationale
+3. Source material for periodic review
+
+## Periodic Review
+
+Every 10-15 significant coding sessions, perform a rule and skill health check:
+
+### Review Checklist
+
+- [ ] Read `.cursor/lessons-learned.md` entries since last review
+- [ ] Check if any lessons haven't been promoted to rules or skills yet
+- [ ] Verify all rule patterns still match current library versions
+- [ ] Remove stale patterns superseded by newer approaches
+- [ ] Split any rules or skills that exceeded 500 lines
+- [ ] Run `pnpm run lint` and check if any warnings reveal rule gaps
+- [ ] Review skill descriptions for trigger overlap with sibling skills
+- [ ] Verify skill companion files (`references/`, `scripts/`, `assets/`) are up to date
+- [ ] Check that no skill has drifted into multi-mode conditional branching
+
+### Version Sync Check
+
+When library versions change in `package.json`:
+
+1. **Identify changed libraries**: Compare old vs new versions in lock file
+2. **WebFetch official changelog**: Search for breaking changes
+3. **Update relevant rules**: Replace outdated API patterns with current ones
+4. **Update relevant skills**: Revise workflow phases that depend on changed APIs
+5. **Add migration section**: If breaking changes affect existing code patterns
+
+## Enforcement
+
+**After fixing any bug or receiving review feedback, ask**:
+> "Which rule or skill should have prevented this?"
+
+If the answer is "none of them", either create a new rule, create a new skill, or add to an existing one. If the answer is "one of them did", strengthen that rule's enforcement language or that skill's guardrails.
+
+**Do not skip this step** — even small fixes deserve rule or skill consideration. The compounding effect of consistent updates is what makes the system valuable.
+
+## Anti-Patterns in Rule Updates
+
+| Anti-Pattern | Problem | Fix |
+|--------------|---------|-----|
+| Narrative updates | "On May 20, we found..." | Use generic patterns: "When X happens, do Y" |
+| Undocumented updates | Rule changed with no context | Add brief rationale comment if non-obvious |
+| Over-specific rules | Only prevents one exact error | Generalize to pattern class |
+| Stale patterns remain | New pattern added, old one not removed | Remove superseded patterns; don't accumulate |
+| Rule bloat | Every mistake adds content | Merge related patterns; extract new rules at 500 lines |
+
+## Anti-Patterns in Skill Updates
+
+| Anti-Pattern | Problem | Fix |
+|--------------|---------|-----|
+| Vague description | Skill never triggers when needed | Pack dense WHAT/WHEN terms, <50 words |
+| Multi-mode branching | "If mode X do A, if mode Y do B" | Split into separate skills |
+| Critical constraint buried | Model drops mid-body instructions | Move to top or end per body order |
+| Interactive scripts | Hangs in autonomous runs | Make scripts non-interactive with documented I/O |
+| Blanket "ask when uncertain" | Adds constraint load on every action | Name concrete triggers that require human input |
+| Time-sensitive content | Becomes outdated quickly | Reference stable patterns, not current versions |
+| Description overlap with siblings | Both or neither trigger | Test descriptions against each other, clarify boundaries |
+| Core logic in companion files | Breaks on clients that only load SKILL.md | Keep judgment and routing in SKILL.md itself |

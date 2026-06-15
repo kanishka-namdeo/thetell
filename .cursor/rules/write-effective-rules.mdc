@@ -1,0 +1,191 @@
+---
+description: How to write effective Cursor rules (.cursor/rules/*.mdc). Use when creating, editing, reviewing, or migrating rules. Covers .mdc format, YAML frontmatter, activation modes, token optimization, anti-patterns, and verification.
+alwaysApply: false
+---
+
+# Writing Effective Rules
+
+**Trigger**: Creating, editing, reviewing, or migrating Cursor rules in `.cursor/rules/`.
+
+## Core Principle
+
+A rule is context engineering, not documentation. Every sentence must change what the model does. If removing it would not change behavior, delete it.
+
+**The test**: Would the agent get this wrong without this instruction? If no, the content cannot afford to be there.
+
+Context surrounding a prompt influences output quality more than the prompt itself (peer-reviewed study, Feb 2026). Rules are the primary mechanism for embedding project-specific context into agent behavior.
+
+## .mdc File Format
+
+Rules live in `.cursor/rules/` as `.mdc` (Markdown Configuration) files. The legacy `.cursorrules` single-file format is deprecated.
+
+Each `.mdc` file has two parts:
+
+```yaml
+---
+description: "What this rule covers and when to apply it"
+globs: "*.ts,*.tsx"
+alwaysApply: false
+---
+```
+
+```markdown
+# Rule Title
+
+Rule content in standard Markdown.
+```
+
+### Frontmatter Fields
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `description` | string | Agent-friendly explanation; used for intelligent activation |
+| `globs` | string | Comma-separated file patterns that auto-attach the rule |
+| `alwaysApply` | boolean | `true` = included in every session; `false` = scoped activation |
+
+### Activation Mode Behavior
+
+| alwaysApply | description | globs | Behavior |
+|---|---|---|---|
+| `true` | — | — | Always included; globs and description ignored |
+| `false` | — | provided | Auto-attached when matching file in context |
+| `false` | provided | omitted | Agent reads description and pulls in when relevant |
+| `false` | omitted | omitted | Included only when @-mentioned |
+
+### Description Guidelines
+
+Write descriptions in third person, dense with trigger terms, under 50 words.
+
+**Bad**: `description: "Code standards"`
+
+**Good**: `description: "TypeScript coding standards and conventions. Apply when creating, modifying, or reviewing TypeScript files. Covers naming, typing, imports, and error handling."`
+
+## Activation Mode Selection
+
+Use the narrowest mode that always fires when needed. Recommended split: 80% Auto Attached (globs), 10% Always, 10% Manual/Agent-Requested.
+
+```
+Is this a universal standard?
+  Yes -> alwaysApply: true
+  No -> Does it apply to specific file types?
+    Yes -> globs: "*.ts,*.tsx"
+    No -> Can AI detect when it's relevant?
+      Yes -> description: "..."
+      No -> Leave all empty (@-mention only)
+```
+
+Always Apply rules consume ~650 tokens per 500 words per request. Keep them minimal. Prefer Auto Attached for language-specific or directory-specific rules.
+
+## Writing Patterns
+
+### Be Specific, Executable, Verifiable
+
+**Bad**: "Write clean code with proper error handling."
+
+**Good**: "Wrap async operations in try/catch. Log errors with timestamp and context. Return typed Result objects instead of throwing."
+
+### Keep Under 500 Lines
+
+If a rule exceeds 500 lines, split by domain:
+
+```
+.cursor/rules/
+├── typescript-standards.mdc
+├── react-patterns.mdc
+├── testing-conventions.mdc
+└── api-guidelines.mdc
+```
+
+### Use Examples, Not Just Descriptions
+
+**Bad**: "Components should be functional with type definitions"
+
+**Good**: Provide a correct code example the agent can pattern-match against.
+
+### Put Most Important First
+
+Models prioritize content at the top. Order: tech stack and versions, code style, file organization, then optional optimizations.
+
+### Reference Existing Code Instead of Copying
+
+Point to canonical examples in the codebase. This keeps rules short and prevents staleness.
+
+**Good**: "Follow the pattern in `src/services/user-service.ts` for all new services."
+
+## Token Optimization
+
+Cursor's 200k token context window is shared across: system prompt, rules, file context, and conversation history. A 500-line TypeScript file costs ~3,000-5,000 tokens.
+
+### Optimization Strategies
+
+- Audit Always Apply rules; convert to glob-scoped where possible
+- Split large rules by domain to load only what's relevant
+- Move rarely-used rules to Manual (@-mention) mode
+- Reference files instead of copying code into rules
+- Use Auto Attached for 80% of rules — only loads when matching files appear in context
+
+### Dynamic Context > Static Context
+
+Cursor's 2026 direction is dynamic context discovery: load only necessary data. Write rules that activate narrowly and provide focused guidance rather than broad overviews.
+
+## Globs Pattern
+
+```
+# Single extension
+globs: "*.ts"
+
+# Multiple extensions (comma-separated, no spaces)
+globs: "*.ts,*.tsx"
+
+# Directory-scoped
+globs: "src/components/**/*.tsx"
+
+# Multiple patterns
+globs: "src/api/**/*.ts,src/services/**/*.ts"
+
+# Array syntax (also supported)
+globs:
+  - "*.test.ts"
+  - "*.spec.ts"
+```
+
+**Common mistake**: `globs: "src/*.ts"` only matches `src/file.ts`, NOT `src/utils/file.ts`. Use `src/**/*.ts` for recursive matching.
+
+## Migration from .cursorrules
+
+1. Create `.cursor/rules/` directory
+2. Split legacy content into topic-specific `.mdc` files
+3. Set appropriate activation mode per file
+4. Test rules load correctly
+5. Delete the legacy `.cursorrules` file
+
+Benefits: smaller context (only relevant rules loaded), better organization, activation control, team collaboration, version control tracking.
+
+## Anti-Patterns
+
+- **Vague language**: "clean code", "best practices", "follow conventions" — replace with concrete, testable requirements
+- **Missing project context**: not referencing existing utilities, helpers, DB clients — agents invent their own solutions
+- **Conflicting rules without priority**: overlapping rules with contradictory guidance — establish explicit priority
+- **Wrong file location**: rules not in `.cursor/rules/` — other locations are ignored in Agent mode
+- **One-file overload**: single massive rule file for large projects — split by domain
+- **Academic writing**: lengthy explanations of "why" instead of direct "do this" instructions
+- **Forgetting version specs**: "use React" without version — syntax varies significantly across versions
+- **Time-sensitive info**: rules that become outdated — avoid version numbers that change faster than maintenance cycle
+- **Stale cache**: editing `.mdc` without restarting chat — rules are cached per session; open new chat to apply changes
+- **Laundry list of edge cases**: bloats context, dilutes core instructions — focus on the 80% case
+
+## Verification Checklist
+
+- [ ] Description says WHAT and WHEN in <50 words, third person
+- [ ] YAML frontmatter valid with proper indentation and closing `---`
+- [ ] Rule body under 500 lines
+- [ ] Globs use recursive patterns (`**/`) when matching subdirectories
+- [ ] Globs have no spaces after commas
+- [ ] Specific, executable instructions — no "clean code" or "best practices"
+- [ ] Example code provided for key patterns
+- [ ] Most important content at top, guardrails at end
+- [ ] No conflicting instructions with other `.mdc` files
+- [ ] No secrets, API keys, or credentials in rule content
+- [ ] No time-sensitive information that will become outdated
+- [ ] File stored in `.cursor/rules/` with `.mdc` extension
+- [ ] Filename uses kebab-case (e.g., `typescript-standards.mdc`)

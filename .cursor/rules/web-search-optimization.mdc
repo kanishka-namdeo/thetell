@@ -1,0 +1,122 @@
+---
+description: Web search query optimization for effective research. Apply when using WebSearch tool to find documentation, best practices, current APIs, or technical information. Ensures specific, targeted queries that return actionable results.
+alwaysApply: false
+---
+
+# Web Search Query Optimization
+
+**Trigger**: Before invoking WebSearch tool for documentation lookup, API research, or technical information gathering.
+
+## Rule Scope
+
+This rule complements (does not replace):
+- `general.mdc` - Web tool priority and fallback hierarchy
+- `plan-mode-enhancement.mdc` - Research requirements and plan structure
+- `agentic-reasoning-guardrails.mdc` - Tool usage patterns and batching
+
+**Focus**: Query construction specificity and search engine optimization.
+
+## Query Construction Principles
+
+### Be Specific, Not Vague
+
+**Bad**: `React hooks best practices`
+
+**Good**: `React useEffect cleanup pattern memory leaks site:react.dev 2026`
+
+### Include Version Numbers and Dates
+
+Always include version numbers for libraries/frameworks and prefer 2025-2026 sources:
+
+**Bad**: `Next.js caching`
+
+**Good**: `Next.js 15 cacheLife unstable_cache migration site:nextjs.org 2026`
+
+### Use Site-Specific Search
+
+Prioritize official documentation with `site:` operator:
+
+| Priority | Pattern | Example |
+|----------|---------|---------|
+| 1 | Official docs | `site:docs.cursor.com agent rules` |
+| 2 | Package registry | `site:npmjs.com @cursor/sdk` |
+| 3 | GitHub repos | `site:github.com cursor agent rules` |
+| 4 | Trusted blogs | `site:morphllm.com cursor rules 2026` |
+
+### Query Structure Template
+
+```
+<topic> <specific aspect> <version> <site:domain> <year>
+```
+
+Examples:
+- `Prisma migrate dev vs migrate deploy site:prisma.io 2026`
+- `TypeScript strictNullChecks configuration site:typescriptlang.org 2026`
+- `Tailwind CSS container queries arbitrary values site:tailwindcss.com`
+
+## Anti-Patterns to Avoid
+
+| Anti-Pattern | Why It Fails | Correct Approach |
+|--------------|--------------|------------------|
+| Single-word queries | Too broad, irrelevant results | Add context and constraints |
+| No version specified | Outdated information | Always include version numbers |
+| Generic "how to" | Tutorial spam | Use `site:` to target official docs |
+| Missing year | Stale information | Include 2025-2026 for current APIs |
+| Vague error messages | No diagnostic value | Include full error text with quotes |
+
+## Contextual Query Building
+
+### When Researching Libraries
+
+1. Check `package.json` for exact version
+2. Search: `<library> <version> <specific feature> site:<official-docs> 2026`
+
+### When Debugging Errors
+
+1. Include exact error message in quotes
+2. Add technology context
+3. Search: `"<exact error>" <technology> <version> solution 2026`
+
+### When Comparing Approaches
+
+1. Be explicit about alternatives
+2. Search: `<approach A> vs <approach B> <use-case> site:<authority> 2026`
+
+## Verification Checklist
+
+Before executing WebSearch, verify:
+
+- [ ] Query includes specific version numbers (if applicable)
+- [ ] Query targets official documentation via `site:` when possible
+- [ ] Query includes year (2025-2026) for current information
+- [ ] Query is under 100 characters (focused and specific)
+- [ ] Query avoids generic terms like "best practices" without context
+- [ ] Error messages are quoted exactly as they appear
+
+## Example Query Transformations
+
+| Original (Weak) | Optimized (Strong) |
+|-----------------|-------------------|
+| `React state management` | `React useReducer vs useState complex state site:react.dev 2026` |
+| `Next.js API routes` | `Next.js 15 App Router API route handler streaming site:nextjs.org 2026` |
+| `TypeScript errors` | `TypeScript TS2345 assignable type narrowing site:typescriptlang.org 2026` |
+| `CSS grid` | `CSS grid subgrid browser support site:caniuse.com 2026` |
+| `database connection` | `Prisma connection pool timeout configuration site:prisma.io 2026` |
+
+## Result Evaluation
+
+After receiving search results:
+
+1. **Prioritize official sources** over tutorials
+2. **Check publication dates** — prefer 2025-2026 for APIs
+3. **Verify against current codebase** — ensure version compatibility
+4. **Cross-reference** — confirm critical info with Context7 or WebFetch
+
+## Integration with Other Tools
+
+| Situation | Primary Tool | Fallback |
+|-----------|--------------|----------|
+| Known library, version in package.json | Context7 MCP | WebSearch |
+| Current best practices, recent changes | WebSearch | WebFetch |
+| Specific documentation page | WebFetch | WebSearch |
+| API behavior verification | Context7 + WebSearch (parallel) | Browser MCP |

@@ -1,0 +1,169 @@
+---
+description: Lucide React icon usage patterns — imports, naming, styling, and sizing. Apply when using icons from lucide-react.
+globs: src/**/*.tsx,src/**/*.ts
+---
+
+# Lucide React Icons
+
+**Trigger**: Auto-applied to all `.tsx` and `.ts` files importing from `lucide-react`.
+
+## Package
+
+- **Version**: `lucide-react` v1.18.0
+- **Source**: [lucide.dev](https://lucide.dev) | [GitHub](https://github.com/lucide-icons/lucide)
+- **Already in `package.json`** — do not reinstall.
+
+## Import Patterns
+
+All icons import from the main `lucide-react` package. No SSR/CSR distinction needed.
+
+```tsx
+// ✅ CORRECT — single import path for all contexts
+import { Calendar, CheckCircle, Sparkles } from 'lucide-react';
+
+// ✅ CORRECT — works in both Server and Client Components
+import { ArrowRight, X } from 'lucide-react';
+```
+
+### No SSR Concerns
+
+Unlike some icon libraries, `lucide-react` has no SSR/hydration issues. Use the same import in:
+- Server Components
+- Client Components
+- shadcn/ui component files
+
+## Icon Naming Convention
+
+### Exported Names
+
+Lucide exports icons in **PascalCase** without suffixes. Use the exact name from the documentation.
+
+```tsx
+// ✅ CORRECT — PascalCase, no suffix
+import { Calendar, CheckCircle, ArrowRight } from 'lucide-react';
+
+// ❌ WRONG — Icon suffix (Phosphor pattern)
+import { CalendarIcon, CheckCircleIcon } from 'lucide-react';
+
+// ❌ WRONG — kebab-case
+import { arrow-right, check-circle } from 'lucide-react';
+```
+
+### Finding Icon Names
+
+- Browse all icons at [lucide.dev/icons](https://lucide.dev/icons)
+- Use Ctrl/Cmd+F to search the icon list
+- Names match common English terms (e.g., `Calendar`, `CheckCircle`, `ArrowRight`)
+
+## Props and Styling
+
+Icon components accept standard SVG props plus Lucide-specific props:
+
+| Prop | Type | Default | Usage |
+|------|------|---------|-------|
+| `size` | `number \| string` | `24` | Height & width in pixels. Prefer Tailwind `className="size-4"` |
+| `color` | `string` | `"currentColor"` | Stroke color. Use CSS variable tokens via `className` |
+| `strokeWidth` | `number` | `2` | Stroke thickness (0.5-3 recommended) |
+| `absoluteStrokeWidth` | `boolean` | `false` | Keep stroke width constant when scaling |
+
+### Styling via Tailwind
+
+```tsx
+// ✅ GOOD — Tailwind classes for size and color
+<Calendar className="size-4 text-muted-foreground" />
+
+// ✅ GOOD — strokeWidth for visual weight
+<CheckCircle className="size-4 text-success" strokeWidth={2.5} />
+
+// ❌ BAD — inline styles for size/color
+<Calendar style={{ width: 16, height: 16, color: '#888' }} />
+```
+
+### Color Tokens
+
+Use semantic CSS variables, not hardcoded hex values:
+
+```tsx
+// ✅ GOOD — semantic token
+<CheckCircle className="size-4 text-success" />
+
+// ✅ GOOD — foreground token
+<Calendar className="size-4 text-foreground" />
+
+// ❌ BAD — hardcoded color
+<CheckCircle className="size-4" color="#22c55e" />
+```
+
+## Dynamic Icon Patterns
+
+When mapping icon names to components dynamically, use a lookup object:
+
+```tsx
+import { Calendar, FileText, Settings, type LucideIcon } from 'lucide-react';
+
+const iconMap: Record<string, LucideIcon> = {
+  calendar: Calendar,
+  document: FileText,
+  settings: Settings,
+};
+
+function DynamicIcon({ name, className }: { name: string; className?: string }) {
+  const IconComponent = iconMap[name];
+  if (!IconComponent) return null;
+  return <IconComponent className={className} />;
+}
+
+// Usage
+<DynamicIcon name="calendar" className="size-4 text-primary" />
+```
+
+## Common Icons Reference
+
+Frequently used icons in this project:
+
+| Use Case | Icon Name | Import |
+|----------|-----------|--------|
+| Close/dismiss | X | `import { X } from 'lucide-react'` |
+| Check/success | Check, CheckCircle | `import { Check, CheckCircle } from 'lucide-react'` |
+| Navigation arrows | ArrowLeft, ArrowRight, ChevronDown, ChevronRight | `import { ArrowLeft, ChevronDown } from 'lucide-react'` |
+| Actions | Plus, Edit, Trash2, Copy | `import { Plus, Edit, Trash2 } from 'lucide-react'` |
+| Status | AlertCircle, Info, AlertTriangle | `import { AlertCircle, Info } from 'lucide-react'` |
+| UI elements | Menu, Search, Settings, User | `import { Menu, Search, Settings } from 'lucide-react'` |
+
+## Type Import
+
+When typing icon props or variables:
+
+```tsx
+import type { LucideIcon, LucideProps } from 'lucide-react';
+
+// Icon component type
+const MyIcon: LucideIcon = Calendar;
+
+// Props type
+function IconButton({ iconProps }: { iconProps: LucideProps }) {
+  return <Calendar {...iconProps} />;
+}
+```
+
+## Anti-Patterns to Avoid
+
+| Anti-Pattern | Problem | Fix |
+|-------------|---------|-----|
+| `import { CalendarIcon }` | Wrong naming (Phosphor pattern) | Use `import { Calendar }` |
+| Different imports for Server/Client | Unnecessary complexity | Use same import everywhere |
+| Hardcoded `color` hex values | Breaks theme/dark mode | Use Tailwind color tokens via `className` |
+| Inline `style` for size | Ignores Tailwind scale | Use `className="size-N"` |
+| Importing all icons via `import *` | Prevents tree-shaking, bloats bundle | Import individual icons |
+| Using kebab-case names | Wrong naming convention | Use PascalCase: `ArrowRight` not `arrow-right` |
+
+## Verification
+
+Before committing changes involving lucide-react:
+
+- [ ] All icons import from `'lucide-react'` (single path)
+- [ ] Icon names use PascalCase without suffixes (`Calendar` not `CalendarIcon`)
+- [ ] No hardcoded hex/rgb colors on icon `color` prop
+- [ ] Icon sizes use Tailwind `className="size-N"` pattern
+- [ ] Tree-shaking works (import individual icons, not `import *`)
+- [ ] `pnpm run build` passes (no errors)

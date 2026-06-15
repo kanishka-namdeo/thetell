@@ -1,0 +1,95 @@
+---
+description: "Ensure all rules and skills use cross-platform commands or provide Windows equivalents. Apply when writing or reviewing .cursor/rules/*.mdc or .cursor/skills/**/*.md files."
+alwaysApply: false
+globs: .cursor/**/*.mdc, .cursor/skills/**/*.md
+---
+
+# Cross-Platform Enforcement
+
+**Trigger**: Apply when writing, editing, or reviewing any rule or skill file that contains shell commands.
+
+## Core Requirement
+
+All shell commands in rules and skills MUST be cross-platform compatible:
+
+1. **Use cross-platform tools** (pnpm, git, docker, rg) when possible
+2. **Provide PowerShell equivalents** alongside Unix-style commands
+3. **Replace `bash` code blocks with `powershell`** unless Docker/CI-only
+4. **Link to powershell-commands-windows.mdc** for Windows reference
+
+## Shell Command Checklist
+
+Before publishing any rule or skill, check:
+
+- [ ] No `bash` code blocks without PowerShell equivalent
+- [ ] No `cd &&` chains without PowerShell 7+ note or alternative
+- [ ] No `#!/bin/bash` scripts without cross-platform alternative
+- [ ] Python commands use `.venv\Scripts\python.exe` pattern for Windows
+- [ ] Path separators documented (`\` for Windows native, `/` for Docker/git)
+- [ ] References `powershell-commands-windows.mdc` if shell-heavy
+
+## OS Command Reference Table
+
+When writing shell commands, check this mapping:
+
+| Unix Command | Windows/PowerShell Equivalent | Cross-Platform Alternative |
+|---|---|---|
+| `ls` | `Get-ChildItem` | — |
+| `cat` | `Get-Content` | — |
+| `grep` | `Select-String` | `rg` (ripgrep) |
+| `find` | `Get-ChildItem -Recurse` | `fd` |
+| `rm` | `Remove-Item` | — |
+| `mkdir` | `New-Item -ItemType Directory` | — |
+| `cd dir && cmd` | `Set-Location dir; cmd` | Separate commands |
+| `export VAR=val` | `$env:VAR = "val"` | — |
+| `python -m pytest` | `.venv\Scripts\python.exe -m pytest` | — |
+| `curl URL` | `Invoke-WebRequest -Uri URL` | — |
+| `chmod +x` | Not needed (use `.ps1` extension) | — |
+
+## Code Block Format
+
+**Preferred format** — single PowerShell block (cross-platform tools):
+
+```powershell
+pnpm run build
+pnpm run test
+```
+
+**Alternative format** — both Unix and Windows (when native commands differ):
+
+```powershell
+# Windows / PowerShell
+Set-Location backend
+.venv\Scripts\python.exe -m pytest
+```
+
+```bash
+# Unix / bash (CI or Docker)
+cd backend
+pytest
+```
+
+## Anti-Patterns
+
+| Anti-Pattern | Problem | Fix |
+|---|---|---|
+| `bash` block without PowerShell equivalent | Fails on Windows | Add `powershell` block or use cross-platform tool |
+| `cd backend && pytest` | PowerShell 5.1 lacks `&&` | Use separate commands: `Set-Location backend; pytest` |
+| `#!/bin/bash` entrypoint | Windows lacks bash | Use PowerShell script or Node.js script |
+| `python script.py` (system Python) | Bypasses venv | Use `.venv\Scripts\python.exe script.py` |
+| Unix paths `src/components` in PowerShell | May fail in some contexts | Use `src\components` or `Join-Path` |
+
+## Enforcement
+
+When reviewing a rule or skill:
+
+1. Grep for `bash` code blocks — flag if no PowerShell equivalent
+2. Grep for `cd &&` patterns — flag if no PowerShell 7+ note
+3. Grep for `#!/bin/bash` — flag if no Windows alternative
+4. Verify shell-heavy files reference `powershell-commands-windows.mdc`
+
+## Related Rules
+
+- `powershell-commands-windows.mdc` — Windows command reference
+- `python-venv.mdc` — Python virtual environment on Windows
+- `general.mdc` — pnpm mandate (cross-platform)

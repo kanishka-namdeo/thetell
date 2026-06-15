@@ -1,0 +1,206 @@
+---
+description: LangGraph Python agent coding patterns — state design, node purity, tool loops, conditional routing, interrupts, checkpointing. Apply when modifying backend/app/**/*.py files that use LangGraph.
+globs: backend/app/**/*.py
+---
+
+# LangGraph Patterns (Python)
+
+**Trigger**: Active when creating or modifying LangGraph agent/workflow files in the backend.
+
+> **Extended reference**: See the `langgraph-orchestration` skill for full workflow examples (signal analysis, cross-signal inference, article generation), streaming, subgraphs, and performance patterns.
+
+## State Design
+
+Use `TypedDict` with `Annotated` reducers. Every list field that accumulates across nodes needs an append reducer. Message fields use the built-in `add_messages`.
+
+### Reducer Selection
+
+| Pattern | Reducer | Use Case |
+|---------|---------|----------|
+| Replace value | No annotation (plain field) | `sentiment`, `confidence_score`, single-result fields |
+| Append list | `Annotated[list[T], lambda a, b: a + b]` | `facts`, `patterns`, accumulated results |
+| Messages | `Annotated[list[BaseMessage], add_messages]` | Chat history (built-in reducer) |
+
+### State Field Rules
+
+- **Keep state minimal**: Only store values that persist across nodes or routers
+- **No transient data in state**: Pass temporary values through function scope
+- **Type all fields**: Use concrete types, never `Any`
+- **Always provide defaults via reducers**: Append reducers start from `[]`; replace fields are set by nodes
+
+```python
+from typing import TypedDict, Annotated
+from langgraph.graph.message import add_messages
+from langchain_core.messages import BaseMessage
+
+class SignalAnalysisState(TypedDict):
+    signal_id: str
+    raw_text: str
+    facts: Annotated[list[dict], lambda a, b: a + b]
+    sentiment: str
+    confidence_score: float
+    error: str | None
+    messages: Annotated[list[BaseMessage], add_messages]
+```
+
+---
+
+## Node Purity
+
+Nodes MUST be async functions returning partial state dicts: `async def node(state) -> dict`. Never mutate state.
+
+### Rules
+
+- **Return partial state**: Return only the fields that changed
+- **No mutation**: Never modify `state` dict or nested references
+- **No direct DB writes in nodes**: Let the checkpointer handle persistence
+- **Async for all I/O**: LLM calls, HTTP, database — always `await`
+- **Single responsibility**: Each node does one thing
+
+```python
+async def extract_facts(state: SignalAnalysisState) -> dict:
+    llm = get_llm_provider()
+    prompt = f"Extract key facts from:\n{state['raw_text']}"
+    response = await llm.complete_structured(prompt, FactListSchema)
+    return {"facts": response.facts}
+```
+
+---
+
+## Tool Loop Pattern
+
+LLM tool calls MUST NOT be hidden inside model nodes. The tool execution loop must be explicit in the graph structure using `@tool` + `ToolNode`.
+
+### Required Components
+
+Every tool-enabled step needs **3 parts**:
+
+1. **`@tool` functions** — decorated with `@tool` from `langchain_core.tools`
+2. **Model node** — LLM call with `bind_tools(tools)`
+3. **`ToolNode`** — from `langgraph.prebuilt`, executes tool calls automatically
+
+### Tool-Loop Guard (Mandatory)
+
+Every tool-loop state MUST include an iteration counter. Exit the loop after max iterations.
+
+```python
+from langchain_core.tools import tool
+from langgraph.prebuilt import ToolNode
+
+class ToolAgentState(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]
+    tool_iterations: int  # guard counter
+
+MAX_TOOL_ITERATIONS = 10
+
+@tool
+def search_signals(query: str) -> str:
+    """Search for relevant signals by keyword."""
+    ...
+
+tools = [search_signals]
+
+async def model_node(state: ToolAgentState) -> dict:
+    if state["tool_iterations"] >= MAX_TOOL_ITERATIONS:
+        return {"messages": [{"role": "assistant", "content": "Max tool iterations reached."}]}
+    llm = get_llm_provider().get_client().bind_tools(tools)
+    response = await llm.ainvoke(state["messages"])
+    return {"messages": [response], "tool_iterations": state["tool_iterations"] + 1}
+
+tool_node = ToolNode(tools)
+
+def should_continue(state: ToolAgentState) -> str:
+    last = state["messages"][-1]
+    if state["tool_iterations"] >= MAX_TOOL_ITERATIONS:
+        return "end"
+    if hasattr(last, "tool_calls") and last.tool_calls:
+        return "tools"
+    return "end"
+```
+
+---
+
+## Conditional Routing
+
+Routing functions MUST be pure — no state mutation, no side effects, no LLM calls. Use `add_conditional_edges()`.
+
+```python
+def route_by_confidence(state: SignalAnalysisState) -> str:
+    if state.get("error"):
+        return "dead_letter"
+    if state["confidence_score"] >= 0.8:
+        return "publish"
+    return "review"
+
+graph.add_conditional_edges(
+    "score_confidence",
+    route_by_confidence,
+    {"publish": "generate_summary", "review": "analyst_review", "dead_letter": "failed_analysis"},
+)
+```
+
+---
+
+## Interrupts & Human-in-the-Loop
+
+Use `interrupt()` from `langgraph.types` to pause for analyst review before publishing high-impact inferences.
+
+```python
+from langgraph.types import interrupt
+
+async def analyst_review(state: SignalAnalysisState) -> dict:
+    decision = interrupt({
+        "signal_id": state["signal_id"],
+        "summary": state.get("summary", ""),
+        "confidence": state["confidence_score"],
+        "action": "approve or reject this inference",
+    })
+    if decision == "approve":
+        return {"messages": [{"role": "human", "content": "Approved"}]}
+    return {"error": "Rejected by analyst"}
+```
+
+### Interrupt Guards
+
+Skip the interrupt if a prior node already advanced the workflow:
+
+```python
+async def review_gate(state: SignalAnalysisState) -> dict:
+    if state.get("auto_approved"):
+        return {}
+    decision = interrupt({"action": "approve or reject"})
+    return {"approved": decision == "approve"}
+```
+
+---
+
+## Checkpointing
+
+Use `AsyncPostgresSaver` for crash recovery. Reuses the existing `DATABASE_URL`.
+
+```python
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from app.config import settings
+
+async def build_graph():
+    checkpointer = AsyncPostgresSaver.from_conn_string(settings.database_url)
+    graph = StateGraph(SignalAnalysisState)
+    # ... add nodes and edges ...
+    return graph.compile(checkpointer=checkpointer)
+
+# Invoke with thread_id for isolation
+result = await app.ainvoke(
+    {"signal_id": "abc-123", "raw_text": "...", "company_id": "co-456"},
+    config={"configurable": {"thread_id": "analysis-abc-123"}},
+)
+```
+
+### Crash Recovery
+
+```python
+# Resume from last checkpoint
+result = await app.ainvoke(None, config=config)
+
+# Time-travel: list checkpoints
+history = [c async for c in app.aget_state_history(config)]
+```

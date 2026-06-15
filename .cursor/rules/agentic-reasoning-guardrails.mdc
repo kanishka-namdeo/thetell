@@ -1,0 +1,289 @@
+---
+description: Guardrails for agentic reasoning failures — tool loops, phantom calls, context bloat, serial drip-feeding. Apply when agent makes tool calls, chains reasoning, or encounters empty results.
+alwaysApply: true
+---
+
+# Agentic Reasoning Guardrails
+
+**Trigger**: Always active. These guardrails correct well-documented reasoning failure modes that affect coding agents across models.
+
+## Why This Rule Exists
+
+LLM-based coding agents exhibit reproducible reasoning failures. These guardrails enforce correct behavior regardless of the underlying model.
+
+| Failure Mode | Symptoms | Impact |
+|---|---|---|
+| **Tool loop amplification** | Near-duplicate reasoning across many turns, one tiny tool call per turn | Wastes tokens, degrades quality, burns context |
+| **Phantom tool calls** | Plans tools in reasoning but never executes them; fabricates results | Incorrect code, missed verification, wasted turns |
+| **Tool hallucination** | Invents non-existent tool function names | Calls fail silently or produce garbage |
+| **Context bloat** | Reads entire files when snippets would suffice; loads generated/lock files | Premature context compression, lost relevant context |
+| **Serial drip-feeding** | One file read per turn across 10+ turns instead of batching | 10x+ turns for tasks that should take 2-3 |
+| **Phantom assumptions** | Cites files/screenshots as available data without verifying they exist on disk | Analysis built on nonexistent evidence, wasted turns chasing ghosts |
+| **Fragmented debug dispatch** | Chains 3+ narrow subagent calls for one bug instead of one comprehensive dispatch | 3x token burn, delayed resolution, lost context between dispatches |
+| **Unchecked subagent conclusions** | Presents subagent findings as fact without independent verification | Propagates errors, misdiagnoses root cause |
+
+---
+
+## Rule 1: Prevent Tool Loop Amplification
+
+### Problem
+Agents repeat near-identical reasoning across many turns, making one small tool call per turn. Sessions balloon to 114 assistant messages for 18 user messages.
+
+### Guardrails
+
+**Batch tools aggressively**: Never make a single tool call when multiple independent reads or checks are needed. If you need to read 3 files, read all 3 in parallel. If you need to grep 5 patterns, run 5 greps at once.
+
+**Never re-check what you just verified**: If a tool call just confirmed a fact (e.g., "file X exists", "function Y takes param Z"), do not call another tool to re-confirm the same fact in the next turn. Trust the result.
+
+**Maximum 3 turns before action**: If you have made 3 tool-call turns that all read or check the same area of code, you must either (a) start writing code, or (b) state what new information you need that previous turns did not provide.
+
+**No repeated "let me check" reasoning**: Do not produce reasoning that says "let me look at X" if you already looked at X in a previous turn. Move forward.
+
+### Anti-pattern example (DO NOT DO):
+```
+Turn 1: "Let me check the file structure..." -> reads 1 file
+Turn 2: "Let me verify the imports..." -> reads same file again
+Turn 3: "Let me check if function exists..." -> grep same file
+Turn 4: "Let me confirm the structure..." -> reads same file again
+... (repeats 114 turns)
+```
+
+### Correct pattern:
+```
+Turn 1: Read all 5 relevant files in parallel + grep for 3 patterns in parallel
+Turn 2: Implement the change based on gathered context
+Turn 3: Run verification commands
+Done.
+```
+
+---
+
+## Rule 2: Prevent Phantom Tool Calls
+
+### Problem
+Agents plan tool calls during reasoning but fail to actually emit the tool call. They fabricate having used a tool, reporting results that never happened.
+
+### Guardrails
+
+**If you reason about calling a tool, you MUST actually call it**: Before ending any response, verify that every tool you mentioned in your reasoning has been invoked in the tool_calls array.
+
+**No fabricating results**: Never claim "I ran the linter and it passed" or "I checked the file and it contains X" unless you actually executed that tool call and received the output. If you haven't called the tool yet, say so and call it.
+
+**Cross-check thinking vs execution**: At the end of each reasoning block, run a mental check: "Did I emit all the tool calls I planned?" If any are missing, emit them.
+
+**When in doubt, prefer execution over reasoning**: If uncertain whether to think more or call a tool, call the tool. The common failure mode is over-thinking without acting.
+
+---
+
+## Rule 3: Prevent Tool Hallucination
+
+### Problem
+Agents invent non-existent tool function names, especially when only one or two tools are available. They treat language module functions as separate agent tools.
+
+### Guardrails
+
+**Only use tools that are explicitly defined**: Before calling any tool, verify it exists in the available tool set. If you're unsure, do NOT invent a function name.
+
+**Distinguish between tools and library functions**: Tools are provided by the agent framework (Read, Write, Shell, Grep, etc.). Library functions (e.g., `os.path.exists`, `fs.readdir`) are called via Shell or code execution — they are NOT separate tool calls.
+
+**When you need a capability but no tool exists**: Use the tools you have (Shell, Read, Write, Grep) to accomplish the task. Do not invent convenience wrappers like `toolbox.web.answer()` or `file.find_content()`.
+
+---
+
+## Rule 4: Prevent Context Bloat
+
+### Problem
+Agents report larger context windows than actually available, causing premature context compression and lost relevant information.
+
+### Guardrails
+
+**Minimize context consumption**: Assume the effective context is smaller than reported. Be ruthless about not loading unnecessary files into context.
+
+**Reference files instead of reading them**: If you already know a file's purpose from the codebase structure, reference it by path instead of reading its full contents.
+
+**Avoid loading large generated files**: Never read generated files, lock files, or node_modules contents unless the task specifically requires it.
+
+**When context is near**: Prioritize the user's current request and the most relevant files. Drop stale conversation context before dropping active code context.
+
+---
+
+## Rule 5: Enforce Batching and Parallelism
+
+### Problem
+Agents serialize independent operations into one-tool-per-turn sequences, wasting 10x+ turns on tasks that should take 2-3 turns.
+
+### Guardrails
+
+**Always batch independent reads**: If you need to understand 3 files, read all 3 in a single parallel call set. Never read one, wait for result, read the next.
+
+**Parallel research queries**: When researching a topic, run Context7 + WebSearch + WebFetch in parallel — not sequentially. Use query templates from `web-search-optimization.mdc` for effective WebSearch queries.
+
+**Parallel verification**: Run typecheck, lint, and build checks in parallel chains where possible (`pnpm run typecheck && pnpm run lint`).
+
+**One research turn, not many**: Gather all needed context in one turn. Do not alternate between "read a bit more" and "now I understand" across 10 turns.
+
+### Minimum batching checklist before implementing:
+- [ ] Have I read ALL files I'll need to understand this change?
+- [ ] Have I run ALL independent research queries in parallel?
+- [ ] Have I checked ALL relevant existing patterns in the codebase?
+- [ ] Is there anything I'm deferring to "the next turn" that I could gather now?
+
+---
+
+## Rule 6: Verification Before Action Claims
+
+### Problem
+Agents claim to have performed actions (run a command, read a file, checked a value) when they haven't actually done so.
+
+### Guardrails
+
+**Never claim tool results without tool output**: A claim like "the build passes" is only valid if a build tool call returned exit code 0.
+
+**State your intent, then act**: Say "I will now run the build" → call the build tool → report the actual result. This 3-step pattern prevents phantom claims.
+
+**If you skipped a step, admit it**: If you realize you haven't actually verified something, stop and verify it. Don't continue as if you did.
+
+---
+
+## Rule 7: Escalation Protocol for Empty Results
+
+### Problem
+After 2+ consecutive tool calls returning empty/no-results for the same query, agents repeat the same search with slightly different patterns instead of switching strategy. Observed: 9 Glob calls across 18 turns for the same missing screenshots.
+
+### Guardrails
+
+**Escalate after 2 empty results, not retry**: When a tool returns empty/no-results for the same query, switch to a fundamentally different approach on the next turn. Do not retry with minor pattern variations.
+
+```
+Turn 1: Glob "**/*.png" → empty
+Turn 2: Shell "Get-ChildItem -Recurse -Directory" → check if directories exist
+Turn 3: State what you've tried, what's blocking, ask user for direction
+```
+
+**No 4th retry of same search**: If you have made 3 tool-call turns searching for the same thing, you must either (a) state the conclusion ("files don't exist"), or (b) ask the user. No 4th attempt with another pattern variant.
+
+**File existence verification**: When documentation, README files, or code comments reference files by name (screenshots, config files, assets), verify they exist on disk with Glob or Shell before citing them as data sources in your analysis or recommendations.
+
+---
+
+## Rule 8: Comprehensive Debug Dispatch
+
+### Problem
+Agents chain 3+ narrow subagent calls for overlapping investigations of the same bug (e.g., "debug OAuth" → "verify DB credentials" → "trace error point"). Each subagent re-discovers context the previous one already had.
+
+### Guardrails
+
+**One subagent per bug, not per hypothesis**: When debugging a single issue with multiple potential root causes, dispatch ONE subagent with ALL hypotheses to investigate. Do not chain sequential subagents for overlapping investigations.
+
+**Include all context in one dispatch**: The subagent prompt must include:
+- The full error description
+- All files already investigated
+- All hypotheses to test
+- What has already been ruled out
+
+**Do not narrow scope after a broad dispatch**: If you already sent "debug OAuth" to a subagent, do not send "verify DB credentials" as a follow-up — it is a subset.
+
+---
+
+## Rule 9: Verify Subagent Conclusions
+
+### Problem
+Agents accept subagent diagnostic conclusions as established fact without independent verification. When the subagent is wrong (which happens), the parent agent propagates the error to the user.
+
+### Guardrails
+
+**Independently verify at least one key claim**: When a subagent returns a diagnostic conclusion or factual claim, verify at least one key finding using your own tool calls (Read, Grep, Shell) before presenting it to the user as established fact.
+
+**Distinguish "subagent says" from "verified"**: If you present a subagent finding without verifying it, label it as such: "The subagent identified X as the likely cause (not yet independently verified)."
+
+---
+
+## Rule 10: Third-Party API Diagnosis Requires Current Research
+
+### Problem
+Agents diagnose third-party API errors (OAuth providers, cloud services, platform APIs) based on training data alone, producing wrong diagnoses.
+
+### Guardrails
+
+**Research before recommending API changes**: When the user reports an error from a third-party service, run WebSearch/WebFetch against current documentation before proposing any code changes. Never recommend changing scopes, credentials, endpoints, or parameters based on training data alone.
+
+**Label uncertainty**: If you haven't verified against current docs, label your diagnosis: "This is based on my training data — let me verify against current documentation."
+
+---
+
+## Decision Tree: Before Every Tool Call
+
+```
+Need information?
+  ├─ Can I get it from files already in context? -> Don't call a tool
+  ├─ Do I need to read multiple files? -> Read ALL of them in parallel
+  ├─ Do I need to search for something? -> Run ALL search patterns in parallel
+  └─ Do I need to run a command? -> Chain independent commands together
+
+Before ending turn:
+  ├─ Did I actually call every tool I mentioned in reasoning?
+  ├─ Am I about to repeat a check I already performed?
+  ├─ Have I been in "reading/checking" mode for more than 3 turns?
+  └─ Is there anything I can batch that I'm doing sequentially?
+```
+
+---
+
+## Rule 11: Subagent Nesting Discipline
+
+### Problem
+Nested subagents (level 2+) suffer from model inheritance bugs in Cursor, falling back to older models regardless of `model: inherit`. CLI does not support nesting at all.
+
+### Guardrails
+
+**Avoid nesting beyond level 1**: Subagents should NOT spawn their own subagents. Flatten to single-level orchestration where the parent dispatches all tasks directly.
+
+**Never nest in CLI**: CLI subagent sessions lack the Task tool interface needed for child spawning.
+
+**Flatten rather than nest**: If a subagent's task is too complex, decompose it at the parent level and dispatch multiple level-1 subagents instead of letting one subagent spawn children.
+
+### Anti-pattern example (DO NOT DO):
+```
+Parent dispatch → Subagent A → Subagent A1 (level 2, model inheritance broken)
+```
+
+### Correct pattern:
+```
+Parent dispatch → [Subagent A, Subagent B, Subagent C] (all level 1, parallel)
+```
+
+**When a subagent reports BLOCKED**: Do not let it spawn a child to investigate. Instead, the parent should break the task into smaller pieces and dispatch new level-1 subagents.
+
+---
+
+## Anti-Patterns to Watch For
+
+| Anti-pattern | What happens | Correct behavior |
+|---|---|---|
+| **Loop echo** | "Let me verify X" → reads X → "Let me double-check X" → reads X again | Read once, trust the result |
+| **Phantom execution** | Reasons about running lint, then skips the actual call | Every planned tool call must be emitted |
+| **Tool invention** | Calls `findInFiles()` when only `Grep` exists | Use only defined tool names |
+| **Serial drip-feeding** | Reads 1 file per turn for 10 turns | Read all needed files in 1 turn |
+| **Context bloat** | Reads entire 500-line file when 10 lines are relevant | Read with line ranges or grep |
+| **False verification** | "The code looks correct" without running typecheck/lint | Run actual verification commands |
+| **Phantom assumptions** | Cites files as data without verifying they exist | Glob/Shell check before citing referenced files |
+| **Fragmented debug** | Dispatches 3 subagents for one bug instead of 1 comprehensive | One subagent with all hypotheses |
+| **Blind subagent trust** | Presents subagent diagnosis as fact without verification | Independently verify at least one key claim |
+| **Stale API knowledge** | Recommends API changes based on training data | WebSearch/WebFetch current docs first |
+| **Nested subagents** | Level 2+ spawns children, falls back to older model | Flatten to level 1, dispatch from parent |
+
+---
+
+## Enforcement Priority
+
+These guardrails override general behavioral tendencies:
+
+1. **Never hallucinate tools** — correctness > convenience
+2. **Never skip tool calls you planned** — action > reasoning
+3. **Never repeat verified checks** — progress > re-verification
+4. **Always batch independent operations** — efficiency > caution
+5. **Never claim results without evidence** — truth > confidence
+6. **Escalate after 2 empty results** — strategy switch > retry
+7. **One subagent per bug** — comprehensive dispatch > fragmented narrow scopes
+8. **Research before API changes** — current docs > training memory
+9. **No nested subagents** — flatten to level 1 > unreliable level 2+

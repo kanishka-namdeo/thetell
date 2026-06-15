@@ -1,0 +1,246 @@
+---
+description: Security best practices for scraping, LLM usage, and data handling
+globs:
+alwaysApply: true
+---
+
+# Security
+
+Security best practices for web scraping, LLM integration, and sensitive data handling.
+
+## API Key Management
+
+### Never Hardcode Keys
+```python
+# BAD - NEVER DO THIS
+api_key = "sk-abc123..."
+
+# GOOD - use environment variables
+from app.config import settings
+api_key = settings.openai_api_key
+```
+
+### Key Storage
+- **Development:** `.env` files (gitignored)
+- **Production:** Platform secrets management (Vercel, Railway, etc.)
+- **CI/CD:** GitHub Secrets or equivalent
+- **Local testing:** Use test/dummy keys when possible
+
+### Key Rotation
+- Rotate keys every 90 days
+- Use different keys per environment (dev, staging, prod)
+- Immediately revoke compromised keys
+
+## Rate Limiting & Polite Scraping
+
+### Respect robots.txt
+```python
+from urllib.robotparser import RobotFileParser
+
+async def can_scrape(url: str) -> bool:
+    rp = RobotFileParser()
+    rp.set_url(f"{url}/robots.txt")
+    rp.read()
+    return rp.can_fetch("*", url)
+```
+
+### Rate Limiting
+- Default: 1 request per second per domain
+- Respect `Retry-After` headers
+- Implement exponential backoff on 429/503
+
+```python
+import asyncio
+from datetime import datetime, timedelta
+
+class RateLimiter:
+    def __init__(self, requests_per_second: float = 1.0):
+        self.min_interval = timedelta(seconds=1.0 / requests_per_second)
+        self.last_request = datetime.min
+
+    async def wait(self):
+        now = datetime.now()
+        elapsed = now - self.last_request
+        if elapsed < self.min_interval:
+            await asyncio.sleep((self.min_interval - elapsed).total_seconds())
+        self.last_request = datetime.now()
+```
+
+### User-Agent
+- Identify your scraper with a descriptive User-Agent
+- Include contact info for site owners
+
+```python
+headers = {
+    "User-Agent": "TheTell-Bot/1.0 (+https://thetell.example.com/bot; contact@example.com)"
+}
+```
+
+## Input Validation
+
+### Prevent Injection Attacks
+
+#### SQL Injection
+Use parameterized queries or ORM (SQLAlchemy):
+
+```python
+# BAD - vulnerable to SQL injection
+query = f"SELECT * FROM signals WHERE id = '{signal_id}'"
+
+# GOOD - parameterized
+query = text("SELECT * FROM signals WHERE id = :id")
+result = session.execute(query, {"id": signal_id})
+
+# BEST - use ORM
+signal = session.get(Signal, signal_id)
+```
+
+#### Command Injection
+Never pass user input to shell commands:
+
+```python
+# BAD - command injection risk
+os.system(f"curl {user_url}")
+
+# GOOD - use subprocess with list args
+subprocess.run(["curl", user_url], check=True)
+
+# BEST - use httpx/requests for HTTP
+response = httpx.get(user_url)
+```
+
+#### XSS (Frontend)
+- React escapes by default, but be careful with `dangerouslySetInnerHTML`
+- Sanitize user-generated content with DOMPurify
+
+```typescript
+// BAD - XSS risk
+<div dangerouslySetInnerHTML={{ __html: userInput }} />
+
+// GOOD - sanitize first
+import DOMPurify from "dompurify";
+<div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(userInput) }} />
+```
+
+### Validate All Inputs
+Use Pydantic for backend validation:
+
+```python
+from pydantic import BaseModel, HttpUrl, Field
+
+class SignalCreate(BaseModel):
+    source_url: HttpUrl  # validates URL format
+    company_id: UUID     # validates UUID format
+    confidence: float = Field(..., ge=0.0, le=1.0)  # range validation
+```
+
+## CORS Configuration
+
+### Restrict Origins
+Only allow your frontend domain. Use settings from config (see `api-design.mdc`):
+
+```python
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.frontend_url],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["*"],
+)
+```
+
+### Never Use `allow_origins=["*"]` in Production
+This allows any website to make requests to your API.
+
+## Sensitive Data Handling
+
+### PII (Personally Identifiable Information)
+- **Never log PII** (names, emails, phone numbers)
+- **Never send PII to LLMs** unless necessary and with consent
+- **Anonymize** data when possible
+
+```python
+# BAD - logging PII
+logger.info(f"User {user.email} requested signal {signal_id}")
+
+# GOOD - anonymize
+logger.info(f"User {user.id} requested signal {signal_id}")
+```
+
+### Credentials & Tokens
+- **Never commit** `.env`, credentials, or tokens
+- **Never log** API keys, even partially
+- **Use httpOnly cookies** for session tokens (not localStorage)
+
+```python
+# BAD - storing token in localStorage (XSS risk)
+localStorage.setItem("token", authToken);
+
+# GOOD - httpOnly cookie
+response.set_cookie(
+    key="session",
+    value=session_token,
+    httponly=True,
+    secure=True,  # HTTPS only
+    samesite="lax",
+)
+```
+
+### Database Credentials
+- Use strong, unique passwords per environment
+- Restrict database user permissions (principle of least privilege)
+- Use connection pooling with authentication
+
+## HTTPS Enforcement
+
+### Production
+- Redirect all HTTP to HTTPS
+- Use HSTS (HTTP Strict Transport Security)
+
+```python
+from fastapi import Request
+from fastapi.responses import RedirectResponse
+
+@app.middleware("http")
+async def enforce_https(request: Request, call_next):
+    if not request.url.scheme == "https":
+        url = request.url.replace(scheme="https")
+        return RedirectResponse(url)
+    return await call_next(request)
+```
+
+### Development
+- HTTP is acceptable for local development
+- Document that production requires HTTPS
+
+## Dependency Security
+
+### Keep Dependencies Updated
+- Run `pip-audit` regularly (backend)
+- Run `pnpm audit` regularly (frontend)
+- Use Dependabot or similar for automated updates
+
+### Pin Dependencies
+- Pin exact versions in production (`requirements.txt`, `pnpm-lock.yaml`)
+- Review major version upgrades before accepting
+
+### Verify Package Sources
+- Only install from official PyPI/npm
+- Check package popularity and maintenance status
+- Review new dependencies before adding
+
+## Security Checklist
+
+Before deploying:
+- [ ] No hardcoded secrets in code
+- [ ] `.env` files are gitignored
+- [ ] CORS restricted to specific origins
+- [ ] HTTPS enforced in production
+- [ ] Input validation on all endpoints
+- [ ] Rate limiting enabled for scraping
+- [ ] Dependencies audited (`pip-audit`, `pnpm audit`)
+- [ ] No PII in logs
+- [ ] Database credentials are strong and unique
+- [ ] Session tokens use httpOnly cookies

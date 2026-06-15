@@ -1,0 +1,183 @@
+---
+description: Execution checkpoints for approved plans — decision tree, direct vs subagent execution, pre/post checklists, verification steps. Apply when user says proceed, build it, implement.
+alwaysApply: false
+---
+
+# Plan Execution
+
+**Trigger**: User approves plan, says "proceed", "build it", or "implement"
+
+> **Parallel subagent orchestration**: See [subagent-orchestration.mdc](.cursor/rules/subagent-orchestration.mdc) for coordination patterns, circuit breakers, timeouts. This file covers execution flow.
+
+## Execution Mode Decision Tree
+
+Cursor's native plan executor drives tasks via `TodoWrite` + direct tool calls. It does **not** auto-dispatch subagents. Choose your execution mode based on task scope:
+
+```
+Task Scope Analysis:
+|-- Single file or rename/refactor?              -> DIRECT execution (TodoWrite + tools)
+|-- 2-3 files, same layer?                       -> DIRECT execution
+|-- >3 files OR crosses layers (frontend->backend->DB)? -> SUBAGENT
+|-- Security-critical (auth, crypto, encryption)? -> SUBAGENT
+|-- Needs isolated context from previous task?   -> SUBAGENT
++-- Complex multi-step with handoff deps?        -> SUBAGENT
+```
+
+### Direct Execution (Default Path)
+
+Use `TodoWrite` to track plan todos, then implement with Read/Write/StrReplace/Shell:
+
+1. Parse approved plan
+2. Set first todo to in_progress
+3. Implement task with direct tool calls
+4. Run incremental verification (typecheck/lint on modified files)
+5. Mark todo complete, set next todo in_progress
+6. Repeat until all todos done
+7. Run full verification: `pnpm run typecheck`, then `pnpm run lint`, then `pnpm run build` (separate commands for PowerShell 5.1)
+
+### Subagent Execution (Opt-In for Complex Tasks)
+
+When the decision tree says SUBAGENT, dispatch `Task` subagents:
+
+1. Parse approved plan, build task queue
+2. For independent tasks with no shared state, dispatch in parallel
+3. For dependent tasks, dispatch sequentially with explicit handoffs
+4. After each subagent: verify output, run typecheck/lint on modified files
+5. After all tasks: full verification
+
+**Parallel dispatch is allowed** when tasks are independent (no shared state, no file conflicts, no sequential dependencies). Use the `dispatching-parallel-agents` skill for guidance.
+
+---
+
+## Pre-Execution Checklist
+
+**Before starting implementation**:
+
+### 1. Parse Approved Plan
+- Extract all task definitions with full text
+- Identify acceptance criteria
+- Note library versions and APIs to use
+- Run scope analysis: count files per task, check layer boundaries
+
+### 2. Verify Research Sources
+- Quick WebSearch: "[library] breaking changes 2025 2026"
+- If found: update plan, notify user
+
+---
+
+## Incremental Verification
+
+**After each task (not just at the end)**:
+
+### TypeScript Check (Modified Files Only)
+```powershell
+pnpm exec tsc --noEmit path/to/file1.ts path/to/file2.ts
+# Or full typecheck if many files
+pnpm run typecheck
+```
+
+### Lint Check (Modified Files Only)
+```powershell
+pnpm exec eslint path/to/file1.ts path/to/file2.ts
+# Or full lint
+pnpm run lint
+```
+
+### Build Check (After All Tasks)
+```powershell
+pnpm run build
+```
+
+---
+
+## Post-Execution Checklist
+
+**Before marking complete**:
+
+### 1. Run All Verification Commands
+```powershell
+pnpm run typecheck
+pnpm run lint
+pnpm run build
+```
+
+> **Windows users**: PowerShell 5.1 does not support `&&` for command chaining. Use separate commands or upgrade to PowerShell 7+.
+
+### 2. Verify Against Plan
+- All plan steps completed
+- All acceptance criteria met
+- No TODOs or incomplete sections
+
+### 3. Web Final Check
+- Search: "[implemented feature] best practices 2026"
+- Verify implementation matches current patterns
+
+### 4. Git Commit
+```powershell
+git add .
+git commit -m "feat: [feature description]
+
+- Implements [feature] following [pattern]
+- Uses [library] v[version] APIs
+- Verified against [source1], [source2]
+- All checks pass: typecheck, lint, build"
+```
+
+---
+
+## Subagent Status Handling
+
+Implementer subagents MUST report one of four statuses:
+
+| Status | Meaning | Required Action |
+|--------|---------|-----------------|
+| `DONE` | Task completed successfully | Proceed to review gate, then next task |
+| `DONE_WITH_CONCERNS` | Completed but flagged doubts | Review concerns, address if correctness/scope issue |
+| `NEEDS_CONTEXT` | Missing information | Provide context and re-dispatch same task |
+| `BLOCKED` | Cannot complete | Assess blocker, upgrade model, break task smaller, or escalate to user |
+
+**NEVER** ignore a blocker escalation.
+
+---
+
+## Security Verification
+
+**For authentication, encryption, user input**:
+
+1. Cross-reference implementation against official library security docs + OWASP guidelines
+2. Check for: injection (33.1% of AI code findings, AppSec Santa Mar 2026), improper validation, insecure defaults
+3. If uncertain: flag for manual security review
+
+---
+
+## Git Checkpoint Strategy
+
+**When to create checkpoints**:
+- Before complex multi-file changes
+- Before security-critical implementations
+- Before migrations or breaking changes
+
+**Pattern**:
+```powershell
+git add -A
+git commit -m "checkpoint: before [change]"
+# On failure: git reset --hard HEAD~1
+```
+
+---
+
+## Success Metrics
+
+- All tasks completed (direct or subagent based on scope analysis)
+- All verification commands pass
+- Implementation matches plan acceptance criteria
+- Git checkpoint created (if complex feature)
+- No security red flags
+
+## Failure Indicators
+
+- Verification failures ignored
+- Code committed without verification
+- Plan acceptance criteria not met
+- Blocked tasks skipped without escalation
+- Parallel subagents interfering with shared state or editing the same files

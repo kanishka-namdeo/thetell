@@ -1,0 +1,194 @@
+---
+description: API design conventions for FastAPI backend endpoints
+globs:
+alwaysApply: true
+---
+
+# API Design
+
+Standardize REST API design for the FastAPI backend serving the Next.js frontend.
+
+## REST Conventions
+
+### Endpoint Naming
+- Use plural nouns for resources: `/signals`, `/articles`, `/companies`
+- Use kebab-case for multi-word resources: `/signal-sources`
+- Nest for relationships: `/companies/{id}/signals`
+- Max nesting depth: 2 levels
+
+### HTTP Methods
+| Method | Usage | Example |
+|--------|-------|---------|
+| `GET` | Retrieve resource(s) | `GET /signals/{id}` |
+| `POST` | Create resource | `POST /signals` |
+| `PUT` | Full update | `PUT /signals/{id}` |
+| `PATCH` | Partial update | `PATCH /signals/{id}` |
+| `DELETE` | Remove resource | `DELETE /signals/{id}` |
+
+### Status Codes
+| Code | Meaning | When |
+|------|---------|------|
+| `200` | OK | Successful GET, PUT, PATCH |
+| `201` | Created | Successful POST |
+| `204` | No Content | Successful DELETE |
+| `400` | Bad Request | Invalid input |
+| `401` | Unauthorized | Missing/invalid auth |
+| `403` | Forbidden | Authenticated but not allowed |
+| `404` | Not Found | Resource doesn't exist |
+| `422` | Unprocessable | Validation error |
+| `429` | Too Many Requests | Rate limit exceeded |
+| `500` | Internal Error | Server bug |
+
+## Request/Response Schemas
+
+### Use Pydantic Models
+Define explicit schemas for all endpoints:
+
+```python
+from pydantic import BaseModel, Field
+from uuid import UUID
+from datetime import datetime
+
+class SignalCreate(BaseModel):
+    source_url: str = Field(..., description="URL where signal was found")
+    company_id: UUID
+
+class SignalResponse(BaseModel):
+    id: UUID
+    source_url: str
+    company_id: UUID
+    created_at: datetime
+    confidence: float
+
+    model_config = {"from_attributes": True}
+```
+
+### Separate Input/Output Models
+- `*Create` — for POST requests
+- `*Update` — for PATCH requests (all fields optional)
+- `*Response` — for API responses (includes id, timestamps)
+
+## Error Response Format
+
+Standardize error responses:
+
+```python
+class ErrorResponse(BaseModel):
+    error: str          # Machine-readable error code
+    message: str        # Human-readable description
+    details: dict | None = None  # Optional validation errors
+
+# Example 422 response
+{
+    "error": "validation_error",
+    "message": "Invalid input data",
+    "details": {
+        "source_url": ["Invalid URL format"]
+    }
+}
+```
+
+Raise HTTP exceptions with detail:
+
+```python
+from fastapi import HTTPException
+
+raise HTTPException(
+    status_code=404,
+    detail={"error": "not_found", "message": f"Signal {signal_id} not found"}
+)
+```
+
+## Pagination & Filtering
+
+### Pagination
+Use cursor-based pagination for large datasets:
+
+```python
+class PaginatedResponse(BaseModel):
+    items: list[SignalResponse]
+    next_cursor: str | None
+    has_more: bool
+
+# Endpoint
+@app.get("/signals")
+async def list_signals(
+    cursor: str | None = None,
+    limit: int = Field(default=20, ge=1, le=100),
+) -> PaginatedResponse:
+    ...
+```
+
+### Filtering & Sorting
+Use query parameters:
+
+```python
+@app.get("/signals")
+async def list_signals(
+    company_id: UUID | None = None,
+    signal_type: SignalType | None = None,
+    sort_by: Literal["created_at", "confidence"] = "created_at",
+    sort_order: Literal["asc", "desc"] = "desc",
+) -> list[SignalResponse]:
+    ...
+```
+
+## Authentication & Authorization
+
+### API Key Auth (for external clients)
+```python
+from fastapi import Depends, HTTPException, status
+from fastapi.security import APIKeyHeader
+
+api_key_header = APIKeyHeader(name="X-API-Key")
+
+async def verify_api_key(api_key: str = Depends(api_key_header)):
+    if api_key != settings.api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+```
+
+### Session Auth (for frontend)
+Use httpOnly cookies for session tokens. Never store tokens in localStorage.
+
+## API Versioning
+
+- Prefix with `/api/v1/` for versioned endpoints
+- When breaking changes are needed, create `/api/v2/`
+- Deprecate old versions with sunset headers
+
+```python
+app.include_router(signals_router, prefix="/api/v1")
+```
+
+## CORS Configuration
+
+Allow frontend origin only:
+
+```python
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.frontend_url],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["*"],
+)
+```
+
+## Documentation
+
+- All endpoints must have `summary` and `description`
+- Use `response_model` to document response schema
+- Add examples for complex request/response bodies
+
+```python
+@app.post(
+    "/signals",
+    response_model=SignalResponse,
+    summary="Create a new signal",
+    description="Scrape and analyze a new signal from the given URL",
+)
+async def create_signal(signal: SignalCreate):
+    ...
+```

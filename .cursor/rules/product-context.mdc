@@ -1,0 +1,130 @@
+---
+description: Product vision, scope, and design context. Apply when adding features, planning UI work, or making product decisions.
+alwaysApply: true
+---
+
+# Product Context
+
+**Trigger**: Always active. Load these docs before any feature implementation or UI design work.
+
+## What is The Tell?
+
+**The Tell** is an AI-powered corporate intelligence platform that reads public company signals and infers inner workings. It's the only platform that connects the dots across signal types to predict what companies are really thinking and planning.
+
+**One-liner**: The Tell reads between the lines of public information to reveal corporate strategy before it's announced.
+
+**Core Value Proposition**: While competitors search and summarize documents, The Tell uses AI to infer strategic intent from unstructured public signals — connecting earnings calls, news, filings, and social media to predict corporate moves.
+
+**Market Gap**: No existing platform combines AI-powered inference of corporate strategy from unstructured public signals. Financial terminals (Bloomberg, FactSet) are data-rich but inference-poor. Intelligence platforms (AlphaSense) search and summarize but don't predict. Sentiment tools (Brandwatch, Meltwater) analyze social/news but not corporate signals specifically. The Tell fills this gap.
+
+## Domain Glossary
+
+These terms are used throughout the codebase and documentation:
+
+| Term | Definition | Example |
+|------|-----------|---------|
+| **Signal** | A piece of public information about a company that may reveal strategic intent | News article, earnings call transcript, SEC filing, social media post, job posting, patent filing |
+| **Inference** | AI analysis that extracts strategic insights from signals — goes beyond summarization to predict intent | "Company is planning layoffs based on hiring freeze + cost-cutting language in earnings call" |
+| **Company** | An organization being monitored for signals | Public company (AAPL), private startup, government agency |
+| **Signal Source** | The origin/channel where a signal was found | Reuters news feed, SEC EDGAR, Twitter/X, company blog, job board |
+| **Confidence** | AI-assessed probability that an inference is correct (0.0-1.0) | 0.85 = high confidence the company is planning a product launch |
+| **Sentiment** | Emotional tone of a signal (positive/negative/neutral) | Negative sentiment in earnings call about Q4 outlook |
+| **Analysis** | The process of extracting insights from a signal | Extracting key facts, classifying sentiment, identifying strategic implications |
+| **Article** | News-style output generated from analysis results | "Company X Signals Expansion into Asian Markets" |
+
+## User Personas
+
+### Primary: Investment Analyst
+- **Who**: Hedge fund analysts, VC/PE associates, equity researchers
+- **Problem**: Drowning in information, missing strategic connections across signal types
+- **Goal**: Identify investment opportunities/risks before the market prices them in
+- **Workflow**: Monitor companies → receive alerts on strategic shifts → analyze supporting signals → make investment decisions
+- **Key Features Needed**: Signal dashboard, confidence scores, cross-signal correlation, historical trend analysis
+
+### Secondary: Corporate Strategist
+- **Who**: Competitive intelligence teams, corporate development, strategy departments
+- **Problem**: Need to anticipate competitor moves and market shifts
+- **Goal**: Understand competitor strategy to inform planning and positioning
+- **Workflow**: Track competitors → identify strategic patterns → brief leadership → adjust company strategy
+- **Key Features Needed**: Company tracking, competitor comparison, strategic theme detection, executive summaries
+
+### Tertiary: Financial Journalist
+- **Who**: Investigative reporters, business journalists, industry analysts
+- **Problem**: Need to uncover stories hidden in public data
+- **Goal**: Break news about corporate moves before competitors
+- **Workflow**: Monitor beats → detect unusual patterns → investigate signals → publish stories
+- **Key Features Needed**: Signal alerts, source attribution, exportable reports, quote extraction
+
+## Core User Journey
+
+```
+Signal Ingestion → AI Analysis → Strategic Insights → User Action
+     ↓                ↓                ↓                  ↓
+Scrape public    Extract facts     Infer strategy    Make decisions
+sources          Classify signals  Detect patterns   with confidence
+                 Score confidence  Connect dots      before market
+```
+
+**Detailed Flow**:
+1. **Signal Ingestion**: System scrapes public sources (news, filings, transcripts, social media) on a schedule
+2. **Parsing & Storage**: Raw content is parsed, deduplicated, and stored with metadata (source, timestamp, company)
+3. **AI Analysis**: LLM extracts key facts, classifies sentiment, identifies strategic themes
+4. **Inference Engine**: Cross-signal analysis connects patterns to infer corporate intent
+5. **Confidence Scoring**: Each inference is scored (0.0-1.0) based on signal quality and pattern strength
+6. **User Interface**: Analysts view signal dashboard, filter by company/theme/confidence, drill into details
+7. **Article Generation**: System generates news-style articles summarizing key insights for quick consumption
+8. **Alerts**: Users receive notifications when high-confidence inferences are detected for tracked companies
+
+## Strategic Positioning
+
+### Why The Tell Wins
+
+| Competitor Weakness | The Tell's Answer |
+|---------------------|-------------------|
+| **AlphaSense** searches/summarizes but doesn't infer | The Tell uses AI to predict strategic intent, not just summarize documents |
+| **Bloomberg/FactSet** are data-rich but inference-poor | The Tell connects signals across types to reveal hidden patterns |
+| **Brandwatch/Meltwater** analyze sentiment but not corporate signals specifically | The Tell focuses on corporate strategy inference, not general sentiment |
+| **Thinknum/Quiver** scrape signals but don't synthesize across types | The Tell's inference engine connects dots across news, filings, transcripts, social |
+| **RavenPack/Dataminr** detect events but don't infer strategy | The Tell predicts what companies are planning, not just what happened |
+
+### Key Differentiators
+
+1. **Cross-Signal Inference**: Only platform that connects earnings calls + news + filings + social to predict strategy
+2. **Confidence Scoring**: Every inference is scored, so analysts know what to trust
+3. **Strategic Focus**: Not general sentiment — specifically tuned to detect corporate strategy and intent
+4. **Actionable Output**: News-style articles and alerts, not raw data dumps
+5. **Proactive Detection**: Alerts users to strategic shifts before they're obvious
+
+## Canonical Product Docs
+
+| Doc | Path | When to Read |
+|-----|------|--------------|
+| Design System | `DESIGN_SYSTEM.md` | Before any UI component work — design tokens, color palette, typography, component patterns |
+| Competitive Landscape | `docs/research/00-competitive-landscape-master.md` | Before planning new features — understand competitive positioning and market gaps |
+| AI Corporate Intelligence | `docs/research/01-ai-corporate-intelligence-platforms.md` | When building AI-powered analysis features — see how competitors implement corporate intelligence |
+| Financial Data Analytics | `docs/research/02-financial-data-analytics-platforms.md` | When building data visualization or analytics features — learn from financial platform patterns |
+| NLP Sentiment Analysis | `docs/research/03-nlp-sentiment-analysis-tools.md` | Before implementing NLP or sentiment features — understand existing approaches |
+| News Media Analysis | `docs/research/05-news-media-analysis-platforms.md` | When building news/media monitoring features — see how media analysis platforms work |
+| Competitive Analysis Report | `competitive_analysis_report.md` | For high-level competitive positioning and feature gaps |
+
+## Usage Rules
+
+1. **DESIGN_SYSTEM.md** → Follow the design system for all UI work. Use the specified color tokens, typography scale, spacing system, and component patterns. This is the single source of truth for visual design.
+
+2. **Competitive research docs** → Before building a feature that exists in competitor products, read the relevant research doc to understand:
+   - How competitors implement the feature
+   - What users like/dislike about existing solutions
+   - Where there are gaps or opportunities for differentiation
+   - What technical approaches are proven vs. experimental
+
+3. **Competitive analysis report** → Use for strategic decisions about feature prioritization and positioning. Understand what makes this product unique vs. existing tools.
+
+4. **Feature decisions** → When planning a new feature, ask:
+   - Does this help analysts detect strategic shifts earlier?
+   - Does this improve inference accuracy or confidence?
+   - Does this connect signals across types (not just within one source)?
+   - Does this serve one of the three personas (investment analyst, corporate strategist, journalist)?
+
+## Priority Order
+
+Design system > Competitive research > Product vision. Follow the design system strictly. Use competitive research to inform feature implementation decisions and identify opportunities for differentiation.

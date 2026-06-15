@@ -1,0 +1,257 @@
+---
+description: Plan mode validation checklist, research requirements, and mandatory template. Apply when user requests plan, asks how to implement, or switches to plan mode.
+alwaysApply: false
+---
+
+# Plan Mode Enhancement
+
+**Trigger**: User requests plan mode, says "plan" or "design", or asks "how to implement"
+
+## CRITICAL: Plan Validation Gate
+
+> Plan execution patterns are in [plan-execution.mdc](.cursor/rules/plan-execution.mdc). This file covers plan creation only.
+
+### Validation Checklist (Run Before Finalizing Plan)
+
+| # | Criterion | Pass/Fail | Action if Fail |
+|---|-----------|-----------|----------------|
+| 1 | Has "## Research Summary" section? | Must Pass | Run web research, add section |
+| 2 | Research Summary has 2+ cited sources? | Must Pass | Add more sources via Context7/WebSearch/WebFetch |
+| 3 | All sources dated 2025-2026? | Must Pass | Replace outdated sources with current |
+| 4 | Has "## Breaking Changes & Migrations" section? | Must Pass | Research version changes, add section |
+| 5 | Has "## Security Considerations" section? | Must Pass | Review security docs, add section |
+| 6 | Has "## Verification Steps" checklist? | Must Pass | Add verification checklist |
+| 7 | Has "## Dependencies & Risks" section? | Must Pass | Analyze dependencies, add section |
+| 8 | Has "## Edge Cases" section? | Must Pass | Document empty/error/loading states |
+| 9 | Existing codebase grepped for similar patterns? | Must Pass | Run Grep/SemanticSearch, document findings |
+| 10 | Scope matches user request (no unrequested features)? | Must Pass | Remove unrequested features, flag as future work |
+| 11 | Verification Steps include 2+ specific acceptance criteria? | Must Pass | Add feature-specific behavioral tests |
+
+**Validation Gate Logic**:
+```
+IF any criterion fails:
+  STOP finalizing plan
+  RUN missing research
+  UPDATE plan
+  RE-RUN validation
+UNTIL all criteria pass
+THEN finalize plan
+```
+
+---
+
+## Pre-Plan Research Checklist
+
+**Before creating implementation plan**:
+
+### 1. Identify Technologies
+- Extract all libraries/frameworks from user query
+- Check `package.json` for current versions
+- Note any version migration needed
+
+### 2. Check Existing Design System (if UI feature)
+- Read `DESIGN_SYSTEM.md` for page blueprints, interaction patterns, and design intent
+- Read `src/app/globals.css` for available CSS variable tokens and `@theme inline` mappings — tokens are defined in the `@theme` block and `:root` / `.dark` variable blocks
+- Read `.cursor/rules/design-assets-enforcement.mdc` for component requirements
+- If the feature matches an existing page blueprint in DESIGN_SYSTEM.md, follow it
+- If the feature is new, propose changes that fit the established design language
+
+### 3. Parallel Web Research
+
+Execute all applicable research in parallel:
+- **Context7**: Query version-specific APIs for each library
+- **WebSearch**: Follow query templates in `web-search-optimization.mdc`
+  - Pattern: `[topic] [specific aspect] [version] site:[domain] [year]`
+  - Example: `Next.js 15 cacheLife unstable_cache migration site:nextjs.org 2026`
+- **WebFetch**: Top 3 official documentation URLs
+
+> **Research thoroughly regardless of perceived complexity**: Even seemingly minor changes may have implications worth understanding. Validate assumptions with documentation.
+
+### 4. Verify Referenced Files Exist
+
+When documentation, READMEs, or code comments reference files by name (screenshots, config files, assets, data files), verify they exist on disk with Glob or Shell before citing them as available data in your plan or analysis. Do not assume referenced files exist.
+
+```
+Documentation says "88 screenshots" -> Glob "**/*.png" first
+Code references "config.json" -> Glob "config.json" first
+README mentions "data.csv" -> Glob "data.csv" first
+```
+
+### 4a. Existing Codebase Pattern Analysis
+
+Before proposing new code or patterns:
+- **Grep for existing similar patterns**: Search the codebase for components, hooks, utilities, or API routes that already solve a similar problem
+- **Check for duplicate features**: Verify the proposed feature does not already exist elsewhere (use `docs/features-built.md` and semantic search)
+- **Verify architectural consistency**: Ensure proposed file structure matches the existing project layout (follow `src/app/` route conventions, `src/lib/` module boundaries, `src/components/` folder patterns)
+- **Follow existing conventions**: If the codebase uses a certain auth pattern, data fetching approach, or component structure — replicate it. Do not introduce new conventions without justification.
+
+### 4b. Scope Discipline Check
+
+Before finalizing the plan, verify:
+- **Every proposed change traces to the user's request**: If a feature is not asked for, flag it as "future work" or remove it
+- **Simplest solution first**: If two approaches deliver the same user value, choose the simpler one
+- **Phased rollout for large features**: If the plan touches >5 files, consider whether it can be split into independently deliverable phases
+
+### 5. Synthesize Findings
+- Compare Context7 APIs with web best practices
+- Note breaking changes between versions
+- Identify security considerations
+- Extract code examples from authoritative sources
+
+### 6. Document Sources
+For each finding:
+- Source URL
+- Publication/update date (must be 2025-2026)
+- Relevant excerpt or API signature
+
+---
+
+## MANDATORY Plan Template
+
+**Every plan MUST follow this exact structure**:
+
+```markdown
+---
+name: [plan-name]
+overview: [brief description]
+todos:
+  - id: [task-id]
+    content: [task description]
+    status: pending
+---
+
+# [Plan Title]
+
+## Overview
+[Brief description of what the plan accomplishes]
+
+---
+
+## Research Summary
+
+**[Library Name] v[version]**:
+- [API/pattern]: [description]
+- Source: [URL] ([date, 2025-2026])
+
+---
+
+## Implementation Approach
+
+[Step-by-step approach based on researched patterns]
+
+---
+
+## File Changes
+
+| File | Change | API/Pattern Used | Source |
+|---|-----|---|-----|
+| `path/to/file.ts` | [description] | [API] from [library] v[version] | [source URL] |
+
+---
+
+## Verification Steps
+
+- [ ] `pnpm run typecheck` (0 errors)
+- [ ] `pnpm run lint` (0 warnings)
+- [ ] `pnpm run build` (success)
+- [ ] [Specific acceptance criterion 1 — user-visible behavior]
+- [ ] [Specific acceptance criterion 2 — user-visible behavior]
+- [ ] [Specific acceptance criterion 3 — error/edge case behavior]
+
+> **Requirement**: At least 2 verification steps MUST be specific behavioral tests tied to the feature's user value. Generic checks (typecheck/lint/build) do not count toward this minimum.
+
+---
+
+## Dependencies & Risks
+
+### Dependencies
+- **Internal**: [list files/modules this change depends on]
+- **External**: [list third-party APIs, packages, or services required]
+- **Database**: [list any Prisma schema changes and migration steps]
+
+### Risks
+- **[Risk 1]**: [what could go wrong and likelihood]
+  - Mitigation: [how to prevent or detect it]
+
+### Rollback Plan
+- If this breaks production: [specific steps to revert]
+
+---
+
+## Edge Cases
+
+| Scenario | Handling |
+|---|---|
+| **Empty state** | [what the user sees with no data] |
+| **Error state** | [what the user sees on failure] |
+| **Loading state** | [what the user sees during async ops] |
+| **Permission denied** | [behavior without required access] |
+
+> Remove rows that don't apply. Add feature-specific edge cases.
+
+---
+
+## Breaking Changes & Migrations
+
+**[Library] v[X] -> v[Y]**:
+- [Breaking change description]
+- [Migration steps if needed]
+
+---
+
+## Security Considerations
+
+**[Security area]**:
+- [Security pattern verified]
+
+---
+
+## Execution Mode
+
+Run scope analysis per task (see [plan-execution.mdc](.cursor/rules/plan-execution.mdc) decision tree):
+- Tasks touching >3 files, crossing layers, or security-critical -> use Task subagent
+- Single-file or same-layer changes -> direct execution (TodoWrite + tools)
+
+## Execution Order
+
+1. [task-1]: [description]
+2. [task-2]: [description] (depends on task-1)
+3. [task-N]: [description] (depends on task-N-1)
+
+---
+
+## Integration with writing-plans Skill
+
+**If the `writing-plans` skill is available**, the plan MUST ALSO include bite-sized tasks following that skill's format:
+
+- Each task broken into 2-5 minute steps with checkbox syntax (`- [ ]`)
+- **Code blocks in every step** that changes code — never use placeholders like "implement the logic" or "add error handling"
+- **TDD workflow**: failing test -> make it fail -> implement -> make it pass -> commit
+- **Exact file paths and line ranges** for every modification
+- **Exact commands** with expected output for each verification step
+
+This section is mandatory for plans created when the writing-plans skill is loaded. The two formats complement each other: the Research Summary / Dependencies & Risks / Security sections provide the "why," while the bite-sized tasks provide the "how."
+```
+
+---
+
+## Research Complexity Scale
+
+| Task Complexity | Required Research | Min Sources |
+|-----|----|----|
+| **Simple** (typo fix, rename) | Verify context, check implications | 0-1 |
+| **Medium** (API usage, config change) | Context7 + WebSearch | 1-2 |
+| **Complex** (new library, feature) | Context7 + WebSearch + WebFetch | 2+ |
+| **Critical** (auth, crypto, security) | Context7 + WebSearch + WebFetch + OWASP | 3+ |
+
+> **Note**: Even simple tasks benefit from checking context and implications. The minimum source counts are floors, not ceilings.
+
+---
+
+## Fallback Strategy
+
+If research tools fail:
+1. Context7 not found -> WebSearch official docs
+2. WebSearch empty -> WebFetch known URLs
+3. WebFetch blocked -> Note in plan, ask user for docs
+4. Document which tools failed in plan

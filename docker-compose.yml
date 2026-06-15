@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16
+    container_name: the_tell-db
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: thetell_user
+      POSTGRES_PASSWORD: thetell_password
+      POSTGRES_DB: the_tell
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U thetell_user -d the_tell"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

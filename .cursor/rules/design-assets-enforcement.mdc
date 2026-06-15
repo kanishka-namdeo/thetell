@@ -1,0 +1,185 @@
+---
+alwaysApply: true
+---
+# Design Assets Enforcement
+
+**Trigger**: Always active — enforce whenever modifying or creating UI components.
+
+## Core Rule
+
+All UI components must use **shadcn/ui** components. Never use raw HTML elements where a semantically appropriate shadcn component exists. Prefer composition over hand-rolling accessible components.
+
+## Component Mapping
+
+Use these shadcn components instead of plain HTML elements:
+
+| UI Element | Use | Instead Of |
+|-----------|-----|-----------|
+| Button | `<Button />` from `@/components/ui/button` | Plain `<button>` without shadcn styling |
+| Card | `<Card />` from `@/components/ui/card` | `<div>` with shadow styles |
+| Input | `<Input />` from `@/components/ui/input` | `<input>` with raw styling |
+| Label | `<Label />` from `@/components/ui/label` | `<label>` with manual styling |
+| Badge | `<Badge />` from `@/components/ui/badge` | `<span>` with colored bg |
+| Text | Semantic HTML (`<p>`, `<h1>`–`<h6>`, `<span>`) with className | Plain `<div>` with text styles |
+| Dialog/Modal | `@/components/ui/dialog` | Hand-rolled modal |
+| Toast | `@/components/ui/sonner` or `@/components/ui/toast` | Custom toast |
+| Select | `<Select />` from `@/components/ui/select` | Native `<select>` |
+| Switch | `<Switch />` from `@/components/ui/switch` | Plain checkbox |
+| Separator | `<Separator />` from `@/components/ui/separator` | `<hr>` with manual styling |
+| Avatar | `<Avatar />` from `@/components/ui/avatar` | `<img>` with circle |
+| Tabs | `<Tabs />` from `@/components/ui/tabs` | Manual tab state |
+| Tooltip | `<Tooltip />` from `@/components/ui/tooltip` | Custom tooltip |
+| Dropdown Menu | `<DropdownMenu />` from `@/components/ui/dropdown-menu` | Custom popover |
+| Progress | `<Progress />` from `@/components/ui/progress` | `<div>` with width |
+| Skeleton | `<Skeleton />` from `@/components/ui/skeleton` | `<div>` with gray bg |
+| Accordion | `<Accordion />` from `@/components/ui/accordion` | Manual expand/collapse |
+
+## Styling Rules
+
+### 1. Use Tailwind Classes via className
+
+```tsx
+// GOOD
+<div className="flex min-h-screen bg-background p-4">
+  <h2 className="text-foreground text-lg font-semibold">Title</h2>
+</div>
+
+// BAD — raw inline styles
+<div style={{ minHeight: '100vh', backgroundColor: '#fff', padding: '16px' }}>
+  <h2 style={{ color: '#000', fontSize: '18px', fontWeight: '600' }}>Title</h2>
+</div>
+```
+
+### 2. Use the `cn()` utility for Conditional Classes
+
+```tsx
+import { cn } from "@/lib/utils";
+
+<div className={cn(
+  "rounded-lg border",
+  isActive && "border-primary bg-primary/5",
+  className
+)} />
+```
+
+### 3. Colors Come from CSS Variables (Tokens)
+
+All colors use CSS variables defined in `src/app/globals.css`. Never hardcode hex/rgb colors.
+
+#### Base Tokens
+
+| Token | CSS Variable | Usage |
+|-------|-------------|-------|
+| `bg-background` | `--background` | Page/canvas background |
+| `text-foreground` | `--foreground` | Primary text color |
+| `bg-card` | `--card` | Card backgrounds |
+| `bg-primary` | `--primary` | Primary actions |
+| `bg-secondary` | `--secondary` | Secondary elements |
+| `bg-muted` | `--muted` | De-emphasized content |
+| `bg-accent` | `--accent` | Hover/active states |
+| `bg-destructive` | `--destructive` | Error/danger states |
+| `border-border` | `--border` | Borders |
+| `ring-ring` | `--ring` | Focus rings |
+
+#### Brand Tokens
+
+| Token | CSS Variable | Usage |
+|-------|-------------|-------|
+| `bg-brand` / `bg-brand-500` | `--brand` | Primary brand accent, CTAs |
+| `bg-brand-soft` | `--brand-soft` | Soft accent for subtle highlights |
+
+#### Semantic Tokens
+
+| Token | CSS Variable | Usage |
+|-------|-------------|-------|
+| `bg-success` | `--success` | Success states |
+| `bg-warning` | `--warning` | Warnings |
+| `bg-info` | `--info` | Info notifications |
+
+#### Chart Colors
+
+| Token | CSS Variable | Usage |
+|-------|-------------|-------|
+| `bg-chart-c1` to `bg-chart-c10` | `--chart-1` to `--chart-10` | Analytics/data visualization colors |
+
+#### AI Tokens
+
+| Token | CSS Variable | Usage |
+|-------|-------------|-------|
+| `bg-ai-surface` | `--ai-surface` | AI agent surface background |
+| `bg-ai-confidence-high` | `--ai-confidence-high` | High confidence badge |
+| `bg-ai-confidence-medium` | `--ai-confidence-medium` | Medium confidence badge |
+| `bg-ai-confidence-low` | `--ai-confidence-low` | Low confidence badge |
+
+### 4. Use Semantic Tailwind Classes
+
+```tsx
+// GOOD — semantic tokens
+className="bg-card text-card-foreground rounded-lg border-border"
+
+// BAD — hardcoded colors
+className="bg-white text-black rounded-lg border-gray-200"
+```
+
+### 5. Border Radius Tokens
+
+```
+rounded-sm = calc(var(--radius) * 0.6)
+rounded-md = calc(var(--radius) * 0.8)
+rounded-lg = var(--radius)
+rounded-xl = calc(var(--radius) * 1.4)
+rounded-2xl = calc(var(--radius) * 1.8)
+rounded-3xl = calc(var(--radius) * 2.2)
+rounded-4xl = calc(var(--radius) * 2.6)
+```
+
+### 6. Spacing Uses Tailwind Scale
+
+Use Tailwind spacing (`p-4`, `gap-2`, `m-6`) — never pixel values. The scale is 0.25rem (4px) based.
+
+## Component Location
+
+All UI components live in:
+
+```
+@/components/ui/
+  ├── button.tsx
+  ├── card.tsx
+  ├── input.tsx
+  ├── badge.tsx
+  ├── separator.tsx
+  └── ... (add via CLI)
+```
+
+Add new components using:
+
+```powershell
+pnpm dlx shadcn@latest add <component-name>
+```
+
+## Portals
+
+Modal-like components (Dialog, DropdownMenu, Tooltip, Popover) render through Radix Portals automatically. No manual portal host setup is needed.
+
+## Dark Mode
+
+Dark mode is automatic via CSS `.dark` class variables in `src/app/globals.css`. Components using semantic tokens (`bg-background`, `text-foreground`) adapt automatically. Do not manually detect or switch dark mode in components.
+
+## Accessibility
+
+- Touch/click targets: minimum `min-h-10` (40px) height
+- Use `aria-label` on icon-only buttons
+- Status indicators: always combine color + icon + text (never color alone)
+- Focus rings: provided by Radix/shadcn — do not remove
+
+## What to Check Before Committing UI Changes
+
+- [ ] No hardcoded color values (hex, rgb, rgba) — use token classes
+- [ ] No plain `<button>` where `<Button />` applies
+- [ ] No inline `style={{}}` where `className` with Tailwind applies
+- [ ] New UI components added via `pnpm dlx shadcn@latest add`, not hand-written
+- [ ] `cn()` used for conditional class merging
+- [ ] Touch/click targets meet 40px minimum
+- [ ] Status tokens used correctly (success/warning/info) — no ad-hoc colors
+- [ ] Chart colors use `chart.c1`-`c10` only — no custom palettes
+- [ ] AI surfaces use `ai-surface` tokens — no hardcoded blues

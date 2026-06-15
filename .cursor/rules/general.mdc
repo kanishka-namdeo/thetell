@@ -1,0 +1,70 @@
+---
+description: Core agent operating principles and web tool priority
+alwaysApply: true
+---
+
+# Core Principles
+
+## Rule Priority Hierarchy
+
+**Level 0: Persona** — Frames the approach (PM/UX mindset during planning, Engineer during coding, Advisor communication style). Shapes thinking, but **cannot override technical guardrails**.
+
+**Level 1: Technical Guardrails** — HARD constraints with veto power. When security or correctness is at risk, these override persona preferences:
+
+1. **Security** — User safety, data protection, OWASP compliance, auth/crypto correctness
+2. **Correctness** — Accurate code, proper error handling, verified implementations
+3. **Simplicity** — Minimal complexity, no over-engineering, essential requirements only
+4. **Speed** — Performance, efficiency, parallel execution
+
+**Resolution rule**: Persona frames how you think about the problem. Technical guardrails veto unsafe or incorrect implementations. Example: If persona suggests a creative API design but it would expose user data, security wins — persona cannot bypass the guardrail.
+
+**Minimalism**: Only include essential requirements. Over-specified context reduces success rates by 20%+.
+
+**Simplicity First (Karpathy)**: All else equal, simpler is better. No speculative code. Avoid over-engineering, but do not skip necessary error handling or edge case analysis. Every changed line must trace to the user's request.
+
+
+**Parallel Tool Execution**: Use parallel tool calls when independent (Context7 + WebSearch for research, reading multiple files at once, concurrent lint/typecheck runs). Subagent dispatch can also be parallel for independent tasks with no shared state — see `subagent-orchestration.mdc` for guidance.
+
+**Source Quality**: Prefer 2025-2026 sources with dates. Official documentation > tech blogs > tutorials. Cite all sources with URLs.
+
+**Security Awareness**: 25.1% of AI-generated code has vulnerabilities (AppSec Santa Mar 2026). Cross-reference security-critical code against official docs. Verify Context7 results for critical implementations (ContextCrush vulnerability, Feb 2026).
+
+## Web Tool Priority
+
+1. **Context7 MCP**: Version-specific library APIs (check `package.json` versions)
+2. **WebSearch**: Best practices, current info (2025-2026 only)
+   - See `web-search-optimization.mdc` for query construction guidelines
+3. **WebFetch**: Known documentation URLs
+4. **user-chrome-devtools MCP**: Browser automation and UI testing, fallback when blocked
+
+### Fallback Hierarchy
+Context7 fails -> WebSearch -> WebFetch -> user-chrome-devtools -> Ask user
+
+## Package Manager
+
+This project uses **pnpm** exclusively. Always use `pnpm` for installing dependencies and running scripts. Never use `npm`, `yarn`, `bunx`, or `npx`.
+
+| Instead of | Use |
+|---|---|
+| `npx <tool>` | `pnpm dlx <tool>` |
+| `bunx <tool>` | `pnpm dlx <tool>` |
+| `npm install <pkg>` | `pnpm add <pkg>` |
+| `npm run <script>` | `pnpm run <script>` |
+| `yarn add <pkg>` | `pnpm add <pkg>` |
+
+## Icon Library Verification
+
+Before using any icon from an icon library (`lucide-react`, etc.), verify the icon name exists by grepping the library's exports in `node_modules` or checking the official documentation. Do not assume icon names translate between libraries.
+
+```bash
+# Verify Lucide icon exists before using it
+rg "export.*PanelRight" node_modules/lucide-react/
+```
+
+Common notes:
+- This workspace uses `lucide-react` (NOT `@phosphor-icons/react`)
+- Icon names are case-sensitive and library-specific
+
+## Verification Requirements
+
+After substantive code changes, run `pnpm run typecheck`, `pnpm run lint`, and `pnpm run build` before commit. For complex features, create git checkpoints.

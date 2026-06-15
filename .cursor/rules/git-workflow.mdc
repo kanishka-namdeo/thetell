@@ -1,0 +1,104 @@
+---
+description: Git workflow conventions for branching, commits, and pull requests
+globs:
+alwaysApply: true
+---
+
+# Git Workflow
+
+Standardize git operations for the monorepo (Python backend + Next.js frontend).
+
+## Branch Naming
+
+Use prefixes to indicate branch purpose:
+
+| Prefix | Purpose | Example |
+|--------|---------|---------|
+| `feature/` | New functionality | `feature/signal-analysis-pipeline` |
+| `fix/` | Bug fixes | `fix/scraping-timeout-retry` |
+| `refactor/` | Code restructuring | `refactor/llm-provider-abstract` |
+| `docs/` | Documentation only | `docs/api-endpoint-guide` |
+| `test/` | Test additions | `test/article-generation` |
+| `chore/` | Build, CI, deps | `chore/upgrade-next-16` |
+
+Keep branch names lowercase with hyphens. Max 50 characters.
+
+## Commit Messages
+
+Follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>(<scope>): <short summary>
+
+<optional body - explain WHY, not WHAT>
+```
+
+### Types
+- `feat` — new feature
+- `fix` — bug fix
+- `refactor` — code change that neither fixes nor adds
+- `test` — adding/fixing tests
+- `docs` — documentation only
+- `chore` — build, CI, dependency updates
+- `perf` — performance improvement
+
+### Scopes
+Use the area of the codebase: `backend`, `frontend`, `scraping`, `llm`, `api`, `ci`, `deps`.
+
+### Examples
+```
+feat(scraping): add retry with exponential backoff
+
+fix(api): return 404 for unknown signal IDs
+
+refactor(llm): extract provider interface from OpenAI impl
+
+test(frontend): add snapshot tests for SignalCard
+```
+
+## Pull Requests
+
+### Requirements
+- Descriptive title following conventional commit format
+- Summary of changes and *why* they were made
+- All CI checks passing (lint, tests, type checks)
+- At least one review approval
+- No merge conflicts with base branch
+
+### PR Size
+- Prefer small, focused PRs (< 400 lines of changes)
+- Large features should be split into multiple PRs
+- If a PR is large, explain the breakdown in the description
+
+### Description Template
+```markdown
+## Summary
+What changed and why.
+
+## Test Plan
+- [ ] Unit tests pass
+- [ ] Manual testing done (describe)
+- [ ] No regressions in related areas
+
+## Screenshots
+(if UI changes)
+```
+
+## Merge Strategy
+
+- **Squash merge** for feature branches — keeps history clean
+- **Merge commit** only for long-lived branches (e.g., `release/*`)
+- Delete branch after merge
+
+## Tags & Releases
+
+- Tag releases as `v<MAJOR>.<MINOR>.<PATCH>` (semver)
+- Backend and frontend can be versioned independently if needed: `backend-v1.2.0`, `frontend-v1.3.0`
+- Always tag from `main` branch
+
+## Protecting Main
+
+- No direct pushes to `main`
+- All changes via PR
+- Require CI to pass before merge
+- Require up-to-date branch before merge

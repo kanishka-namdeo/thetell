@@ -1,0 +1,280 @@
+---
+description: LangGraph Python extended reference — checkpointer setup, graph compilation, conditional edges, ToolNode, anti-patterns table, verification checklist. Apply when building new agents or debugging LangGraph issues.
+alwaysApply: false
+---
+
+# LangGraph Reference (Python)
+
+**Trigger**: Reference material for LangGraph Python implementation. Read when building new agents, debugging graph issues, or verifying agent structure.
+
+> **Core patterns**: See [langgraph-patterns.mdc](.cursor/rules/langgraph-patterns.mdc) for state design, node purity, tool loops, routing, and interrupts.
+
+> **Skill**: See [langgraph-orchestration SKILL.md](.cursor/skills/langgraph-orchestration/SKILL.md) for full workflow examples (signal analysis, cross-signal inference, article generation).
+
+## Checkpointer Setup
+
+Use `AsyncPostgresSaver` from `langgraph-checkpoint-postgres`. Reuses the existing `DATABASE_URL`. Never use `MemorySaver` in production.
+
+```python
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from app.config import settings
+
+async def get_checkpointer() -> AsyncPostgresSaver:
+    return AsyncPostgresSaver.from_conn_string(settings.database_url)
+```
+
+### Checkpointer Rules
+
+| Rule | Detail |
+|------|--------|
+| Lazy init | Create once per process, cache the instance |
+| Call `setup()` once | Only on first creation (creates tables) |
+| Thread isolation | Each user session gets a unique `thread_id` |
+| No manual DB writes in nodes | Let the checkpointer handle persistence |
+| Connection pooling | `AsyncPostgresSaver` manages its own pool |
+
+### Graph Compilation with Checkpointer
+
+```python
+from langgraph.graph import StateGraph, START, END
+
+async def build_graph():
+    checkpointer = await get_checkpointer()
+    graph = StateGraph(SignalAnalysisState)
+    graph.add_node("extract_facts", extract_facts)
+    graph.add_node("classify", classify_sentiment)
+    graph.add_edge(START, "extract_facts")
+    graph.add_edge("extract_facts", "classify")
+    graph.add_edge("classify", END)
+    return graph.compile(checkpointer=checkpointer)
+```
+
+### Invoke with Thread Config
+
+```python
+result = await app.ainvoke(
+    {"signal_id": "abc-123", "raw_text": "...", "company_id": "co-456"},
+    config={"configurable": {"thread_id": "analysis-abc-123"}},
+)
+```
+
+---
+
+## State Definition
+
+Use `TypedDict` with `Annotated` reducers. Every list field needs an append reducer.
+
+```python
+from typing import TypedDict, Annotated
+from langgraph.graph.message import add_messages
+from langchain_core.messages import BaseMessage
+
+class SignalAnalysisState(TypedDict):
+    signal_id: str
+    raw_text: str
+    company_id: str
+    facts: Annotated[list[dict], lambda a, b: a + b]
+    sentiment: str
+    confidence_score: float
+    summary: str
+    error: str | None
+    messages: Annotated[list[BaseMessage], add_messages]
+```
+
+### Reducer Selection
+
+| Pattern | Reducer | Use Case |
+|---------|---------|----------|
+| Replace value | No reducer needed (last-write-wins) | `sentiment`, `confidence_score`, `error` |
+| Append list | `lambda a, b: a + b` | `facts`, `patterns`, `signal_texts` |
+| Messages | `add_messages` | Chat history (built-in dedup + ordering) |
+
+---
+
+## add_conditional_edges() Patterns
+
+### Basic Routing
+
+```python
+def route_by_confidence(state: SignalAnalysisState) -> str:
+    if state.get("error"):
+        return "dead_letter"
+    if state["confidence_score"] >= 0.8:
+        return "publish"
+    return "review"
+
+graph.add_conditional_edges(
+    "score_confidence",
+    route_by_confidence,
+    {
+        "publish": "generate_summary",
+        "review": "analyst_review",
+        "dead_letter": "failed_analysis",
+    },
+)
+```
+
+### Tool Loop Routing
+
+```python
+from langchain_core.messages import AIMessage
+
+def should_call_tools(state: SignalAnalysisState) -> str:
+    last = state["messages"][-1]
+    if isinstance(last, AIMessage) and last.tool_calls:
+        return "tools"
+    return "end"
+
+graph.add_conditional_edges("model", should_call_tools, {
+    "tools": "tools",
+    "end": END,
+})
+graph.add_edge("tools", "model")  # loop back
+```
+
+### Max Iteration Guard
+
+```python
+def should_continue(state: InferenceState) -> str:
+    if state["iteration"] >= MAX_ITERATIONS:
+        return "finalize"
+    return "detect_patterns"
+
+graph.add_conditional_edges("refine", should_continue)
+```
+
+### Routing Rules
+
+| Rule | Detail |
+|------|--------|
+| Pure functions only | No mutation, no side effects, no LLM calls |
+| Return string keys | Must match a key in the path map (or be the node name if no map) |
+| Always handle errors | Check `state.get("error")` before other conditions |
+| Log routing decisions | Use `logger.debug()` for routing trace |
+
+---
+
+## ToolNode from langgraph.prebuilt
+
+Use `ToolNode` for explicit tool execution loops. Never handle tool calls inside model nodes.
+
+```python
+from langgraph.prebuilt import ToolNode
+from langchain_openai import ChatOpenAI
+
+tools = [search_tool, scrape_tool]
+llm = ChatOpenAI(model="gpt-4o").bind_tools(tools)
+
+async def model_node(state: SignalAnalysisState) -> dict:
+    response = await llm.ainvoke(state["messages"])
+    return {"messages": [response]}
+
+tool_node = ToolNode(tools)
+
+graph.add_node("model", model_node)
+graph.add_node("tools", tool_node)
+graph.add_conditional_edges("model", should_call_tools, {
+    "tools": "tools",
+    "end": END,
+})
+graph.add_edge("tools", "model")  # loop back to model after tool execution
+```
+
+### ToolNode Rules
+
+| Rule | Detail |
+|------|--------|
+| Explicit loop | Model → conditional → ToolNode → model |
+| Never hide tool calls | Graph must see every tool invocation |
+| Bind tools to LLM | `llm.bind_tools([tools])` before model node |
+| Tool-loop guard | Add iteration counter to prevent infinite loops |
+
+---
+
+## Anti-Patterns
+
+| Anti-Pattern | Why It's Bad | Fix |
+|---|---|---|
+| **State mutation in nodes** | Breaks reducer merge, corrupts checkpoints | Return partial state dicts: `return {"facts": [...]}` |
+| **Hidden tool calls in model nodes** | Graph can't track or replay tool execution | Use `ToolNode` + conditional edge + loop-back |
+| **Unbounded loops** | Infinite loops burn tokens and crash | Add `iteration` field + `MAX_ITERATIONS` guard |
+| **Blocking I/O in async nodes** | Blocks the event loop, kills concurrency | Use `httpx.AsyncClient`, `asyncpg`, not `requests`/`psycopg2` |
+| **Missing checkpointing** | No crash recovery, lost progress on failure | Always `compile(checkpointer=...)` in production |
+| **Side effects in routing functions** | Non-deterministic routing, breaks replay | Pure inspection only — read state, return string |
+| **Manual DB writes + checkpointer** | Double-write, inconsistent state on replay | Use checkpointer for all graph persistence |
+| **God nodes** | Multiple responsibilities, hard to test | Split into focused single-purpose nodes |
+| **`MemorySaver` in production** | Lost on restart, no crash recovery | Use `AsyncPostgresSaver` with `DATABASE_URL` |
+| **Sync I/O in async nodes** | Blocks event loop | Use `await` for all I/O; wrap sync calls in `asyncio.to_thread()` |
+
+---
+
+## Interrupts (Human-in-the-Loop)
+
+```python
+from langgraph.types import interrupt
+
+async def analyst_review(state: SignalAnalysisState) -> dict:
+    decision = interrupt({
+        "signal_id": state["signal_id"],
+        "summary": state["summary"],
+        "confidence": state["confidence_score"],
+        "action": "approve or reject this inference",
+    })
+    if decision == "approve":
+        return {"messages": [{"role": "human", "content": "Approved"}]}
+    return {"error": "Rejected by analyst"}
+```
+
+---
+
+## Crash Recovery & Time-Travel
+
+```python
+# Resume from last checkpoint after failure
+state = await app.aget_state(config)
+result = await app.ainvoke(None, config=config)
+
+# List checkpoint history
+history = [c async for c in app.aget_state_history(config)]
+
+# Replay from specific checkpoint
+await app.ainvoke(None, config={
+    "configurable": {"thread_id": "...", "checkpoint_id": "..."}
+})
+```
+
+---
+
+## Streaming
+
+```python
+# Token-level streaming (for WebSocket/SSE to frontend)
+async for event in app.astream_events(input_data, config=config, version="v2"):
+    if event["event"] == "on_chat_model_stream":
+        token = event["data"]["chunk"].content
+        await websocket.send_json({"type": "token", "content": token})
+
+# Node-level streaming (intermediate results)
+async for chunk in app.astream(input_data, config=config):
+    for node_name, node_output in chunk.items():
+        await websocket.send_json({"type": "node_output", "node": node_name, "data": node_output})
+```
+
+---
+
+## Verification Checklist
+
+Before committing Python LangGraph code:
+
+- [ ] State uses `TypedDict` with `Annotated` reducers for list fields
+- [ ] All nodes are `async def` and return partial state dicts
+- [ ] All routing functions are pure (no mutation, no side effects, no LLM calls)
+- [ ] Tool-enabled steps use `ToolNode` + conditional edge + loop-back edge
+- [ ] Tool-loop guards present with `iteration` field + `MAX_ITERATIONS`
+- [ ] Graph compiled with `checkpointer=AsyncPostgresSaver` (not `MemorySaver`)
+- [ ] All I/O is async (`httpx`, `asyncpg`) — no blocking `requests`/`psycopg2`
+- [ ] No manual DB writes in node functions (use checkpointer)
+- [ ] Thread config uses unique `thread_id` per session
+- [ ] Error paths route to dead-letter nodes, not silent drops
+- [ ] Interrupts used for human-in-the-loop on high-confidence decisions
+- [ ] Streaming uses `astream_events(version="v2")` for token-level output

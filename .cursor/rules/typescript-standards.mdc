@@ -1,0 +1,195 @@
+---
+description: TypeScript coding standards and conventions. Apply when creating, modifying, or reviewing TypeScript/TSX files. Covers naming, types, imports, error handling, and async patterns.
+globs: src/**/*.ts,src/**/*.tsx
+---
+
+# TypeScript Standards
+
+**Trigger**: Auto-applied to all `.ts` and `.tsx` files.
+
+## Naming Conventions
+
+| Symbol | Convention | Example |
+|--------|-----------|---------|
+| Types/Interfaces | PascalCase | `UserProfile`, `ApiResponse` |
+| Enums | PascalCase | `UserRole`, `HttpStatus` |
+| Classes | PascalCase | `AuthService`, `GraphBuilder` |
+| Functions/Methods | camelCase | `fetchUserData`, `handleClick` |
+| Variables | camelCase | `isLoading`, `userId` |
+| Constants | UPPER_SNAKE_CASE | `MAX_RETRY_COUNT`, `API_BASE_URL` |
+| React Components | PascalCase | `LoginPage`, `DashboardHeader` |
+| Custom Hooks | camelCase, `use` prefix | `useAuth`, `useOnboarding` |
+| Files (modules) | kebab-case | `user-service.ts`, `graph-builder.ts` |
+| Files (components) | kebab-case | `login-page.tsx`, `user-card.tsx` |
+
+## Type Safety
+
+**Never use `any`**. Use one of these instead:
+
+```typescript
+// Unknown for values to be validated
+const raw: unknown = JSON.parse(response);
+const parsed = validateUser(raw);
+
+// Generics for reusable patterns
+function handleApi<T>(response: ApiResponse<T>): T { /* ... */ }
+
+// Record<string, unknown> for dynamic objects (avoid when a type can be defined)
+const metadata: Record<string, unknown> = {};
+```
+
+**Prefer `interface` for object shapes**, `type` for unions, intersections, and mapped types:
+
+```typescript
+interface UserProfile {
+  id: string;
+  email: string;
+  displayName: string;
+}
+
+type UserRole = 'admin' | 'editor' | 'viewer';
+type Result<T> = { ok: true; data: T } | { ok: false; error: Error };
+```
+
+**Use discriminated unions for stateful operations**:
+
+```typescript
+type FetchState<T> =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'success'; data: T }
+  | { status: 'error'; message: string };
+```
+
+## Import Organization
+
+Order imports in four groups, separated by blank lines:
+
+```typescript
+// 1. External dependencies (node_modules)
+import { NextResponse } from 'next/server';
+import bcrypt from 'bcryptjs';
+
+// 2. Internal absolute imports (@/ alias)
+import { prisma } from '@/lib/prisma';
+import { cn } from '@/lib/utils';
+
+// 3. Relative imports (same directory or subdirectories)
+import { validateEmail } from './validators';
+
+// 4. Type imports (only if not inlined above)
+import type { UserProfile } from '@/types/user';
+```
+
+Use `import type` for types used only at compile time:
+
+```typescript
+import type { NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
+```
+
+## Error Handling
+
+**Wrap async operations in try/catch. Never swallow errors**:
+
+```typescript
+// GOOD — typed error handling
+export async function registerUser(data: RegisterInput) {
+  try {
+    const existing = await prisma.user.findUnique({ where: { email: data.email } });
+    if (existing) {
+      throw new ConflictError('Email already registered');
+    }
+    // ...
+  } catch (error) {
+    if (error instanceof ConflictError) throw error;
+    logger.error('registerUser.failed', { error: String(error) });
+    throw new InternalError('Failed to create user');
+  }
+}
+```
+
+**Return typed Result objects instead of throwing in library code**:
+
+```typescript
+type Result<T> =
+  | { success: true; data: T }
+  | { success: false; error: string };
+
+export async function fetchProfile(userId: string): Promise<Result<Profile>> {
+  try {
+    const profile = await prisma.profile.findUnique({ where: { userId } });
+    if (!profile) return { success: false, error: 'Profile not found' };
+    return { success: true, data: profile };
+  } catch {
+    return { success: false, error: 'Failed to fetch profile' };
+  }
+}
+```
+
+**API routes always return structured error responses**:
+
+```typescript
+return NextResponse.json(
+  { error: 'Human-readable message' },
+  { status: 400 }
+);
+```
+
+## Async Patterns
+
+**Always use `async/await`, never `.then()` chains**:
+
+```typescript
+// GOOD
+const user = await prisma.user.findUnique({ where: { id } });
+const workspace = await prisma.workspace.create({ data: { userId: user.id } });
+
+// BAD
+prisma.user.findUnique({ where: { id } }).then(user =>
+  prisma.workspace.create({ data: { userId: user.id } })
+);
+```
+
+**Run independent operations with `Promise.all`**:
+
+```typescript
+const [user, workspace] = await Promise.all([
+  prisma.user.findUnique({ where: { id } }),
+  prisma.workspace.findFirst({ where: { userId: id } }),
+]);
+```
+
+## Functions
+
+**Single-responsibility. Prefer small, composable functions**:
+
+```typescript
+// GOOD — each function does one thing
+function hashPassword(plain: string): Promise<string> {
+  return bcrypt.hash(plain, 12);
+}
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+// BAD — multiple responsibilities
+async function handleRegistration(req: Request) {
+  // hash + validate + create + respond all in one
+}
+```
+
+**Use explicit return types on exported functions**:
+
+```typescript
+export async function createWorkspace(userId: string): Promise<Workspace> {
+  // ...
+}
+```
+
+## No Unused Code
+
+- Remove unused imports, variables, and type parameters
+- NEVER leave `console.*` in production code — use the centralized logger (`@/lib/logger`) for all logging
+- Do not leave commented-out code blocks — delete and rely on git history

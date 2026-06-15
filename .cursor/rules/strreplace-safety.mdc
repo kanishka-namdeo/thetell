@@ -1,0 +1,37 @@
+---
+description: StrReplace safety patterns for large JSX blocks and markdown tables. Apply when making large replacements (>30 lines) or editing .md table sections.
+alwaysApply: false
+---
+
+# StrReplace Safety
+
+**Trigger**: Making large StrReplace replacements (>30 lines) or editing markdown tables.
+
+## Large JSX/TSX Block Replacements (>30 lines)
+
+1. **List all children before replacing**: Identify every child element. Mark which ones move, which stay, which are removed.
+2. **Verify new_string preserves elements**: Before executing, mentally confirm every element that should survive is in the replacement.
+3. **Split multi-section replacements**: If the replacement spans toolbar + content + dialogs, use separate StrReplace calls for each section.
+
+## Markdown Table Replacements
+
+1. **Read exact lines first**: Use `Read` with `offset` and `limit` to get precise content including all whitespace.
+2. **Match entire table sections**: Include header row, divider line (`|---|`), and all rows as `old_string`.
+3. **On first failure, re-read at exact line numbers**: Do not guess at whitespace or pipe-character formatting.
+
+### Anti-Pattern (4 consecutive failures)
+
+```
+Turn 1: StrReplace with || prefix in old_string -> fails (wrong format)
+Turn 2: StrReplace with partial match -> fails (whitespace mismatch)
+Turn 3: StrReplace with different partial match -> fails
+Turn 4: Re-read exact lines, use full block as old_string -> succeeds
+```
+
+### Correct Pattern
+
+```
+Turn 1: Read exact lines with offset+limit
+Turn 2: StrReplace with full table section as old_string -> succeeds
+Turn 3: If fails, re-read exact lines and retry
+```

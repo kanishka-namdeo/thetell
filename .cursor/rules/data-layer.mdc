@@ -1,0 +1,156 @@
+---
+description: Prisma ORM patterns and data layer conventions. Covers query optimization, transactions, type usage, validation, and access patterns. Apply when writing database code.
+globs: src/lib/db/**/*.ts,src/lib/prisma.ts
+---
+
+# Data Layer Conventions
+
+**Trigger**: Auto-applied to `src/lib/db/**/*.ts` and `src/lib/prisma.ts`.
+
+## Prisma Client Usage
+
+**Import the singleton from `@/lib/prisma`, never instantiate directly**:
+
+```typescript
+import { prisma } from '@/lib/prisma';
+```
+
+**Import Prisma types from the generated client**:
+
+```typescript
+import type { Prisma } from '@/app/generated/prisma';
+```
+
+## Query Optimization
+
+**Avoid N+1 queries with `include` or `select`**:
+
+```typescript
+// GOOD — single query with relation
+const user = await prisma.user.findUnique({
+  where: { id },
+  include: { workspaces: true },
+});
+
+// BAD — N+1 pattern
+const user = await prisma.user.findUnique({ where: { id } });
+const workspaces = await prisma.workspace.findMany({ where: { userId: id } });
+```
+
+**Use `select` instead of `include` when you only need specific fields**:
+
+```typescript
+const users = await prisma.user.findMany({
+  select: { id: true, email: true, name: true },
+});
+```
+
+**Never select sensitive fields in client-facing responses**:
+
+```typescript
+// BAD — leaks password hash
+const user = await prisma.user.findUnique({ where: { email } });
+res.json(user);
+
+// GOOD — exclude password
+const user = await prisma.user.findUnique({
+  where: { email },
+  select: { id: true, email: true, name: true },
+});
+```
+
+## Transactions
+
+**Use `$transaction` for multi-write operations that must succeed or fail together**:
+
+```typescript
+// GOOD — atomic workspace + user creation
+const [user, workspace] = await prisma.$transaction([
+  prisma.user.create({ data: { email, name, password: hashed } }),
+  prisma.workspace.create({ data: { userId: '' } }), // fill after
+]);
+```
+
+**Use the callback form when later queries depend on earlier results**:
+
+```typescript
+const result = await prisma.$transaction(async (tx) => {
+  const user = await tx.user.create({
+    data: { email, name, password: hashed },
+  });
+  const workspace = await tx.workspace.create({
+    data: { userId: user.id },
+  });
+  return { user, workspace };
+});
+```
+
+## Validation at the Data Layer
+
+**Validate inputs before hitting the database**:
+
+```typescript
+import { z } from 'zod';
+
+const createWorkspaceSchema = z.object({
+  name: z.string().min(1).max(100),
+  autonomyLevel: z.enum(['suggestions', 'review_before_publish', 'full_auto']),
+});
+
+export async function createWorkspace(userId: string, input: unknown) {
+  const parsed = createWorkspaceSchema.parse(input);
+  return prisma.workspace.create({
+    data: { userId, name: parsed.name, autonomyLevel: parsed.autonomyLevel },
+  });
+}
+```
+
+## Handling Optional Fields
+
+**Use Prisma's type system for nullable fields**:
+
+```typescript
+import type { Prisma } from '@/app/generated/prisma';
+
+// Json fields need explicit typing when writing
+const profile = await prisma.userProfile.create({
+  data: {
+    workspaceId,
+    bio: { name: 'My Business' } as Prisma.JsonObject,
+    tone: 'professional',
+  },
+});
+```
+
+## Unique Constraint Errors
+
+**Catch and handle `P2002` (unique constraint violation) errors**:
+
+```typescript
+import { PrismaClientKnownRequestError } from '@/app/generated/prisma/runtime/library';
+
+try {
+  await prisma.user.create({ data: { email, name, password } });
+} catch (error) {
+  if (
+    error instanceof PrismaClientKnownRequestError &&
+    error.code === 'P2002'
+  ) {
+    throw new ConflictError('Email already registered');
+  }
+  throw error;
+}
+```
+
+## Migration Conventions
+
+- **Always create a migration for schema changes**: `pnpm exec prisma migrate dev`
+- **Never edit the generated client directly** — only modify `prisma/schema.prisma`
+- **Commit migrations and schema together**
+- **Test migrations on a copy of production data before running in production**
+
+## Access Pattern Guidelines
+
+- **Queries in Route Handlers**: Use Prisma directly in route handlers. Do not create thin wrapper services unless the query is reused across 3+ locations.
+- **Shared database logic in `src/lib/db/`**: Extract reusable operations (e.g., `getOrCreateSession`, `markOnboardingComplete`) to dedicated files under `src/lib/db/`.
+- **Never pass raw Prisma client to UI components** — fetch in Server Components or Route Handlers and pass plain data.

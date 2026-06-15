@@ -1,0 +1,180 @@
+---
+description: Subagent orchestration patterns — parallel dispatch, circuit breakers, timeouts, coordination patterns, decomposition criteria. Apply when dispatching multiple Task subagents or planning complex multi-agent workflows.
+alwaysApply: false
+---
+
+# Subagent Orchestration
+
+**Trigger**: Dispatching Task subagents, planning multi-agent workflows, or when scope analysis indicates SUBAGENT.
+
+> **Execution flow**: See [plan-execution.mdc](.cursor/rules/plan-execution.mdc) for decision tree and verification steps. This file covers coordination patterns.
+
+## Coordination Pattern Selection
+
+Choose the right orchestration pattern based on task structure:
+
+```
+Is the task naturally Sequential?
+├── Yes -> Pipeline (stage N output feeds stage N+1)
+└── No
+    ├── Does task benefit from multiple perspectives?
+    │   ├── Yes, 2 perspectives -> Debate/Negotiator
+    │   └── Yes, 3+ perspectives -> Fan-out parallel
+    └── No
+        ├── Is task decomposable into clear subtasks?
+        │   ├── Yes -> Supervisor + Specialists (DEFAULT)
+        │   └── No -> Single agent (don't over-engineer)
+        └── Massive scale (100+ tasks)? -> Swarm (rare)
+```
+
+**Default: Supervisor + Specialists** — 96.3% success rate pattern. Start here.
+
+### Pattern Definitions
+
+| Pattern | When to Use | Example |
+|---------|-------------|---------|
+| **Pipeline** | Sequential dependencies, each stage feeds next | Research -> Draft -> Review -> Publish |
+| **Fan-out** | 3+ independent tasks, no shared state | Fix 3 separate test files in parallel |
+| **Supervisor + Specialists** | Decomposable with different expertise | Frontend dev + Backend dev + Security auditor |
+| **Debate** | Need multiple perspectives on same problem | Design decision with pros/cons analysis |
+
+---
+
+## When to Parallelize (Rule of 3)
+
+Only dispatch parallel subagents when a task decomposes into **3+ independent, non-overlapping subtasks**. Below 3 tasks, a single agent or sequential dispatch is faster end-to-end.
+
+Each parallel subtask should take an estimated **15-45 minutes**. Under 15 minutes, the overhead isn't worth it. Over 45 minutes, decompose further.
+
+---
+
+## Decomposition Criteria
+
+Parallel tasks MUST meet ALL of these criteria:
+
+| Criterion | Pass Check |
+|-----------|------------|
+| **Different files** | No two tasks touch the same file |
+| **Different entities** | No two tasks touch the same function/class |
+| **Explicit interfaces** | When tasks interact, interface is pre-defined |
+| **No shared state** | No task reads another's output to do its work |
+| **Roughly equal cost** | No one subtask dominates the wall clock |
+
+**Semantic conflicts matter more than file conflicts**: Two agents editing different functions in the same file can produce a "clean" git merge that still breaks the build. Decompose at the function/entity level.
+
+---
+
+## Clean Summary Discipline
+
+Subagents return only **distilled results** (~400 tokens), not raw transcripts.
+
+```
+GOOD: "3 tests failed: auth.test.ts:42 (JWT expired). Fixed by adding null check."
+BAD: Full 20,000-token test output dumped into orchestrator context
+```
+
+---
+
+## Scoped Context Injection
+
+Task descriptions must be the **minimum needed** for that specific task. Do not dump the parent's full session context.
+
+```
+GOOD: "Add OAuth callback route at /api/auth/:platform/callback. See existing authorize route for pattern."
+BAD: [5,000-token dump of entire auth architecture discussion]
+```
+
+---
+
+## Least-Privilege Tool Access
+
+Set `readonly` appropriately per subagent role:
+
+| Role | readonly | Reason |
+|------|----------|--------|
+| Research/exploration | `true` | Cannot accidentally modify files |
+| Review/audit | `true` | Read-only analysis, findings as summary |
+| Implementation | `false` | Needs to write code |
+| Test runner | `false` | Needs to execute test commands |
+
+---
+
+## Timeout Specification
+
+Every subagent dispatch MUST have an expected duration. Aggressive timeouts with explicit fallback behavior are mandatory.
+
+| Task Type | Timeout | Fallback |
+|-----------|---------|----------|
+| Mechanical (1-2 files, complete spec) | 2 minutes | Retry with narrower scope |
+| Integration (multi-file coordination) | 5 minutes | Escalate to human if blocked |
+| Research/exploration | 5 minutes | Return partial findings |
+| Long-running background task | No timeout | Use `run_in_background: true` |
+
+**Cascading timeout pattern**: If a subagent stalls, spawn a new subagent with narrower scope rather than waiting indefinitely.
+
+---
+
+## Circuit Breakers: Max Limits Per Request
+
+Prevent runaway recursion and token burn:
+
+| Limit | Value | Rationale |
+|-------|-------|-----------|
+| Max concurrent subagents | 5 | Rate limit awareness |
+| Max total per request tree | 10 | Prevent unbounded token consumption |
+| Max retries per failed subagent | 2 | Escalate instead of infinite retry |
+| Max nesting depth | 1 | Cursor model inheritance bugs at level 2+ |
+
+---
+
+## Background Async Pattern
+
+For long-running tasks, use background dispatch:
+
+```typescript
+Task({
+  subagent_type: "generalPurpose",
+  prompt: "[Task description with clear success criteria]",
+  description: "Background research task",
+  run_in_background: true  // Returns immediately, runs async
+})
+```
+
+**After background dispatch**:
+- Continue working on other tasks in the foreground
+- Do NOT block waiting for the background task
+- Check terminal output later or await completion notification
+
+---
+
+## Rate Limit Awareness
+
+Too many concurrent subagent dispatches can hit API rate limits. When dispatching 5+ parallel subagents, stagger launches by 30-60 seconds.
+
+---
+
+## Post-Integration Verification
+
+After all parallel subagents return:
+
+1. **Check for conflicts**: Did agents edit the same file or function?
+2. **Run full test suite**: Parallel agents may produce broken build when merged
+3. **Run full verification**: `pnpm run typecheck`, then `pnpm run lint`, then `pnpm run build` (separate commands for PowerShell 5.1)
+4. **Verify semantic integrity**: Check that changed functions still compile together
+
+---
+
+## Anti-Patterns
+
+| Anti-Pattern | Problem | Fix |
+|---|---|---|
+| **Over-parallelization** | 2 tasks costs more than single agent | Use Rule of 3 |
+| **Context pollution** | Subagent gets full parent context | Scope to minimum needed |
+| **No review bottleneck planning** | 10 agents finish, human can only review 3 | Limit to review capacity |
+| **Force-push on shared branches** | Destroys other agents' work | Never force-push |
+| **Ignoring semantic collisions** | Two agents change same function signature | Decompose at entity level |
+| **Dumping test output** | 20K tokens floods parent context | Return summary only |
+| **Nested subagents** | Level 2+ falls back to older model | Flatten to level 1 only |
+| **CLI nesting** | CLI lacks Task tool interface | Use IDE for subagent work |
+| **No timeout fallback** | Stalled subagent blocks workflow | Define recovery path |
+| **Blocking on background tasks** | Orchestrator stalls | Continue work, poll later |

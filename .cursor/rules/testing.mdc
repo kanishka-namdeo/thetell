@@ -1,0 +1,181 @@
+---
+description: Testing requirements and patterns for backend and frontend
+globs:
+alwaysApply: true
+---
+
+# Testing
+
+Define testing requirements and patterns for the Python FastAPI backend and Next.js frontend.
+
+## Coverage Requirements
+
+- **Minimum:** 80% line coverage for backend, 70% for frontend
+- **Critical paths:** 90%+ for scraping pipeline, LLM abstraction, signal analysis
+- Measure with `coverage.py` (backend) and built-in Next.js coverage (frontend)
+
+## Test File Naming & Location
+
+### Backend (Python)
+```
+backend/
+├── app/
+│   ├── scraping/
+│   │   ├── scraper.py
+│   │   └── test_scraper.py      # co-located unit tests
+│   └── llm/
+│       ├── provider.py
+│       └── test_provider.py
+└── tests/
+    ├── conftest.py              # shared fixtures
+    ├── integration/
+    │   └── test_pipeline.py     # integration tests
+    └── e2e/
+        └── test_full_flow.py    # end-to-end tests
+```
+
+### Frontend (TypeScript)
+```
+src/
+├── components/
+│   ├── SignalCard.tsx
+│   └── SignalCard.test.tsx      # co-located
+├── app/
+│   └── articles/
+│       └── page.test.tsx
+└── __tests__/                   # shared test utilities
+    └── test-utils.tsx
+```
+
+## Test Types & Boundaries
+
+### Unit Tests
+- Pure functions: parsing, classification, formatting
+- No external dependencies (mock everything)
+- Fast (< 100ms per test)
+- **Backend:** pytest + pytest-asyncio
+- **Frontend:** Vitest + React Testing Library
+
+### Integration Tests
+- Test interactions between components (e.g., scraper → parser → cache)
+- Mock external services (HTTP, LLM APIs, database)
+- **Backend:** pytest + httpx mock + test database
+- **Frontend:** component + API route tests
+
+### End-to-End Tests
+- Full pipeline with real (or realistic) data
+- Use Playwright for browser automation
+- Run in CI on every PR
+- Keep minimal — only critical user flows
+
+## Mocking Strategies
+
+### Scraping Tests
+Mock HTTP responses, not parsing logic:
+
+```python
+@pytest.fixture
+def mock_httpx():
+    with httpx.MockTransport(lambda req: httpx.Response(200, text="<html>...</html>")) as transport:
+        yield transport
+
+def test_parse_article(mock_httpx):
+    result = parse_article("https://example.com/article")
+    assert result.title == "Expected Title"
+```
+
+### LLM Tests
+Mock LLM responses, test prompt construction and output parsing:
+
+```python
+def test_extract_facts_prompt():
+    prompt = build_extract_prompt(sample_text)
+    assert "Extract key facts" in prompt
+    assert sample_text in prompt
+
+@pytest.mark.asyncio
+async def test_parse_llm_response():
+    mock_response = '{"facts": [{"text": "Revenue up 20%"}]}'
+    result = parse_extract_response(mock_response)
+    assert len(result.facts) == 1
+    assert result.facts[0].text == "Revenue up 20%"
+```
+
+### Database Tests
+Use test database or in-memory SQLite:
+
+```python
+@pytest.fixture
+def db_session():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        yield session
+```
+
+## Test Data Management
+
+- **Fixtures:** Use pytest fixtures for reusable test data
+- **Factories:** Use factory_boy for complex models
+- **Snapshots:** Use syrupy for snapshot testing LLM output structure
+- **Never commit:** Real API keys, PII, or large datasets
+
+```python
+@pytest.fixture
+def sample_signal():
+    return Signal(
+        source_url="https://example.com/news",
+        raw_text="Company X reported 20% revenue growth...",
+        scraped_at=datetime.now(timezone.utc),
+    )
+```
+
+## CI Test Requirements
+
+All PRs must pass:
+1. `ruff check` — linting
+2. `mypy --strict` — type checking
+3. `pytest` — all tests (unit + integration)
+4. `pnpm lint` — frontend linting
+5. `pnpm test` — frontend tests
+6. Coverage threshold met
+
+## Running Tests Locally
+
+### Backend
+```powershell
+Set-Location backend
+.venv\Scripts\python.exe -m pytest                    # all tests
+.venv\Scripts\python.exe -m pytest -x                 # stop on first failure
+.venv\Scripts\python.exe -m pytest tests\unit\        # unit tests only
+.venv\Scripts\python.exe -m pytest --cov=app --cov-report=term-missing
+```
+
+### Frontend
+```powershell
+pnpm test                                            # all tests
+pnpm test -- --watch                                 # watch mode
+pnpm test -- --coverage                              # with coverage
+```
+
+### Running Tests on Windows
+
+On Windows, backend tests require the virtual environment. See `python-venv.mdc` for details.
+
+```powershell
+# Option 1: Activate venv for the session, then use venv Python
+.venv\Scripts\Activate.ps1
+Set-Location backend
+.venv\Scripts\python.exe -m pytest
+
+# Option 2: Use venv Python directly (no activation needed)
+Set-Location backend
+.venv\Scripts\python.exe -m pytest
+```
+
+**Windows Testing Checklist**
+
+Before running backend tests on Windows:
+- [ ] Virtual environment activated OR using `.venv\Scripts\python.exe -m pytest`
+- [ ] No `cd &&` chains (use separate `Set-Location` and command)
+- [ ] Path separators: Use `\` for native Windows paths or `/` for Docker/git

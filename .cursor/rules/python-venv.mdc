@@ -1,0 +1,87 @@
+---
+description: Python 3.13 virtual environment configuration. Always active on Windows — all Python commands must use the workspace venv.
+alwaysApply: true
+---
+
+# Python Virtual Environment
+
+All Python development in this workspace uses the local Python 3.13 virtual environment.
+
+## Paths
+
+| Item | Path |
+|---|---|
+| Venv root | `.venv/` |
+| Python executable | `.venv\Scripts\python.exe` |
+| Pip executable | `.venv\Scripts\pip.exe` |
+| Site-packages | `.venv\Lib\site-packages\` |
+| Python version | 3.13 (system install at `C:\Users\kanis\AppData\Local\Python\pythoncore-3.13-64\python.exe`) |
+
+## Command Rules
+
+### Always use the venv Python — never the system Python
+
+```powershell
+# ❌ BAD — uses system Python
+python script.py
+pip install requests
+
+# ❌ BAD — uses py launcher directly (system Python)
+py -3.13 script.py
+
+# ✅ GOOD — uses venv Python
+.venv\Scripts\python.exe script.py
+.venv\Scripts\pip.exe install requests
+```
+
+### Shortcut: activate venv for the session
+
+```powershell
+# Activate once, then use python/pip directly
+.venv\Scripts\Activate.ps1
+python script.py
+pip install requests
+```
+
+### Package management
+
+```powershell
+# Install packages
+.venv\Scripts\pip.exe install <package>
+
+# Install from requirements
+.venv\Scripts\pip.exe install -r requirements.txt
+
+# Freeze dependencies
+.venv\Scripts\pip.exe freeze > requirements.txt
+
+# List installed packages
+.venv\Scripts\pip.exe list
+```
+
+### Running tools (pytest, ruff, mypy, etc.)
+
+```powershell
+# After installing tools
+.venv\Scripts\python.exe -m pytest
+.venv\Scripts\python.exe -m ruff check .
+.venv\Scripts\python.exe -m mypy --strict .
+```
+
+## Creating the Venv (reference only — already created)
+
+```powershell
+# If the venv needs to be recreated:
+py -3.13 -m venv .venv
+.venv\Scripts\pip.exe install --upgrade pip
+```
+
+## Anti-Patterns
+
+| Anti-Pattern | Correct Behavior |
+|---|---|
+| `python script.py` (system Python) | `.venv\Scripts\python.exe script.py` |
+| `pip install pkg` (system pip) | `.venv\Scripts\pip.exe install pkg` |
+| `py -3.13 script.py` (bypasses venv) | `.venv\Scripts\python.exe script.py` |
+| `python -m venv .venv` (may pick wrong Python) | `py -3.13 -m venv .venv` (creation only) |
+| Installing packages globally | Always install into `.venv` |

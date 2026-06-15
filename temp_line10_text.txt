@@ -1,0 +1,465 @@
+The tell transforms raw corporate signals into structured intelligence about what companies are really thinking and planning.
+
+---
+
+## Table of Contents
+
+1. [Palantir Foundry/Gotham](#1-palantir-foundrygotham)
+2. [Board Foresight/Signals (formerly Prevedere)](#2-board-foresightsignals-formerly-prevedere)
+3. [CB Insights](#3-cb-insights)
+4. [PitchBook](#4-pitchbook)
+5. [Crunchbase](#5-crunchbase)
+6. [Similarweb](#6-similarweb)
+7. [Thinknum](#7-thinknum)
+8. [Preqin](#8-preqin)
+9. [Glassdoor / LinkedIn Economic Graph](#9-glassdoor--linkedin-economic-graph)
+10. [GovTrack / OpenSecrets](#10-govtrack--opensecrets)
+11. [Perplexity / You.com](#11-perplexity--youcom)
+12. [Elicit / Consensus](#12-elicit--consensus)
+13. [Cross-Cutting Themes: What Makes Great Data Intelligence UX](#13-cross-cutting-themes-what-makes-great-data-intelligence-ux)
+14. [Summary: Key Lessons for The Tell](#14-summary-key-lessons-for-the-tell)
+
+---
+
+## 1. Palantir Foundry/Gotham
+
+### What It Does
+
+Palantir operates two integrated platforms built on a shared semantic layer called the **Ontology**. **Gotham** is the defense/intelligence platform for multi-source intelligence fusion, entity correlation, and collaborative investigation. **Foundry** is the commercial enterprise platform for data management, pipeline orchestration, analytics, and workflow automation. Both platforms unify massive volumes of disparate data into a single operational view.
+
+In 2024-2025, Palantir added **AIP (Artificial Intelligence Platform)** on top of the Ontology — it does not replace Gotham or Foundry but layers LLM capabilities onto the existing data/logic/action primitives.
+
+### Key Features
+
+- **The Ontology** — A semantic layer that maps real-world objects, relationships, and business logic independently of backing data stores. Property-level and object-level security policies govern both human and AI agent access.
+- **200+ prebuilt connectors** — Integrates ERP, CRM, IoT, database, and document systems.
+- **Pipeline Builder** — Visual drag-drop, SQL, and Python/Java modes with full version control on every transformation. Complete lineage tracking, rollback, experimental branching.
+- **AIP Chatbot Studio** (formerly Agent Studio) — Build multi-turn enterprise assistants grounded in the Ontology.
+- **AI FDE** — Full-workflow evaluation suites for agents; auto-diagnoses failures and reruns until tests pass.
+- **Document Intelligence** — Low-code extraction of structured data from PDFs and images.
+- **Knowledge graphs & link analysis** (Gotham) — Entity resolution, pattern discovery, network analytics, geospatial mapping.
+- **Workshop** — Low-code application builder with variable lineage graphs for debugging.
+- **Compute Modules** — Run and scale custom containers within the platform.
+- **Contour & Quiver** — Built-in analytics tools for analyzing telemetry and generating downstream datasets.
+
+### Target Audience
+
+- **Gotham**: Intelligence agencies, defense organizations, law enforcement, disaster relief, government
+- **Foundry**: Enterprise — supply chain, manufacturing, healthcare, finance, energy, logistics
+- User profiles range from intelligence analysts (Gotham) to data engineers, business managers, and operations staff (Foundry)
+
+### Pricing Model
+
+Not publicly listed. Enterprise contracts typically start at $250K+/year for Foundry deployments. Government contracts vary widely. Forward Deployed Engineer model means significant implementation investment.
+
+### Strengths
+
+- **Unmatched data integration depth** — 200+ connectors, handles structured and unstructured data at scale
+- **Semantic ontology layer** — Business users interact with real-world objects, not raw tables
+- **Full auditability** — Every data transformation has complete version history and lineage
+- **Security-first architecture** — Air-gapped deployment capable, property-level access controls
+- **Agentic AI with guardrails** — AIP agents operate within enterprise security boundaries, with granular logging and telemetry controls
+- **Action-oriented** — Not just dashboards; the platform drives actual business actions through Rules, Functions, and Workshop modules
+
+### Weaknesses / Pain Points
+
+- **Extremely expensive** — Out of reach for most organizations; typical deployments are $250K-$1M+
+- **Steep learning curve** — Requires Forward Deployed Engineers for initial setup and ongoing development
+- **Vendor lock-in risk** — Deep integration with Palantir's proprietary ontology makes migration costly
+- **Not self-service** — Business users need technical intermediaries for complex workflows
+- **Slow time-to-value** — Months-long onboarding before meaningful results
+
+### Technology Approach
+
+- Multi-source data fusion (SIGINT, HUMINT, OSINT, FININT, GEOINT, MASINT for Gotham)
+- Enterprise system integration (ERP/CRM/IoT for Foundry)
+- Apache Spark and Flink for real-time workload orchestration
+- LLM integration via Google Vertex, Anthropic Claude, OpenAI — managed through Model Hub
+- Shared security model with separate infrastructure for model hosting vs. customer data
+- Agent telemetry exportable to streaming datasets for closed-loop analysis
+
+### What The Tell Can Learn
+
+| Lesson | Application to The Tell |
+|--------|------------------------|
+| **Ontology as core abstraction** | The Tell should build a "Corporate Ontology" — a semantic layer mapping companies, executives, products, markets, and relationships as first-class objects, independent of source data. This enables reasoning across signals. |
+| **Full data lineage** | Every insight The Tell produces should trace back to its source signals with complete provenance. Users need to see *why* the system reached a conclusion. |
+| **Version-controlled transformations** | Signal processing pipelines should have version history so analysts can audit how interpretation logic changed over time. |
+| **Action layer, not just dashboards** | Don't just show insights — enable actions. Alert rules, automated watchlists, triggered reports when signal thresholds are crossed. |
+| **Multi-modal ingestion** | Palantir handles text, images, video, sensor data. The Tell should ingest earnings call audio/video (not just transcripts), SEC filing PDFs, social media posts, news articles. |
+| **Progressive disclosure** | Start with the conclusion, let users drill into evidence, then into raw source data. Palantir's Workshop does this well. |
+| **Granular confidence indicators** | AIP shows how certain each inference is. The Tell must do the same — never present an inference as fact. |
+| **Agentic analysis with guardrails** | AI agents that can investigate autonomously but within defined boundaries, with full telemetry and admin control over what agents can access. |
+
+---
+
+## 2. Board Foresight/Signals (formerly Prevedere)
+
+### What It Does
+
+Prevedere was an economic indicator forecasting platform that was **acquired by Board International** in 2024-2025. Its capabilities now live as **Board Foresight** (AI-driven predictive analytics and econometric modeling) and **Board Signals** (real-time industry-specific economic intelligence). Together they provide external economic data integration, correlation analysis, and scenario-based forecasting for enterprise planning.
+
+### Key Features
+
+- **5 million+ global datasets** — Exclusive access to macroeconomic indicators updated in real time
+- **Expert-curated indicators** — In-house economists select and monitor the indicators most relevant to each industry
+- **Correlation engine** — Runs millions of models to identify which external factors most impact your internal metrics
+- **Predictive analytics + econometric modeling** — Combines ML-driven forecasting with traditional econometrics for strategic and operational planning
+- **Smart alerts on market volatility** — Real-time notifications on headwinds and tailwinds
+- **Industry outlook scores** — Visual scoring of economic conditions by sector
+- **Scenario-based forecasting** — Baseline, optimistic, and pessimistic forecasts grounded in real-time assumptions (e.g., tariff scenarios)
+- **Board Agents** — AI agents that monitor performance, simulate scenarios, and surface actionable insights directly inside the planning model
+- **Macroeconomic intelligence via generative AI** — Adjust key assumptions and receive clear explanations
+
+### Target Audience
+
+- Strategic planners, CFOs, executive officers, board members
+- Demand planners and supply chain analysts
+- Industry: retail, manufacturing, financial services, healthcare
+
+### Pricing Model
+
+- Custom quote-based subscription pricing
+- Core features: ~$1,250/user/year (basic) to ~$2,500/user/year (premium)
+- Add-ons available for specific industries, SAP connector, office add-ins
+- 1-year, 2-year, and 3-year agreements
+- Volume discounts for larger deployments
+
+### Strengths
+
+- **Bridges external signals to internal planning** — The correlation engine connecting macroeconomic indicators to company-specific metrics is genuinely powerful
+- **Economist curation** — Human experts selecting which indicators matter, not just brute-force correlation
+- **Scenario modeling** — Baseline/bull/bear cases grounded in real assumptions
+- **Real-time signal detection** — Continuous scanning of millions of signals to identify emerging relevance
+- **Integrated into planning workflow** — Not a separate intelligence tool; lives inside the budgeting/planning system
+
+### Weaknesses / Pain Points
+
+- **Post-acquisition transition uncertainty** — Prevedere users reported disruption during migration to Board
+- **Enterprise pricing** — Still requires significant commitment for full capabilities
+- **Limited to economic/macro signals** — Doesn't cover company-specific alternative data (job postings, social media, etc.)
+- **Board platform dependency** — Must adopt the broader Board planning platform to use Foresight/Signals
+
+### Technology Approach
+
+- AI scans millions of external signals continuously, filters to industry/organization/geography relevance
+- ML-driven signal detection feeds into econometric models
+- Two-layer approach: ML finds patterns, econometric modeling provides explainable forecasts
+- Generative AI layer translates complex model outputs into plain-language explanations
+
+### What The Tell Can Learn
+
+| Lesson | Application to The Tell |
+|--------|------------------------|
+| **External signal correlation engine** | The Tell should build a correlation engine that connects public signals (job postings up, patent filings down) to inferred corporate strategies — similar to how Board correlates economic indicators to business metrics |
+| **Expert curation + ML** | Pure ML signal detection produces noise. Board's model of having domain experts curate which signals matter, then using ML to find correlations, is the right balance |
+| **Scenario generation** | When The Tell detects conflicting signals, it should generate multiple scenarios (bull/bear/base case) rather than a single prediction |
+| **Industry-specific indicator sets** | Different signals matter for different industries. The Tell should curate signal categories per industry vertical |
+| **Plain-language explanations** | Board uses generative AI to translate complex model outputs into executive-ready language. The Tell must do the same — every analytical output needs a one-paragraph plain-English summary |
+| **Alert-driven delivery** | Don't make users come to the platform — push smart alerts when signal thresholds are crossed |
+| **Scoring/indices** | Board's "Industry Outlook Score" is brilliant UX. The Tell should create composite scores like "Strategic Confidence Index" or "Disruption Risk Score" per company |
+
+---
+
+## 3. CB Insights
+
+### What It Does
+
+CB Insights is a **tech-focused market intelligence platform** that tracks 12 million+ private companies across 1,600+ markets. It combines machine learning with in-house analyst research to deliver predictive intelligence — particularly around company health, growth potential, and likelihood of M&A/IPO exit. Founded in 2008 with an NSF grant, it pioneered algorithmic company scoring.
+
+### Key Features
+
+- **Mosaic Score** — Proprietary predictive score evaluating overall health and growth potential of private companies (NSF-backed)
+- **Commercial Maturity** — Assesses stage of commercial development from early market entry to established presence
+- **Exit Probability** — Predicts likelihood of M&A or IPO within 24 months
+- **Market Maps** — Visual strategy maps showing competitive landscapes and relationships
+- **ChatCBI** — AI strategy-query assistant for natural language research
+- **Growth Momentum, Financial Strength, Industry Health** — Proprietary data science scores
+- **AI-generated deliverables** — Target lists, investment memos, hiring patterns, scouting reports
+- **Relationship graphs** — Visualize connections between companies, investors, partners
+- **Intelligent watchlists** — Automated monitoring with milestone-based alerts
+- **API + integrations** — Snowflake, CRM, Salesforce integration
+- **Annual research reports** — AI 100, Fintech 100, "State of" series (widely cited industry benchmarks)
+
+### Target Audience
+
+- Corporate innovation/strategy teams
+- Venture capital firms
+- Private equity
+- Market researchers and competitive intelligence analysts
+
+### Pricing Model
+
+- **No published pricing** — everything is custom-quoted with annual commitment
+- Entry contract: ~$50,000/year
+- Mid-market: ~$47,000-$100,000/year (median ~$47K)
+- Enterprise: $100,000-$265,000+/year (full modules, API, large seat counts)
+- No free tier; limited to paid research content and newsletter
+- 10-day free trial available
+- Additional feature upgrades (Market Map Maker, Mosaic Scores, Expert Collections) priced per tier
+
+### Strengths
+
+- **Proprietary predictive scoring** — Mosaic Score is uniquely backed by NSF research; outperforms VC "smart money" at predicting winners
+- **Deep tech/startup coverage** — Unmatched breadth in private tech company intelligence
+- **Analyst + ML combination** — Human analysts validate and contextualize ML outputs
+- **Visual market maps** — Strategy maps transform massive datasets into recognizable competitive patterns
+- **Well-known brand/research** — Annual reports (AI 100, etc.) are industry reference points
+- **Non-public data** — Tracks things other databases miss: patent analytics, earnings transcripts, partnership signals
+
+### Weaknesses / Pain Points
+
+- **Very expensive** — $50K+ floor price excludes smaller organizations
+- **Complex UI** — Multiple users report difficulty navigating the platform
+- **Tech-centric bias** — Less useful for non-tech industries
+- **Custom quoting only** — No transparent pricing, no self-serve option
+- **Data freshness concerns** — Some users report lag in updating company information
+- **Overlapping features** — Significant overlap with PitchBook for PE/VC use cases
+
+### Technology Approach
+
+- ML models trained on funding rounds, partnerships, hiring, patents, product activity, press coverage
+- Analyst briefings supplement algorithmic detection
+- NLP for parsing earnings transcripts, patent filings, news
+- Proprietary taxonomy classifying 1,600+ technology markets
+- AI agents generate structured deliverables (investment memos, scouting reports)
+
+### What The Tell Can Learn
+
+| Lesson | Application to The Tell |
+|--------|------------------------|
+| **Proprietary scoring models** | The Tell needs its own "Mosaic Score" equivalent — a single composite metric that captures corporate strategic clarity/risk. Make it NSF-rigorous. |
+| **Market maps as primary visualization** | CB Insights' visual strategy maps are their killer feature for making complex data navigable. The Tell should create "Corporate Intelligence Maps" showing signal relationships. |
+| **ML + human analyst hybrid** | Neither pure ML nor pure analyst research wins alone. The Tell should use AI for signal detection and analysts for narrative/context layer. |
+| **AI-generated structured deliverables** | Don't just show data — generate investment-grade memos, briefing documents, alert summaries automatically |
+| **Annual/quarterly benchmark reports** | Publish "State of Corporate Signals" reports to build brand authority and attract users |
+| **Predictive exit/strategy probability** | Predicting *what a company will likely do next* (acquire, divest, pivot, hire aggressively) is The Tell's core value prop |
+| **Free research as funnel** | CB Insights' free newsletter and reports drive enormous mindshare. The Tell should publish free signal analysis to build audience |
+
+---
+
+## 4. PitchBook
+
+### What It Does
+
+PitchBook is a **comprehensive financial data and research platform** covering private and public capital markets — venture capital, private equity, M&A, hedge funds, leveraged loans, and more. Owned by Morningstar since 2016, it serves 60,000+ professionals with data on 3 million+ companies, 1.6 million+ deals, and 300,000+ investors. It emphasizes unmatched breadth and depth of private capital markets coverage.
+
+### Key Features
+
+- **AI-powered search and summaries** — Integrated AI for natural language queries, predictive tools
+- **Market Maps** — Visual exploration of competitive landscapes and deal flow
+- **Advanced screeners** — Flexible filtering creating saved dynamic searches, static lists, or customizable alerts
+- **Analyst Workspaces** — Dedicated environments for research workflows
+- **Fund benchmarking** — Compare fund performance across asset classes
+- **Valuation analysis** — Company valuation tools and comps
+- **People data** — Track decision-makers and their deal history
+- **Research Center** — Timely research spanning asset classes and sectors
+- **Excel and PowerPoint plugins** — Meet users where they already work
+- **Mobile app** — Research on the go
+- **Chrome extension** — Contextual data while browsing
+- **Direct Data and CRM Integration** (paid add-ons) — Push data into existing workflows
+- **Datasets**: PE deals, VC deals, M&A, LP data, public company fundamentals, people, patents, hedge funds, leveraged loans, analytics, indices
+
+### Target Audience
+
+- Investment bankers, PE/VC professionals
+- Corporate development teams
+- Limited partners and fund managers
+- Wealth advisors, family offices
+- Academic researchers (via WRDS/Wharton partnership)
+
+### Pricing Model
+
+- **Not publicly listed** — custom quote required
+- Typically $12,000-$70,000+/year depending on seats, modules, contract length
+- Desktop, mobile, Excel/PPT plugins, Chrome extension included in base
+- Premium add-ons: Direct Data, CRM Integration, Data Feed
+- Free trial available
+
+### Strengths
+
+- **Broadest private markets coverage** — 3M+ companies, 1.6M+ deals, 300K+ investors
+- **Meets users in existing tools** — Excel, PPT plugins, Chrome extension, mobile app
+- **Morningstar backing** — Credibility and cross-selling with public markets data
+- **Specialized analyst support** — Access to dedicated analysts for consultation
+- **Full investment lifecycle** — Covers sourcing through due diligence to post-investment monitoring
+- **Academic credibility** — Available through Wharton's WRDS platform
+
+### Weaknesses / Pain Points
+
+- **Expensive for small teams** — $12K+ minimum is prohibitive for startups/individuals
+- **No transparent pricing** — Requires sales call to understand cost
+- **Can be overwhelming** — Massive amount of data with steep learning curve
+- **Less AI-native** — AI features feel bolted on compared to newer competitors
+- **Limited predictive analytics** — Stronger on data aggregation than forward-looking intelligence
+
+### Technology Approach
+
+- Large-scale data collection from regulatory filings, press releases, news, direct GP/LP submissions
+- AI/ML for deal pattern recognition, company classification, trend detection
+- Natural language processing for document extraction and summarization
+- API-first architecture for data feed integrations
+- Real-time data operations team ensuring timely updates
+
+### What The Tell Can Learn
+
+| Lesson | Application to The Tell |
+|--------|------------------------|
+| **Meet users in existing tools** | PitchBook's Excel/PPT plugins and Chrome extension are brilliant distribution. The Tell should offer browser extensions, email digests, Slack integrations — don't force users into a new platform |
+| **Full lifecycle coverage** | Cover the entire corporate strategy lifecycle: detection → analysis → prediction → monitoring → alert |
+| **Saved searches + alerts** | Dynamic saved searches with automatic notifications when criteria match — essential for monitoring |
+| **Kanban/workflow tools** | PitchBook's workspaces organize deal flow; The Tell should organize signal investigation similarly |
+| **Analyst access as differentiator** | Human expert access alongside data creates stickiness and trust |
+| **Academic partnerships** | Making data available through universities builds long-term user loyalty |
+| **People-tracking is critical** | Executive movements, board changes, and hiring patterns are among the strongest corporate signals |
+
+---
+
+## 5. Crunchbase
+
+### What It Does
+
+Crunchbase is a **business intelligence platform focused on private companies**, providing data on startups, funding rounds, investors, acquisitions, and key decision-makers. It covers 4M+ private companies with 30M+ verified data updates annually, sourced through proprietary ingestion systems, trusted external sources, analyst validation, and signals from 80M+ professionals (primarily via LinkedIn integration). It positions itself as the accessible, affordable alternative to CB Insights and PitchBook.
+
+### Key Features
+
+- **AI-powered search** — Natural language search leveraging generative AI
+- **Crunchbase Scout** — AI agent providing quick summaries and follow-up questions on search results and profiles
+- **Heat Scores** — Activity-based scores surfacing rising companies using signals from 80M+ users
+- **Growth Insights** — AI-generated analysis of what's driving company growth
+- **Funding Predictions** — Predictive intelligence on likely upcoming funding rounds
+- **Company Performance Trends** — Live financial data, not stale snapshots
+- **Kanban-style tracker (Stages)** — Organize and track companies through custom workflows
+- **Notes & Tags** — Add personal context directly to company profiles
+- **Custom lists + alerts** — Automatic notifications when tracked companies hit milestones
+- **CRM enrichment** — Salesforce and HubSpot integration with 50+ enriched fields
+- **Data licensing/API** — License the dataset for building products (used by Yahoo Finance, MarketWatch, Clay)
+- **Export** — CSV exports for custom analysis
+
+### Target Audience
+
+- Angel investors and early-stage VCs
+- Startup founders and entrepreneurs
+- Sales/prospecting teams
+- Market researchers and competitive analysts
+- Developers building on company data (API customers)
+
+### Pricing Model
+
+- **Free tier** — Basic company/investor/funding data, limited searches
+- **Starter** — $29/user/month (annual): basic data, alerts, custom lists, 5K rows/month export
+- **Pro** — $99/user/month (or discounted annual): advanced search, CRM integration, contact data, 5K rows/month export, AI Scout, Heat Scores
+- **Enterprise** — Custom pricing ($50K+/year): API access, bulk exports, dedicated CSM, Salesforce enrichment, unlimited contacts
+- Introductory discount: 38% off Pro Annual for first year
+
+### Strengths
+
+- **Accessible pricing** — Transparent, tiered pricing from free to enterprise; much more affordable than CB Insights/PitchBook
+- **Excellent UX** — Widely praised as intuitive and easy to navigate
+- **Strong startup/early-stage coverage** — Best-in-class for discovering and tracking early-stage companies
+- **Real-time signals** — Heat Scores based on actual user activity, not just static data
+- **API/data licensing ecosystem** — Powers Yahoo Finance, MarketWatch, Clay — creates broad distribution
+- **AI integration** — Scout, natural language search, Growth Insights are genuinely useful
+- **Self-serve** — Users can get value immediately without sales calls
+
+### Weaknesses / Pain Points
+
+- **Limited depth for later-stage analysis** — Weaker on PE, M&A, fund-level data vs. PitchBook
+- **Data accuracy concerns** — Some users report outdated or incorrect information, especially for smaller companies
+- **Not suitable for institutional investors** — Lacks the depth PE/VC firms need for due diligence
+- **Export limits** — Even Pro tier has row limits that frustrate power users
+- **Crowd-sourced data quality** — Reliance on community contributions creates inconsistency
+
+### Technology Approach
+
+- Proprietary data ingestion systems processing 30M+ updates annually
+- NLP for extracting signals from news, job postings, social media
+- Machine learning for Heat Scores, Growth Scores, Funding Predictions
+- Bayesian statistical models (company embeddings from professional transition data)
+- Integration with LinkedIn's professional graph for signal validation
+- API-first architecture enabling third-party data licensing
+
+### What The Tell Can Learn
+
+| Lesson | Application to The Tell |
+|--------|------------------------|
+| **Tiered pricing with free entry** | Crunchbase's land-and-expand model works. The Tell should have a generous free tier that demonstrates value before asking for payment |
+| **Heat Scores / activity-based ranking** | Surface what's *changing* not just what *is*. A "Signal Intensity Score" showing which companies have the most unusual recent activity would be compelling |
+| **Predictive signals** — Funding Predictions, Growth Scores | The Tell's core offering is essentially predictive signals about corporate strategy — package them as clearly as Crunchbase packages funding predictions |
+| **Kanban boards for workflows** | Let users organize companies/signals into custom pipeline views — prospecting, investigating, monitoring |
+| **Data licensing as distribution** | Consider licensing The Tell's signal data to financial platforms, news outlets, research tools |
+| **CRM enrichment** | Enriching CRM records with strategic signal data could be a high-value integration point |
+| **Transparent pricing builds trust** | Unlike CB Insights/PitchBook, Crunchbase's public pricing reduces friction. The Tell should consider this approach |
+| **AI Scout for quick context** — Conversational interface to explore data | The Tell should offer an AI chatbot that lets users ask "What's happening at Company X?" and get a synthesized briefing |
+
+---
+
+## 6. Similarweb
+
+### What It Does
+
+Similarweb is a **digital intelligence platform** providing competitive analysis, web traffic insights, and market research across websites, apps, and digital channels. It estimates website traffic volumes, sources, audience demographics, and engagement metrics for millions of sites globally. Originally focused on web traffic, it has expanded into Sales Intelligence, Shopper Intelligence, App Intelligence, and Stock Intelligence.
+
+### Key Features
+
+- **Website Traffic Analysis** — Estimated unique visitors, pageviews, bounce rate, time on site for millions of domains
+- **Traffic Source Breakdown** — Organic search, paid, social, referral, direct, email, display advertising
+- **Competitive Intelligence** — Side-by-side competitor comparison with share of traffic metrics
+- **SEO/AEO Tools** — Keyword research, rank tracking, backlink analytics, site audits, AI answer engine optimization
+- **AI Brand Visibility** — Track how brands appear in AI-generated answers
+- **Industry Benchmarking** — Compare against sector averages
+- **Geographic/Device Segmentation** — Country-level and device-type breakdowns
+- **App Intelligence** — Mobile app performance, store rankings, user engagement, downloads
+- **Shopper Intelligence** — E-commerce behavior, cross-shopping patterns, brand affinity
+- **Stock Intelligence** — Correlating digital metrics to stock performance
+- **API access** (enterprise) — Integrate data into internal systems
+- **Conversion Analysis** — Competitor conversion rate estimation
+
+### Target Audience
+
+- Digital marketers and SEO specialists
+- Competitive intelligence analysts
+- E-commerce and retail strategists
+- Media and advertising planners
+- Investor relations (Stock Intelligence product)
+
+### Pricing Model
+
+- **Self-service tiers:**
+  - Starter: $125/mo (annual) or $199/mo — 1 user, 3mo historical, 1K keywords
+  - Professional: $333/mo (annual) or $399/mo — 6mo historical, 5K keywords, SEO tools
+- **Business/Enterprise tiers:**
+  - Team: ~$14,000/year
+  - Business: ~$35,000/year — 25mo historical, 100K keywords, API access
+  - Enterprise: $50K-$150K+/year — custom, multiple modules, dedicated support
+- **Add-on modules** (priced separately): App Intelligence, Market Intelligence, Shopper Intelligence, Conversion Analysis — each adds $20K-$60K+/year
+
+### Strengths
+
+- **Unique traffic estimation data** — Provides data that Google Analytics, Ahrefs, SEMrush cannot: estimated traffic volumes, source breakdowns, audience demographics for *competitors'* sites
+- **Global coverage** — Millions of websites across all countries
+- **Modular product architecture** — Buy only what you need (Web, App, Shopper, Sales, Stock Intelligence)
+- **Historical depth** — Up to 37 months of historical data on enterprise plans
+- **AI Brand Visibility** — First mover in tracking how brands perform in AI-generated answers
+
+### Weaknesses / Pain Points
+
+- **Accuracy issues for low-traffic sites** — Estimates become unreliable for sites with <10K monthly visits
+- **Expensive at scale** — Add-on modules make total cost very high
+- **Module fragmentation** — Separate products for Web/App/Shopper/Sales intelligence creates complexity
+- **Not real-time** — Data is estimated with inherent lag
+- **Premium pricing excludes SMBs** — Advanced features locked behind enterprise tiers
+
+### Technology Approach
+
+- Panel-based estimation combined with ISP data, clickstream data, and machine learning extrapolation
+- Proprietary algorithms converting sample data into full-population estimates
+- NLP for keyword analysis and content categorization
+- Cross-domain network analysis for competitive mapping
+- Statistical confidence intervals on all estimates (important — they're estimates, not measurements)
+
+### What The Tell Can Learn
+
+| Lesson | Application to The Tell |
+|--------|------------------------|
+| **Estimation with confidence intervals** | The Tell's inferences are also estimates. Show confidence ranges explicitly

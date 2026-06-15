@@ -1,0 +1,98 @@
+---
+alwaysApply: true
+---
+# Feature Documentation Auto-Update
+
+**Trigger**: Always active. After every session where the agent builds, removes, edits, or modifies a feature in the app, the agent MUST update `docs/features-built.md`.
+
+## When to Update
+
+Update the features document after completing any of these actions:
+
+| Action | Examples |
+|---|---|
+| **New page/route** | Added a new `src/app/**/page.tsx` or `src/app/api/**/route.ts` |
+| **New component** | Created a new UI or feature component in `src/components/` |
+| **New database model** | Added or modified a Prisma model in `prisma/schema.prisma` |
+| **New AI agent/node** | Added a LangGraph node, tool, or agent pattern |
+| **Feature removal** | Deleted or deprecated a feature page/component |
+| **Feature rename** | Changed route, component, or feature naming |
+| **Status change** | Moved a feature from "Stub" to "Built" or vice versa |
+
+## What to Update
+
+1. Read `docs/features-built.md`
+2. Find the appropriate section (or create a new one if needed)
+3. Add/update/remove the feature row with:
+   - **Feature name**
+   - **Purpose** — WHY this feature exists (user value/problem solved, not what it does)
+   - **Brief description** of what it does
+   - **Location** in codebase (relative file path)
+   - **Status**: `✅ Built`, `🚧 Stub`, or `❌ Removed`
+4. Update the "Last updated" date at the top to today's date
+5. If a new feature category was created, add a new section header following the existing format
+
+## Format Rules
+
+- Follow the existing 5-column table format: `| Feature | Purpose | Description | Location | Status |`
+- **Purpose column** must explain user value or strategic rationale (e.g., "Primary interface for analysts to monitor companies and detect strategic shifts"), not just restate the description
+- Keep descriptions concise (one line, action-oriented)
+- Use relative paths for location column (e.g., `src/app/(dashboard)/analytics/page.tsx`)
+- Place new entries at the end of their section's table (not sorted alphabetically)
+- If removing a feature, change status to `❌ Removed` — do NOT delete the row (preserves history)
+
+## Update Timing
+
+This update should happen **at the end of a feature implementation session**, after:
+- All code for the feature is written
+- Verification checks pass (typecheck, lint, build)
+- The feature is committed or ready for commit
+
+Do NOT update mid-implementation. Only update after the feature is complete.
+
+## Reference the Document for User Queries
+
+The agent MUST consult `docs/features-built.md` when the user asks questions about:
+
+| Query Type | Examples |
+|---|---|
+| Feature status | "Is X feature built yet?", "What's the status of Y?", "Do we have Z?" |
+| App capabilities | "What can our app do?", "What platforms do we support?" |
+| Progress tracking | "What have we built so far?", "How much of the MVP is done?" |
+| Feature inventory | "List all analytics features", "Show me auth-related features" |
+| Gap analysis | "What's not built yet?", "What's left in the MVP?" |
+| Architecture questions | "Where is feature X implemented?", "What component handles Y?" |
+
+### Reference Rules
+
+1. **Read the doc first**: Before answering any feature-related question, read `docs/features-built.md` to get the authoritative status
+2. **Cite the document**: When answering, reference the features doc (e.g., "According to `docs/features-built.md`, the feature set includes...")
+3. **Verify against codebase if uncertain**: If the doc seems outdated or you have reason to doubt it, verify by checking the actual code, then update the doc
+4. **Do NOT answer from memory alone**: Even if you believe you know the feature status, always check the doc first to ensure accuracy
+5. **Update after answering**: If answering revealed the doc was wrong or incomplete, update it immediately after providing the answer
+
+### Workflow for Feature Queries
+
+```
+User asks feature-related question
+  ↓
+Read docs/features-built.md
+  ↓
+Find relevant section(s)
+  ↓
+Answer based on doc content
+  ↓
+If doc was wrong/outdated → Update it after answering
+```
+
+## Example Update
+
+```markdown
+| New Feature Name | Why it exists (user value) | What it does | `path/to/file.ts` | ✅ Built |
+```
+
+For a status change:
+
+```markdown
+| Existing Feature | Why it exists (user value) | What it does | `path/to/file.ts` | 🚧 Stub → ✅ Built |
+```

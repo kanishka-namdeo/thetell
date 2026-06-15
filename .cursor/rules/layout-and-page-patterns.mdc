@@ -1,0 +1,167 @@
+---
+description: Dashboard page and layout patterns — server component data fetching, API route structure, route groups. Apply when creating src/app/ pages or layouts.
+globs: src/app/**/*.tsx
+---
+
+# Layout and Page Patterns
+
+**Trigger**: Auto-applied to all `.tsx` files in `src/app/`.
+
+## Dashboard Page Layout
+
+Dashboard page files (`src/app/(dashboard)/dashboard/page.tsx`) are Server Components. They must:
+
+1. Fetch data server-side
+2. Pass data to Client Components for rendering
+3. NOT contain client-side logic
+
+### Dashboard Page Template
+
+```tsx
+// Server Component
+import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { CalendarPreview } from "@/components/dashboard/calendar-preview";
+import { RecentPostsList } from "@/components/dashboard/recent-posts-list";
+
+export default async function DashboardPage() {
+  const session = await auth();
+  const userId = session?.user?.id;
+
+  const [posts, scheduledPosts] = await Promise.all([
+    prisma.post.findMany({ where: { userId }, take: 10, orderBy: { createdAt: "desc" } }),
+    prisma.post.findMany({ where: { userId, status: "SCHEDULED" }, orderBy: { scheduledAt: "asc" } }),
+  ]);
+
+  return (
+    <div className="space-y-6">
+      <CalendarPreview posts={scheduledPosts} />
+      <RecentPostsList posts={posts} />
+    </div>
+  );
+}
+```
+
+### Dashboard Layout Template
+
+```tsx
+// src/app/(dashboard)/layout.tsx — Server Component
+import { auth } from "@/lib/auth";
+import { SidebarNav } from "@/components/dashboard/sidebar-nav";
+import { MobileMenu } from "@/components/dashboard/mobile-menu";
+import type { NavItem } from "@/components/dashboard/sidebar-nav";
+
+const navItems: NavItem[] = [
+  // static data — no server fetch needed
+];
+
+export default async function DashboardLayout({
+  children,
+}: { children: React.ReactNode }) {
+  const session = await auth();
+  // ... render layout ...
+}
+```
+
+### Anti-Patterns to Avoid
+
+| Anti-Pattern | Problem | Fix |
+|-------------|---------|-----|
+| `"use client"` on a page that only displays data | Unnecessary client boundary | Remove directive, keep as Server Component |
+| Direct API fetch in Client Component | Double-rendering, slower TTFB | Fetch in Server Component, pass as props |
+| Dashboard page with inline data fetching in Client Component | Breaks server rendering pattern | Move fetch to Server Component |
+
+## Route Handler Patterns
+
+API routes (`src/app/api/**/route.ts`):
+
+### Required Structure
+
+```typescript
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { logger } from "@/lib/logger";
+
+const requestSchema = z.object({
+  // define expected fields
+});
+
+export async function POST(req: Request) {
+  const requestId = crypto.randomUUID();
+  const log = logger.child({ requestId });
+
+  try {
+    log.info("api.request.start", { method: "POST", path: req.url });
+
+    const body = await req.json();
+    const parsed = requestSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid request body", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    // ... business logic ...
+
+    log.info("api.request.success", { /* outcome data */ });
+    return NextResponse.json({ data: result }, { status: 200 });
+  } catch (error) {
+    log.error("api.request.error", { error: String(error) });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
+  }
+}
+```
+
+### Response Shape Consistency
+
+| Outcome | Shape | Status Code |
+|---------|-------|-------------|
+| Success | `{ data: ... }` | 200/201 |
+| Validation Error | `{ error: "...", details?: ... }` | 400 |
+| Unauthorized | `{ error: "Unauthorized" }` | 401 |
+| Not Found | `{ error: "Resource not found" }` | 404 |
+| Server Error | `{ error: "Internal server error" }` | 500 |
+
+### Authentication in Route Handlers
+
+```typescript
+// GOOD — use auth() helper
+import { auth } from "@/lib/auth";
+
+export async function GET(req: Request) {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  // ...
+}
+
+// BAD — read session from cookies manually
+const cookies = req.headers.get("cookie");
+```
+
+## Onboarding Page Special Pattern
+
+The onboarding page (`src/app/(auth)/onboarding/page.tsx`) is a Client Component because it requires:
+- Chat streaming with SSE
+- Real-time state updates
+- OAuth popup handling
+- localStorage persistence
+
+This is an exception to the "default to Server Components" rule. It must remain a Client Component.
+
+## Verification
+
+Before committing changes:
+
+- [ ] Dashboard pages are Server Components (no `"use client"`)
+- [ ] API routes have proper error handling with logging
+- [ ] API routes validate inputs with Zod
+- [ ] Route handlers use `auth()` helper, not manual cookie parsing
+- [ ] Response shapes are consistent (`{ data: ... }` or `{ error: ... }`)
+- [ ] `pnpm run typecheck` passes (0 errors)

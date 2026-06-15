@@ -1,0 +1,115 @@
+---
+description: Next.js authentication patterns — auth() helper, SessionProvider in root layout, proxy auth wrapper. Apply when modifying auth-related files, layouts, or protected routes.
+alwaysApply: false
+---
+
+# Next.js Authentication
+
+**Trigger**: When modifying auth-related files, protected routes, or SessionProvider setup.
+
+> **Aspirational**: This rule activates when authentication is added to the project (e.g., `src/lib/auth.ts`).
+
+> **Server/Client Component Classification**: See [react-components.mdc](.cursor/rules/react-components.mdc) for third-party context provider rules. SessionProvider MUST live in a Client Component.
+
+## auth() Helper Pattern
+
+Use the `auth()` helper from the auth config in Server Components and Route Handlers:
+
+```typescript
+// Server Component
+import { auth } from '@/lib/auth';
+
+export default async function ProtectedPage() {
+  const session = await auth();
+  if (!session?.user) {
+    return redirect('/login');
+  }
+  // ...
+}
+```
+
+```typescript
+// Route Handler
+import { auth } from '@/lib/auth';
+
+export async function GET() {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  // ...
+}
+```
+
+**Do not read session from cookies directly** — always use the `auth()` helper.
+
+---
+
+## Proxy Auth Wrapper (Next.js 16)
+
+In Next.js 16, `middleware.ts` is renamed to `proxy.ts` and exports `proxy` instead of `middleware`. Use the `auth()` wrapper pattern:
+
+```typescript
+// proxy.ts
+import NextAuth from "next-auth";
+import { NextResponse, type NextRequest } from "next/server";
+import authConfig from "./auth.config";
+
+const { auth } = NextAuth(authConfig);
+
+export const proxy = auth(async function proxy(request: NextRequest) {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+  return NextResponse.next();
+});
+
+export const config = {
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)"],
+};
+```
+
+**Keep proxy fast and stateless** — do not run database queries in the proxy.
+
+---
+
+## SessionProvider in Root Layout
+
+`SessionProvider` from `next-auth/react` uses `useContext` internally and **must** live in a Client Component. Never import it directly in `src/app/layout.tsx` (a Server Component).
+
+```typescript
+// GOOD — use a Client Component wrapper in layout
+// src/app/layout.tsx (Server Component)
+import { Providers } from '@/components/providers'; // has "use client"
+
+export default async function RootLayout({ children }) {
+  const session = await auth();
+  return (
+    <Providers session={session}>
+      {children}
+    </Providers>
+  );
+}
+```
+
+```typescript
+// GOOD — providers.tsx (Client Component)
+"use client";
+import { SessionProvider } from "next-auth/react";
+import type { Session } from "next-auth";
+
+export function Providers({ children, session }: { children: React.ReactNode; session?: Session | null }) {
+  return (
+    <SessionProvider session={session ?? undefined}>
+      {children}
+    </SessionProvider>
+  );
+}
+```
+
+### Critical SessionProvider Rules
+
+1. **Always render `SessionProvider`** — even when unauthenticated. The `signIn()` function from `next-auth/react` requires `SessionProvider` context to work, even on login pages.
+2. **Pass `undefined` not `null`** — when `auth()` returns `null` (unauthenticated), convert to `undefined` before passing to `SessionProvider`.
+3. **Never conditionally skip `SessionProvider`** — auth layouts, login pages, and public pages all need the context.

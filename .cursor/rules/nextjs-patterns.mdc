@@ -1,0 +1,190 @@
+---
+description: Next.js 16 app directory patterns and conventions. Apply when creating or modifying pages, layouts, API routes, or proxy. Covers server/client components, data fetching, routing, and auth patterns.
+globs: src/app/**/*.ts,src/app/**/*.tsx
+---
+
+# Next.js Patterns
+
+**Trigger**: Auto-applied to `src/app/` directory files.
+
+> **Read `node_modules/next/dist/docs/` before writing any code.** This project uses Next.js 16.2.6 with breaking changes from earlier versions. Heed deprecation notices.
+
+## Server vs Client Components
+
+> **Server/Client Component Classification**: See [react-components.mdc](.cursor/rules/react-components.mdc) for authoritative classification rules, third-party context providers, and module-level JSX patterns. This file covers Next.js-specific patterns only.
+
+**Default to Server Components.** Only add `'use client'` when the component requires browser APIs or interactivity.
+
+## Route Handlers (API Routes)
+
+**File convention**: `src/app/api/[resource]/route.ts`
+
+**Always export named HTTP method functions** (`GET`, `POST`, `PUT`, `DELETE`, `PATCH`):
+
+```typescript
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { prisma } from '@/lib/prisma';
+import { logger } from '@/lib/logger';
+
+const createSchema = z.object({
+  name: z.string().min(1).max(100),
+  email: z.string().email(),
+});
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    const parsed = createSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Invalid request body', details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    const resource = await prisma.resource.create({ data: parsed.data });
+    return NextResponse.json({ data: resource }, { status: 201 });
+  } catch (error) {
+    log.error('api.request.error', { error: String(error) });
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+**Validate all inputs with Zod**. Never trust `req.json()` output.
+
+**Use standard HTTP status codes**: 200/201 success, 400 bad request, 401 unauthorized, 403 forbidden, 404 not found, 409 conflict, 500 internal error.
+
+**Response shape consistency**:
+
+```typescript
+// Success
+{ data: { ... } }
+// Error
+{ error: 'message', details?: { ... } }
+```
+
+## Route Groups
+
+**Use route groups `(name)` for layout scoping without URL segments**:
+
+```
+src/app/
+  (auth)/
+    layout.tsx        # Shared auth layout
+    login/page.tsx
+    register/page.tsx
+  (dashboard)/
+    layout.tsx        # Shared dashboard layout
+    page.tsx
+    settings/page.tsx
+```
+
+Route groups are stripped from URLs. `src/app/(auth)/login/page.tsx` maps to `/login`.
+
+## Proxy (Next.js 16)
+
+> **Proxy auth wrapper**: See [nextjs-auth.mdc](.cursor/rules/nextjs-auth.mdc) for auth wrapper pattern. This section covers proxy structure only.
+
+**In Next.js 16, `middleware.ts` is renamed to `proxy.ts` and exports `proxy` instead of `middleware`**.
+
+**Keep proxy fast and stateless**. Do not run database queries in the proxy.
+
+**Exclude API routes, static assets, and image files** from proxy via the matcher.
+
+## Data Fetching
+
+**Server Components fetch data directly** — no `getServerSideProps` or `getStaticProps`:
+
+```typescript
+// GOOD — Server Component
+export default async function Page() {
+  const posts = await prisma.post.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+  });
+  return <PostList posts={posts} />;
+}
+```
+
+**For external API calls in Server Components**, use `fetch` with cache configuration:
+
+```typescript
+const data = await fetch('https://api.example.com/data', {
+  next: { revalidate: 3600 }, // Cache for 1 hour
+});
+```
+
+**Never pass `req` or `res` to Server Components** — use `headers()`, `cookies()`, and `searchParams` from `next/headers` instead.
+
+## Authentication Integration
+
+> **Auth patterns**: See [nextjs-auth.mdc](.cursor/rules/nextjs-auth.mdc) for `auth()` helper usage, SessionProvider setup, and proxy auth wrapper patterns.
+
+## Form Handling
+
+**Server Actions for forms when possible** (Next.js 16 preferred pattern):
+
+```typescript
+// Server Action in a 'use server' file or component
+'use server';
+
+import { z } from 'zod';
+import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
+
+const formSchema = z.object({
+  name: z.string().min(1),
+});
+
+export async function createItem(formData: FormData) {
+  const parsed = formSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) {
+    return { error: 'Invalid input' };
+  }
+  await prisma.item.create({ data: parsed.data });
+  revalidatePath('/dashboard');
+  redirect('/dashboard');
+}
+```
+
+**Client-side forms use `onSubmit` with async handlers**: See `src/app/(auth)/login/page.tsx` for the pattern.
+
+## Error Boundaries
+
+**Use `error.tsx` and `not-found.tsx` files per route segment** for graceful error handling:
+
+```typescript
+// src/app/dashboard/error.tsx
+'use client';
+
+export default function Error({ error, reset }: { error: Error; reset: () => void }) {
+  return (
+    <div>
+      <h2>Something went wrong</h2>
+      <button onClick={reset}>Try again</button>
+    </div>
+  );
+}
+```
+
+## Layout Composition
+
+**Layouts accept `children` and persist across navigations**:
+
+```typescript
+export default function AuthLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center p-4">
+      {children}
+    </div>
+  );
+}
+```
+
+**Pass data from parent layouts to child pages via React Context or props, not server fetches inside nested layouts.**

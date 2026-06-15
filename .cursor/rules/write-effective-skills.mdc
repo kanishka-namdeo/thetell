@@ -1,0 +1,102 @@
+---
+description: How to author SKILL.md files for Cursor agents. Use when creating, editing, or reviewing skills.
+alwaysApply: false
+---
+
+# Writing Effective Skills
+
+**Trigger**: Creating, editing, or reviewing a SKILL.md.
+
+## Core Principle
+
+A skill is context engineering, not documentation. Every sentence must change what the model does. If removing it would not change behavior, delete it.
+
+**The test**: Would the agent get this wrong without this instruction? If no, the content cannot afford to be there.
+
+## When to Create a Skill
+
+**Create when**: The agent gets it wrong without special context; domain expertise/taste matters; workflow consistency is critical.
+
+**Do NOT create when**: The model already knows the workflow (e.g., `git log`); it recapitulates `.cursor/rules/` content; the knowledge changes faster than you can maintain it.
+
+## Description (Routing Trigger)
+
+The description determines whether the skill loads. A skill that does not trigger reliably is broken.
+
+- Write in third person
+- Dense with trigger terms — pack keywords the agent will match
+- Include WHAT and WHEN
+- Target <50 words
+- Test against sibling skills to avoid semantic overlap
+
+**Bad**: `description: Helps with PDFs`
+
+**Good**: `description: Extract text and tables from PDF files, fill forms, merge documents. Use when working with PDF files or when the user mentions PDFs, forms, or document extraction.`
+
+## SKILL.md Body Order
+
+Models follow a U-shaped attention curve — best at the beginning and end, worst in the middle. Order sections accordingly:
+
+| Section | Position |
+|---------|----------|
+| Frontmatter | Top |
+| Opening contract | Top |
+| Defaults / inputs | Top |
+| Required artifacts | Top |
+| Global constraints | Top |
+| Workflow phases | Middle |
+| Human checkpoints | Middle-late |
+| Guardrails / gotchas | End |
+| Final handoff | End |
+
+Never bury a hard constraint in the middle of workflow phases.
+
+## Conciseness
+
+- Target 150-300 lines, hard cap 500 lines
+- Use progressive disclosure: put heavy content in `references/`, `scripts/`, or `assets/`
+- Keep file references one level deep from SKILL.md
+
+## One Skill, One Workflow
+
+Split skills when they have materially different triggers, outputs, or decision rules. Avoid "if mode X / if mode Y" sections. Accept structural duplication between similar skills until at least three consumers exist.
+
+## Scripts
+
+Use for parsing, validation, formatting — mechanical tasks easier to run than describe. Never hide core judgment or routing logic inside scripts. Every script must specify: when to run it, inputs, and what outputs count as success. Never require interactive input.
+
+## Human Checkpoints
+
+Name the exact trigger that requires human input. "Ask if you're unsure" adds constraint load on every action and leads to always-asking or never-asking.
+
+**Good**: "Ask before creating a missing memory file."
+**Bad**: "Ask if you're unsure."
+
+## Anti-Patterns
+
+- Vague description — weak routing signal
+- Multi-mode skill with conditional branches — models fail at nested constraint composition
+- Critical rule buried late — later instructions are more likely to be dropped
+- Laundry list of edge cases in SKILL.md — bloats context, dilutes core instructions
+- Interactive scripts — hangs in autonomous runs
+- Core behavior hidden in companion files — breaks on clients that only load SKILL.md
+- Windows-style paths (`scripts\helper.py`) — breaks cross-platform
+- Time-sensitive info — becomes outdated
+- Blanket "ask when uncertain" — adds constraint load on every action
+
+## Security
+
+Skills influence planning, tool usage, and command execution. Treat as privileged instructions. Never assume network access or elevated permissions. Require explicit approval for sensitive actions.
+
+## Verification Checklist
+
+- [ ] Description says WHAT and WHEN in <50 words, third person
+- [ ] SKILL.md body under 500 lines
+- [ ] One skill, one workflow — no conditional branches
+- [ ] Critical constraints at top, guardrails at end
+- [ ] No content the model already knows
+- [ ] Progressive disclosure for heavy content
+- [ ] File references one level deep
+- [ ] Scripts non-interactive with documented I/O
+- [ ] Human checkpoints concrete and sparse
+- [ ] No time-sensitive information

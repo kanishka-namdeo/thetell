@@ -1,0 +1,278 @@
+---
+description: Centralized logging requirements for TypeScript (Pino) and Python (structlog). Apply when creating/modifying API routes, agent tools, database operations, middleware, LangGraph nodes, or PydanticAI agents.
+globs: src/lib/**/*.ts,src/app/api/**/*.ts,backend/app/**/*.py
+---
+# Debuggability & Centralized Logging
+
+All code MUST use the centralized Pino logger. No exceptions.
+
+## Logger
+
+Import from `@/lib/logger` (global) or `@/lib/agent/logging` (agent nodes needing correlation context):
+
+```typescript
+import { logger } from '@/lib/logger';
+import { createLogger } from '@/lib/agent/logging';
+```
+
+`src/lib/logger.ts` provides a singleton Pino logger with:
+- `logger.info(msg, data?)` — business events
+- `logger.warn(msg, data?)` — recoverable issues
+- `logger.error(msg, data?)` — failures
+- `logger.debug(msg, data?)` — flow tracing
+- `logger.fatal(msg, data?)` — unrecoverable
+- `logger.child(bindings)` — contextual sub-logger
+
+`createLogger({ correlationId, userId })` returns a Pino child pre-bound to the request context.
+
+## NEVER Use console.* Directly
+
+`console.log`, `console.error`, `console.warn`, `console.debug` are forbidden in production code. The `instrumentation.ts` file patches these at runtime, but source code must always use the logger.
+
+## Required Logging Points
+
+### API Routes (`src/app/api/**/route.ts`)
+
+Every route handler MUST log:
+1. Request start with correlation ID
+2. Success outcome
+3. Failure outcome (in catch block)
+
+```typescript
+export async function POST(req: Request) {
+  const requestId = crypto.randomUUID();
+  const log = logger.child({ requestId });
+
+  try {
+    log.info('api.request.start', { method: 'POST', path: '/api/resource' });
+    // ... business logic ...
+    log.info('api.request.success', { resourceId: result.id });
+    return NextResponse.json({ data: result });
+  } catch (error) {
+    log.error('api.request.error', { error: String(error) });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+```
+
+### Agent Tools (`src/lib/agent/tools/*.ts`)
+
+Every tool function MUST log:
+1. Invocation (debug level) with input identifiers
+2. Completion (info level) with outcome
+3. Error (error level) with context
+
+```typescript
+export const saveAudienceTool = tool(
+  async (input: unknown) => {
+    const parsed = SaveAudienceSchema.parse(input);
+    logger.debug('tool.save_audience.invoke', { workspaceId: parsed.workspaceId });
+    try {
+      // ... tool logic ...
+      logger.info('tool.save_audience.success', { workspaceId: parsed.workspaceId });
+      return JSON.stringify({ success: true });
+    } catch (err) {
+      logger.error('tool.save_audience.error', { workspaceId: parsed.workspaceId, error: String(err) });
+      return JSON.stringify({ error: `Failed: ${err}` });
+    }
+  },
+  // ... tool config
+);
+```
+
+### Database Operations (`src/lib/db/*.ts`)
+
+Every write operation MUST log:
+1. Operation type with entity ID
+2. Success or failure
+
+```typescript
+export async function updateSessionStep(userId: string, step: string) {
+  logger.debug('db.onboarding.step_updated', { userId, step });
+  return prisma.onboardingSession.update({
+    where: { userId },
+    data: { currentStep: step },
+  });
+}
+```
+
+### Middleware
+
+Every redirect decision MUST be logged with path and reason.
+
+## Log Level Discipline
+
+| Level | When to Use | Examples |
+|-------|------------|----------|
+| `debug` | Flow tracing, internal steps | "auth_url_generated", "step_updated" |
+| `info` | Business events, state changes | "user_created", "session_start", "tool.success" |
+| `warn` | Recoverable issues, degraded state | "unsupported_platform", "missing_client_id" |
+| `error` | Failures that break expected flow | "token_exchange_failed", "persist_failed" |
+| `fatal` | Unrecoverable, service-down | "db_connection_lost", "encryption_key_missing" |
+
+## Correlation IDs
+
+All logs from a single request chain must share a correlation ID or request ID. Use `logger.child({ requestId, userId })` to bind context once, then reuse the child logger throughout.
+
+## Security Constraints
+
+NEVER log:
+- Passwords (plain or hashed)
+- Access tokens, refresh tokens, or OAuth codes
+- Client secrets or encryption keys
+- Full request bodies (may contain credentials)
+- Encrypted token values
+
+When logging OAuth or auth operations, log only:
+- Platform name
+- Success/failure status
+- HTTP status codes
+- User IDs (not tokens)
+
+## Error Handler Requirements
+
+Every catch block MUST:
+1. Log the error with `logger.error()`
+2. Include context (entity IDs, operation name)
+3. Never swallow errors silently (no empty catch blocks)
+
+```typescript
+// BAD — swallows error
+catch (err) {
+  // do nothing
+}
+
+// BAD — no context
+catch (err) {
+  logger.error('something failed');
+}
+
+// GOOD — structured with context
+catch (err) {
+  logger.error('tool.fetch_posts.error', { platform, accountId, error: String(err) });
+}
+```
+
+---
+
+# Python Backend Logging (structlog)
+
+All Python backend code MUST use `structlog` for structured logging. No exceptions.
+
+## Logger
+
+```python
+import structlog
+logger = structlog.get_logger()
+```
+
+Configured in `backend/app/core/logging.py` (JSON in prod, colored key-value in dev). Never use `print()` or `logging.*` directly — all logging goes through `structlog`.
+
+## Required Structured Fields
+
+### LangGraph Nodes
+
+Log entry/exit with: `graph_name`, `node_name`, `state_delta` (keys only, not full values).
+
+```python
+async def extract_facts_node(state: SignalAnalysisState):
+    logger.info("langgraph.node.start", graph_name="signal_analysis", node_name="extract_facts")
+    try:
+        result = await fact_extraction_agent.run(state["raw_text"])
+        logger.info("langgraph.node.complete", graph_name="signal_analysis",
+                     node_name="extract_facts", facts_count=len(result.facts), state_delta=["facts"])
+        return {"facts": result.facts}
+    except Exception as e:
+        logger.error("langgraph.node.error", graph_name="signal_analysis", node_name="extract_facts", error=str(e))
+        raise
+```
+
+### PydanticAI Agents
+
+Log: `agent_name`, `model`, `tokens_in`, `tokens_out`, `latency_ms`, `validation_retries`.
+
+```python
+async def run_fact_extraction(text: str) -> FactResult:
+    agent = Agent("openai:gpt-4o", output_type=FactOutput)
+    start = time.perf_counter()
+    result = await agent.run(text)
+    logger.info("pydanticai.agent.complete", agent_name="fact_extraction", model="gpt-4o",
+                tokens_in=result.usage.prompt_tokens, tokens_out=result.usage.completion_tokens,
+                latency_ms=round((time.perf_counter() - start) * 1000, 2),
+                validation_retries=result.usage.validation_retries)
+    return result.data
+```
+
+### LLM Provider Calls
+
+Log: `provider`, `model`, `prompt_tokens`, `completion_tokens`, `total_tokens`.
+
+```python
+logger.info("llm.provider.call", provider="openai", model="gpt-4o",
+            prompt_tokens=response.usage.prompt_tokens,
+            completion_tokens=response.usage.completion_tokens,
+            total_tokens=response.usage.total_tokens)
+```
+
+## Log Level Discipline (Python)
+
+| Level | When to Use | Examples |
+|-------|------------|----------|
+| `debug` | Node entry/exit, state changes | `langgraph.node.start`, `langgraph.state.changed` |
+| `info` | LLM calls completed, agent runs completed | `pydanticai.agent.complete`, `llm.provider.call` |
+| `warning` | Validation retries, fallback model usage | `pydanticai.agent.validation_retry`, `llm.fallback_model` |
+| `error` | Node failures, agent failures | `langgraph.node.error`, `pydanticai.agent.error` |
+
+## Correlation IDs (Python)
+
+Use `structlog.contextvars` to bind a correlation ID across async calls:
+
+```python
+from structlog.contextvars import bind_contextvars
+
+async def process_signal(signal_id: str):
+    bind_contextvars(correlation_id=signal_id)
+    logger.info("signal.processing.start", signal_id=signal_id)
+    # All subsequent logger calls include correlation_id
+```
+
+## Security Constraints (Python)
+
+NEVER log:
+- API keys, tokens, or secrets
+- Full prompt/completion text (may contain PII)
+- Database connection strings
+- Full request/response bodies
+
+When logging LLM operations, log only:
+- Model name and provider
+- Token counts
+- Success/failure status
+- Signal IDs (not raw content)
+
+## Error Handler Requirements (Python)
+
+Every `except` block MUST:
+1. Log the error with `logger.error()`
+2. Include context (entity IDs, operation name, graph/node name)
+3. Never swallow errors silently
+
+```python
+# BAD — swallows error
+except Exception:
+    pass
+
+# BAD — no context
+except Exception as e:
+    logger.error("something failed", error=str(e))
+
+# GOOD — structured with context
+except Exception as e:
+    logger.error(
+        "pydanticai.agent.error",
+        agent_name="fact_extraction",
+        signal_id=signal_id,
+        error=str(e),
+    )
+    raise
+```

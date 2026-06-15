@@ -1,0 +1,291 @@
+---
+description: React component patterns for Next.js App Router — server/client classification, module-level JSX, Radix imports, third-party context providers, hydration prevention. Apply to all .tsx files.
+globs: src/**/*.tsx,src/**/*.ts
+---
+
+# React Components
+
+**Trigger**: Auto-applied to all `.tsx` and `.ts` files.
+
+> **Lucide Icons**: See [lucide-icons.mdc](.cursor/rules/lucide-icons.mdc) for icon import and usage rules. This file covers component patterns only.
+
+## Server vs Client Classification
+
+Every component file must be classified as exactly one of: **Server Component** or **Client Component**. Mixed files are forbidden.
+
+### Client Component Detection
+
+A file is a **Client Component** if ANY of the following appear anywhere in the file:
+
+- `"use client"` directive at top
+- `useState`, `useEffect`, `useReducer`, `useRef`, `useCallback`, `useMemo` hooks
+- `usePathname`, `useRouter`, `useSearchParams` from `next/navigation`
+- `useTheme` from `next-themes`
+- DOM access: `window`, `navigator`, `document`, `localStorage`, `sessionStorage`
+- Event handlers on JSX: `onClick`, `onChange`, `onSubmit`, `onKeyDown`, etc.
+- Custom hooks that use any of the above
+
+### Server Component Rules
+
+**Server Components are the default.** Only add `"use client"` when a Client-Only trigger is present.
+
+Server Components MUST NOT:
+- Import hooks (`useState`, `useEffect`, etc.) directly or indirectly
+- Use browser-only APIs
+- Contain event handlers on JSX elements
+- Import from packages that are client-only (e.g., `next-themes`)
+
+### Component Composition Pattern
+
+When a Server Component needs interactivity, split into two files:
+
+```tsx
+// Server Component fetches data, passes to Client Component
+// src/app/dashboard/page.tsx
+export default async function Page() {
+  const data = await fetchData();
+  return <InteractiveWidget data={data} />;
+}
+
+// src/components/dashboard/interactive-widget.tsx
+"use client";
+import { useState } from "react";
+
+export function InteractiveWidget({ data }: { data: Post[] }) {
+  const [filter, setFilter] = useState("all");
+  // ... interactive logic
+}
+```
+
+### The "use client" Placement Rule
+
+**Always at the very first line of the file**, before imports:
+
+```tsx
+// CORRECT
+"use client";
+
+import { useState } from "react";
+import { Card } from "@/components/ui/card";
+```
+
+---
+
+## Third-Party UI Library Imports
+
+Never import from bare package names that export types only. This causes `"Cannot read properties of null (reading 'useContext')"`.
+
+### Radix UI Import Fix
+
+`radix-ui` is a **types-only metapackage** — it has no real React components. Always import from actual `@radix-ui/react-*` packages:
+
+```tsx
+// GOOD — real component packages with full React context
+import { Tooltip, TooltipTrigger, TooltipContent } from "@radix-ui/react-tooltip";
+import { Dialog, DialogTrigger, DialogContent } from "@radix-ui/react-dialog";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@radix-ui/react-select";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@radix-ui/react-dropdown-menu";
+import { Switch } from "@radix-ui/react-switch";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@radix-ui/react-tabs";
+```
+
+All shadcn/ui components in `@/components/ui/` must use real `@radix-ui/react-*` imports internally.
+
+---
+
+## Third-Party Context Providers
+
+Any library component that uses React hooks internally (`useContext`, `useState`, etc.) crashes when rendered in a Server Component. The React dispatcher is null during server rendering.
+
+**Audit rule**: Before importing any third-party component, check if it uses hooks. If unsure, assume it does and wrap in a Client Component.
+
+```tsx
+// BAD — SessionProvider uses useContext internally, crashes in Server Component
+import { SessionProvider } from 'next-auth/react';
+
+export default function RootLayout({ children }) {
+  return <SessionProvider session={session}>{children}</SessionProvider>;
+}
+
+// GOOD — import a Client Component wrapper
+import { Providers } from '@/components/providers'; // has "use client"
+
+export default function RootLayout({ children }) {
+  return <Providers session={session}>{children}</Providers>;
+}
+```
+
+**Common context providers that crash in Server Components**: `SessionProvider` (next-auth), Radix UI primitives (TooltipProvider, Dialog, etc.), theme providers, any `createContext` consumer.
+
+---
+
+## Module-Level JSX Anti-Pattern
+
+Never create JSX elements at the module scope. This causes hydration errors in Server Components and prevents tree-shaking.
+
+```tsx
+// BAD — JSX at module scope (evaluated during module load)
+const statusConfig = {
+  PUBLISHED: { label: "Published", icon: <CheckCircle strokeWidth={2.5} /> },
+  FAILED: { label: "Failed", icon: <AlertCircle strokeWidth={2.5} /> },
+};
+```
+
+**Why it breaks**: Module-level JSX is evaluated when the file is first imported, not during render. In Server Components this causes "Context mismatch" hydration errors.
+
+### Fixes
+
+**Option A: Move JSX inside the component function**
+
+```tsx
+// GOOD — JSX created during render
+function Component({ status }: { status: string }) {
+  const config: Record<string, { label: string; icon: React.ReactNode }> = {
+    PUBLISHED: { label: "Published", icon: <CheckCircle strokeWidth={2.5} /> },
+    FAILED: { label: "Failed", icon: <AlertCircle strokeWidth={2.5} /> },
+  };
+  return <div>{config[status].icon}</div>;
+}
+```
+
+**Option B: Store icon component references, not JSX**
+
+```tsx
+// GOOD — icon as React component type at module scope
+import type { LucideIcon } from 'lucide-react';
+import { CheckCircle, AlertCircle } from 'lucide-react';
+
+const statusIcons: Record<string, LucideIcon> = {
+  PUBLISHED: CheckCircle,
+  FAILED: AlertCircle,
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const IconComponent = statusIcons[status];
+  return <IconComponent className="size-4" strokeWidth={2.5} />;
+}
+```
+
+### Module-Level Safe Patterns
+
+| Pattern | Example | Why Safe |
+|---------|---------|----------|
+| Plain data objects | `const config = { key: "value" }` | No JSX, no React |
+| Type definitions | `interface Props { name: string }` | Compile-time only |
+| Const strings/numbers | `const MAX_SIZE = 100` | Primitive values |
+| Utility functions | `function format(n: number) { ... }` | No side effects |
+| Icon component references | `import { Calendar } from "..."; const icon = Calendar` | References, not JSX |
+
+---
+
+## Type Safety
+
+### No `Record<string, unknown>` for Known Shapes
+
+When the shape is known, define an interface:
+
+```tsx
+// BAD — loses type safety
+const audience: Record<string, unknown> = {
+  interests: ["tech", "design"],
+};
+const interests = audience.interests; // Error: unknown
+
+// GOOD — typed
+interface Audience {
+  interests: string[];
+}
+const audience: Audience = {
+  interests: ["tech", "design"],
+};
+```
+
+### No `as any` Casting
+
+```tsx
+// BAD
+const user = session.user as any;
+
+// GOOD
+const user = session.user as { name: string; workspaceId: string };
+
+// BETTER — define a type
+interface SessionUser {
+  name: string;
+  workspaceId: string;
+}
+const user = session.user as SessionUser;
+```
+
+### Exhaustive Switch/Map Guards
+
+Always provide a fallback when mapping from string keys:
+
+```tsx
+// GOOD — has fallback
+const cfg = statusConfig[status] ?? statusConfig.DRAFT;
+const IconComponent = statusIcons[name] ?? DefaultIcon;
+```
+
+---
+
+## Performance
+
+Avoid expensive operations in the component body. Use `useMemo` in Client Components:
+
+```tsx
+// Client Component
+"use client";
+import { useMemo } from "react";
+
+export function CalendarPreview({ posts }: { posts: ScheduledPost[] }) {
+  const days = useMemo(() => {
+    // expensive computation: filtering, date parsing, grouping
+    return computeDays(posts);
+  }, [posts]);
+
+  return <div>{days.map(...)}</div>;
+}
+```
+
+In Server Components, compute before the JSX return:
+
+```tsx
+// Server Component
+export default async function Page() {
+  const data = await computeExpensiveData(); // runs once on server
+  return <Display data={data} />;
+}
+```
+
+---
+
+## Common Mistakes
+
+| Mistake | Problem | Fix |
+|---------|---------|-----|
+| `"use client"` missing from file using `useState` | Runtime error | Add `"use client"` at top |
+| `next-themes` import in Server Component | Browser-only API crashes | Move to Client Component |
+| `usePathname` in Server Component | Hook not available in RSC | Move to Client Component |
+| Module-level JSX with React state | Evaluated at module scope | Move JSX inside function body |
+| Client Component wrapping server-only data fetch | Defeats Server Components | Fetch in Server, pass as props |
+| Third-party context provider in Server Component | useContext null error | Wrap in Client Component |
+| Importing from `radix-ui` instead of `@radix-ui/react-*` | Types-only package | Use actual packages |
+| `as any` casting | Loses type safety | Define proper types |
+| `Record<string, unknown>` for known shapes | Type errors on access | Define interface |
+
+---
+
+## Verification
+
+Before committing:
+
+- [ ] Files with hooks have `"use client"` at the top
+- [ ] Server Components don't import client-only packages
+- [ ] No JSX expressions at module scope (outside component functions)
+- [ ] No `<Icon />` JSX inside const objects at module level
+- [ ] Icon references stored as component types, not rendered elements
+- [ ] Configuration objects use plain data, not JSX
+- [ ] No `as any` casts (use proper types)
+- [ ] `pnpm run typecheck` passes (0 errors)
+- [ ] `pnpm run build` passes (no hydration errors)
