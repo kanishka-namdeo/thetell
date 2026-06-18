@@ -21,7 +21,11 @@ export async function GET(request: NextRequest) {
     const minConfidence = searchParams.get("minConfidence");
     const maxConfidence = searchParams.get("maxConfidence");
 
-    const where: any = {};
+    const where: {
+      signal?: { companyId: string };
+      sentiment?: Sentiment;
+      confidence?: { gte?: number; lte?: number };
+    } = {};
     if (companyId) where.signal = { companyId };
     if (sentiment) where.sentiment = sentiment;
     if (minConfidence || maxConfidence) {

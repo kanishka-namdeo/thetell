@@ -29,7 +29,7 @@ export default async function DashboardPage() {
         orderBy: { scrapedAt: "desc" },
         include: {
           company: true,
-          analysis: true,
+          analyses: true,
         },
       }),
       prisma.analysis.aggregate({
@@ -204,9 +204,9 @@ export default async function DashboardPage() {
                         day: "numeric",
                       })}
                     </span>
-                    {signal.analysis && (
+                    {signal.analyses[0] && (
                       <ConfidenceBadge
-                        confidence={signal.analysis.confidence}
+                        confidence={signal.analyses[0].confidence}
                         className="text-[9px]"
                       />
                     )}

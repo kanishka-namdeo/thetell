@@ -24,12 +24,14 @@ import {
   User,
   Settings,
   TrendingUp,
+  Globe,
 } from "lucide-react";
 import { useState } from "react";
 import { SearchBar } from "@/components/dashboard/search-bar";
 import { isAdmin } from "@/lib/auth-guard";
 
 const navItems = [
+  { href: "/", label: "Public Feed", icon: Globe },
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/dashboard/signals", label: "Signals", icon: BarChart3 },
   { href: "/dashboard/companies", label: "Companies", icon: Building2 },
@@ -87,8 +89,10 @@ export default function DashboardLayout({
           <nav className="hidden lg:flex items-center gap-1">
             {visibleNavItems.map((item) => {
               const isActive =
-                pathname === item.href ||
-                (item.href !== "/dashboard" && pathname.startsWith(item.href));
+                item.href === "/"
+                  ? pathname === "/"
+                  : pathname === item.href ||
+                    (item.href !== "/dashboard" && pathname.startsWith(item.href));
               return (
                 <Link
                   key={item.href}
@@ -152,8 +156,10 @@ export default function DashboardLayout({
             <nav className="flex flex-col p-2">
               {visibleNavItems.map((item) => {
                 const isActive =
-                  pathname === item.href ||
-                  (item.href !== "/dashboard" && pathname.startsWith(item.href));
+                  item.href === "/"
+                    ? pathname === "/"
+                    : pathname === item.href ||
+                      (item.href !== "/dashboard" && pathname.startsWith(item.href));
                 return (
                   <Link
                     key={item.href}
@@ -177,7 +183,7 @@ export default function DashboardLayout({
       </header>
 
       {/* Main Content */}
-      <main className="flex-1">
+      <main className="flex-1 animate-[fadeIn_0.2s_ease-out]" key={pathname}>
         {children}
       </main>
 

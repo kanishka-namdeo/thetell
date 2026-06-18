@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Concept 16: "Radar" - Detection/Surveillance -->
+  <!-- Radar sweep with concentric arcs and blips -->
+  <!-- Suggests: active scanning, detection, surveillance -->
+  
+  <!-- Concentric arcs (quarter circles approximated with rects) -->
+  <!-- Outer arc -->
+  <rect x="32" y="8" width="2" height="24" fill="currentColor"/>
+  <rect x="32" y="8" width="24" height="2" fill="currentColor"/>
+  
+  <!-- Middle arc -->
+  <rect x="32" y="16" width="2" height="16" fill="currentColor"/>
+  <rect x="32" y="16" width="16" height="2" fill="currentColor"/>
+  
+  <!-- Inner arc -->
+  <rect x="32" y="24" width="2" height="8" fill="currentColor"/>
+  <rect x="32" y="24" width="8" height="2" fill="currentColor"/>
+  
+  <!-- Sweep line (diagonal approximated) -->
+  <rect x="32" y="32" width="2" height="24" fill="currentColor" transform="rotate(-45 32 32)"/>
+  
+  <!-- Signal blips -->
+  <rect x="42" y="18" width="3" height="3" fill="currentColor"/>
+  <rect x="48" y="28" width="3" height="3" fill="currentColor"/>
+  <rect x="38" y="14" width="2" height="2" fill="currentColor"/>
+  
+  <!-- Center dot -->
+  <rect x="31" y="31" width="4" height="4" fill="currentColor"/>
+</svg>

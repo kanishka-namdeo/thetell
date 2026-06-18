@@ -1,13 +1,13 @@
 ---
 name: signal-analysis
-description: Use when processing scraped data into analysis-ready format, extracting insights from raw public signals (news, filings, social media), or building the analysis pipeline
+description: Use when processing scraped data into analysis-ready format, extracting insights from raw public signals, or working with the TypeScript analysis pipeline
 ---
 
 # Signal Analysis
 
 ## Overview
 
-Transform raw public data (news articles, SEC filings, social media posts) into structured insights through a **LangGraph state graph** where each node is a **PydanticAI agent** with typed `output_type`. The pipeline converts unstructured text into actionable intelligence about company operations with crash recovery, conditional routing, and per-node retry.
+Transform raw public data (news articles, SEC filings, social media posts) into structured insights through a **multi-stage analysis pipeline**. The pipeline converts unstructured text into actionable intelligence about company operations.
 
 ## When to Use
 
@@ -22,316 +22,224 @@ Transform raw public data (news articles, SEC filings, social media posts) into 
 
 Pipeline: `extract_facts → classify_sentiment → identify_themes → score_confidence → generate_summary`
 
-Each node wraps a PydanticAI agent with typed `output_type`. The graph uses `AsyncPostgresSaver` for crash recovery and conditional edges to skip to FAILED on empty results or errors.
+Each stage uses the LLM provider abstraction with Zod schemas for structured output validation.
 
-## State Definition
+## Implementation
 
-```python
-from typing import TypedDict, Annotated
-from langgraph.graph.message import add_messages
-from langchain_core.messages import BaseMessage
+### Pipeline Entry Point
 
-class Fact(TypedDict):
-    statement: str
-    entities: list[str]
-    source_url: str
+```typescript
+// src/lib/ai/pipeline.ts
+import { getProvider } from "@/lib/ai/provider";
+import { extractFacts } from "@/lib/ai/fact-extraction";
+import { classifySentiment } from "@/lib/ai/sentiment";
+import { identifyThemes } from "@/lib/ai/themes";
+import { scoreConfidence } from "@/lib/ai/confidence";
+import { generateSummary } from "@/lib/ai/summary";
+import { logger } from "@/lib/logger";
 
-class SignalAnalysisState(TypedDict):
-    # Input
-    signal_id: str
-    raw_text: str
-    company_id: str
-    # Intermediate results
-    facts: Annotated[list[Fact], lambda a, b: a + b]
-    sentiment: str
-    themes: list[str]
-    # Output
-    confidence_score: float
-    summary: str
-    # Control
-    status: str  # "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"
-    error: str | None
-    messages: Annotated[list[BaseMessage], add_messages]
+export interface AnalysisInput {
+  signalId: string;
+  rawText: string;
+  companyId: string;
+  sourceType: string;
+}
+
+export interface AnalysisResult {
+  facts: Array<{
+    text: string;
+    category: string;
+    confidence: number;
+  }>;
+  sentiment: "POSITIVE" | "NEGATIVE" | "NEUTRAL";
+  themes: Array<{
+    label: string;
+    evidence: string[];
+  }>;
+  confidence: number;
+  summary: string;
+}
+
+export async function analyzeSignal(input: AnalysisInput): Promise<AnalysisResult> {
+  const log = logger.child({ signalId: input.signalId });
+  
+  try {
+    log.info("analysis.start");
+    
+    // Stage 1: Extract facts
+    const facts = await extractFacts(input.rawText);
+    log.info("analysis.facts_extracted", { count: facts.length });
+    
+    // Stage 2: Classify sentiment
+    const sentiment = await classifySentiment(input.rawText);
+    log.info("analysis.sentiment_classified", { sentiment: sentiment.sentiment });
+    
+    // Stage 3: Identify themes
+    const themes = await identifyThemes(input.rawText);
+    log.info("analysis.themes_identified", { count: themes.length });
+    
+    // Stage 4: Score confidence
+    const confidence = await scoreConfidence(facts, themes);
+    log.info("analysis.confidence_scored", { confidence: confidence.score });
+    
+    // Stage 5: Generate summary
+    const summary = await generateSummary(input.rawText, facts, sentiment, themes);
+    log.info("analysis.summary_generated");
+    
+    const result: AnalysisResult = {
+      facts,
+      sentiment: sentiment.sentiment,
+      themes,
+      confidence: confidence.score,
+      summary,
+    };
+    
+    log.info("analysis.complete");
+    return result;
+  } catch (error) {
+    log.error("analysis.failed", { error: String(error) });
+    throw error;
+  }
+}
 ```
 
-## PydanticAI Agent Nodes
+### Fact Extraction
 
-Each node wraps a PydanticAI `Agent` with a typed `output_type`. This guarantees validated, structured output with automatic retry on schema mismatch.
+```typescript
+// src/lib/ai/fact-extraction.ts
+import { z } from "zod";
+import { getProvider } from "@/lib/ai/provider";
 
-### Output Models
+const FactSchema = z.object({
+  text: z.string().describe("The fact statement"),
+  category: z.enum(["financial", "strategic", "operational", "personnel", "market"]),
+  confidence: z.number().min(0).max(1).describe("Confidence in this fact"),
+});
 
-```python
-from pydantic import BaseModel, Field
+const FactExtractionSchema = z.object({
+  facts: z.array(FactSchema),
+});
 
-class FactExtractionOutput(BaseModel):
-    facts: list[str] = Field(description="List of key facts extracted")
-    entities: list[str] = Field(description="Companies, people, products mentioned")
-    confidence: float = Field(description="Confidence in extraction 0.0-1.0", ge=0.0, le=1.0)
-
-class SentimentOutput(BaseModel):
-    sentiment: str = Field(description="positive, negative, or neutral")
-    confidence: float = Field(description="Confidence 0.0-1.0", ge=0.0, le=1.0)
-    reasoning: str = Field(description="Brief explanation of sentiment classification")
-    key_phrases: list[str] = Field(description="Phrases that drove sentiment")
-
-class ThemeOutput(BaseModel):
-    themes: list[str] = Field(description="Strategic themes detected")
-    primary_theme: str = Field(description="Most prominent theme")
-    confidence: float = Field(description="Confidence in theme detection 0.0-1.0", ge=0.0, le=1.0)
-
-class ConfidenceOutput(BaseModel):
-    confidence_score: float = Field(description="Overall confidence 0.0-1.0", ge=0.0, le=1.0)
-    factors: list[str] = Field(description="Factors that influenced confidence")
-    risks: list[str] = Field(description="Risks or uncertainties")
-
-class SummaryOutput(BaseModel):
-    summary: str = Field(description="2-3 sentence executive summary")
-    key_takeaways: list[str] = Field(description="3-5 key takeaways")
+export async function extractFacts(text: string) {
+  const provider = getProvider("openai");
+  
+  const result = await provider.completeStructured(
+    [
+      {
+        role: "system",
+        content: `Extract key facts from corporate signals. Identify entities, actions, and strategic implications. Focus on concrete, verifiable information.`,
+      },
+      { role: "user", content: text },
+    ],
+    FactExtractionSchema,
+  );
+  
+  return result.facts;
+}
 ```
 
-### Agent Definitions
+### Sentiment Classification
 
-```python
-from pydantic_ai import Agent, RunContext
-from dataclasses import dataclass
-from sqlalchemy.orm import Session
+```typescript
+// src/lib/ai/sentiment.ts
+import { z } from "zod";
+import { getProvider } from "@/lib/ai/provider";
 
-@dataclass
-class AnalysisDeps:
-    db_session: Session
-    signal_id: str
+const SentimentSchema = z.object({
+  sentiment: z.enum(["POSITIVE", "NEGATIVE", "NEUTRAL"]),
+  confidence: z.number().min(0).max(1),
+  reasoning: z.string(),
+  key_phrases: z.array(z.string()),
+});
 
-fact_agent = Agent(
-    'openai:gpt-4o',
-    deps_type=AnalysisDeps,
-    output_type=FactExtractionOutput,
-    instructions=(
-        'Extract key facts from corporate signals. '
-        'Identify entities, actions, and strategic implications. '
-        'Focus on concrete, verifiable information.'
-    ),
-)
-
-sentiment_agent = Agent(
-    'openai:gpt-4o',
-    output_type=SentimentOutput,
-    instructions=(
-        'Classify sentiment of corporate communications. '
-        'Focus on strategic sentiment (growth, risk, uncertainty). '
-        'Provide reasoning and key phrases that drove classification.'
-    ),
-)
-
-theme_agent = Agent(
-    'openai:gpt-4o',
-    output_type=ThemeOutput,
-    instructions=(
-        'Detect strategic themes in corporate signals. '
-        'Themes include: expansion, cost-cutting, innovation, M&A, '
-        'regulatory, leadership changes, market entry/exit.'
-    ),
-)
-
-confidence_agent = Agent(
-    'openai:gpt-4o',
-    output_type=ConfidenceOutput,
-    instructions=(
-        'Score confidence in strategic inferences. '
-        'Consider: evidence quality, source reliability, '
-        'corroboration, specificity, and consistency.'
-    ),
-)
-
-summary_agent = Agent(
-    'openai:gpt-4o',
-    output_type=SummaryOutput,
-    instructions=(
-        'Write a concise executive summary of signal analysis results. '
-        'Include key takeaways for investment analysts.'
-    ),
-)
+export async function classifySentiment(text: string) {
+  const provider = getProvider("openai");
+  
+  return provider.completeStructured(
+    [
+      {
+        role: "system",
+        content: `Classify sentiment of corporate communications. Focus on strategic sentiment (growth, risk, uncertainty). Provide reasoning and key phrases that drove classification.`,
+      },
+      { role: "user", content: text },
+    ],
+    SentimentSchema,
+  );
+}
 ```
 
-## Node Functions
+### Theme Identification
 
-Each node calls its PydanticAI agent and returns partial state. All nodes follow the same retry pattern:
+```typescript
+// src/lib/ai/themes.ts
+import { z } from "zod";
+import { getProvider } from "@/lib/ai/provider";
 
-```python
-import asyncio
-import structlog
+const ThemeSchema = z.object({
+  label: z.string().describe("Theme label, e.g., 'expansion', 'M&A'"),
+  evidence: z.array(z.string()).describe("Supporting evidence snippets"),
+});
 
-logger = structlog.get_logger()
+const ThemeExtractionSchema = z.object({
+  themes: z.array(ThemeSchema),
+});
 
-async def extract_facts(state: SignalAnalysisState) -> dict:
-    deps = AnalysisDeps(db_session=get_db_session(), signal_id=state["signal_id"])
-    for attempt in range(3):
-        try:
-            result = await fact_agent.run(state["raw_text"], deps=deps)
-            facts = [
-                Fact(statement=f, entities=[], source_url=state.get("signal_id", ""))
-                for f in result.output.facts
-            ]
-            return {"facts": facts, "status": "RUNNING"}
-        except Exception as e:
-            logger.warning("node.retry", node="extract_facts", attempt=attempt + 1, error=str(e))
-            if attempt == 2:
-                return {"error": f"Fact extraction failed: {e}", "status": "FAILED"}
-            await asyncio.sleep(2 ** attempt)
-    return {"status": "FAILED"}
-
-# classify_sentiment, identify_themes, score_confidence, generate_summary
-# follow the same pattern: agent.run(prompt) → return partial state on success,
-# return {"error": ..., "status": "FAILED"} on final failure.
-# generate_summary returns {"status": "COMPLETED"} on success.
-
-async def mark_failed(state: SignalAnalysisState) -> dict:
-    logger.error("analysis.failed", signal_id=state["signal_id"], error=state.get("error"))
-    return {"status": "FAILED"}
+export async function identifyThemes(text: string) {
+  const provider = getProvider("openai");
+  
+  const result = await provider.completeStructured(
+    [
+      {
+        role: "system",
+        content: `Detect strategic themes in corporate signals. Themes include: expansion, cost-cutting, innovation, M&A, regulatory, leadership changes, market entry/exit.`,
+      },
+      { role: "user", content: text },
+    ],
+    ThemeExtractionSchema,
+  );
+  
+  return result.themes;
+}
 ```
 
-## Graph Construction
+### Confidence Scoring
 
-### Conditional Routing
+```typescript
+// src/lib/ai/confidence.ts
+import { z } from "zod";
+import { getProvider } from "@/lib/ai/provider";
 
-Skip confidence scoring and jump to FAILED if fact extraction returns empty results.
+const ConfidenceSchema = z.object({
+  score: z.number().min(0).max(1),
+  factors: z.array(z.string()),
+  risks: z.array(z.string()),
+});
 
-```python
-def route_after_extraction(state: SignalAnalysisState) -> str:
-    if state.get("error"):
-        return "mark_failed"
-    if not state.get("facts"):
-        return "mark_failed"
-    return "classify_sentiment"
+export async function scoreConfidence(
+  facts: Array<{ text: string; confidence: number }>,
+  themes: Array<{ label: string; evidence: string[] }>,
+) {
+  const provider = getProvider("openai");
+  
+  const context = `
+Facts extracted:
+${facts.map(f => `- ${f.text} (confidence: ${f.confidence})`).join("\n")}
 
-def route_on_error(state: SignalAnalysisState) -> str:
-    if state.get("error") or state.get("status") == "FAILED":
-        return "mark_failed"
-    return "generate_summary"
-```
-
-### Full Graph
-
-```python
-from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from app.config import settings
-
-def build_signal_analysis_graph():
-    graph = StateGraph(SignalAnalysisState)
-
-    # Add nodes
-    graph.add_node("extract_facts", extract_facts)
-    graph.add_node("classify_sentiment", classify_sentiment)
-    graph.add_node("identify_themes", identify_themes)
-    graph.add_node("score_confidence", score_confidence)
-    graph.add_node("generate_summary", generate_summary)
-    graph.add_node("mark_failed", mark_failed)
-
-    # Edges
-    graph.add_edge(START, "extract_facts")
-
-    # Conditional: skip to FAILED if no facts extracted
-    graph.add_conditional_edges(
-        "extract_facts",
-        route_after_extraction,
-        {
-            "classify_sentiment": "classify_sentiment",
-            "mark_failed": "mark_failed",
-        },
-    )
-
-    graph.add_edge("classify_sentiment", "identify_themes")
-    graph.add_edge("identify_themes", "score_confidence")
-
-    # Conditional: skip to FAILED on error during scoring
-    graph.add_conditional_edges(
-        "score_confidence",
-        route_on_error,
-        {
-            "generate_summary": "generate_summary",
-            "mark_failed": "mark_failed",
-        },
-    )
-
-    graph.add_edge("generate_summary", END)
-    graph.add_edge("mark_failed", END)
-
-    return graph
-```
-
-## Checkpointing for Crash Recovery
-
-Use `AsyncPostgresSaver` to persist state after each node. If the process crashes mid-pipeline, resume from the last completed node.
-
-```python
-async def get_compiled_graph():
-    raw_graph = build_signal_analysis_graph()
-    checkpointer = AsyncPostgresSaver.from_conn_string(settings.database_url)
-    return raw_graph.compile(checkpointer=checkpointer)
-
-async def analyze_signal(signal_id: str, raw_text: str, company_id: str):
-    app = await get_compiled_graph()
-    config = {"configurable": {"thread_id": f"analysis-{signal_id}"}}
-
-    result = await app.ainvoke(
-        {
-            "signal_id": signal_id,
-            "raw_text": raw_text,
-            "company_id": company_id,
-            "status": "PENDING",
-            "error": None,
-        },
-        config=config,
-    )
-    return result
-```
-
-### Resuming After Crash
-
-```python
-async def resume_analysis(signal_id: str):
-    app = await get_compiled_graph()
-    config = {"configurable": {"thread_id": f"analysis-{signal_id}"}}
-
-    # Check current state
-    state = await app.aget_state(config)
-    if state.values.get("status") == "COMPLETED":
-        return state.values
-
-    # Resume from last checkpoint
-    result = await app.ainvoke(None, config=config)
-    return result
-```
-
-## Integration with Pipeline
-
-The graph integrates into `backend/app/analysis/pipeline.py` as the core execution engine:
-
-```python
-# backend/app/analysis/pipeline.py
-
-from app.analysis.graph import get_compiled_graph
-
-async def run_analysis_pipeline(signal_id: str, raw_text: str, company_id: str) -> dict:
-    """Entry point for signal analysis. Called by API routes and scheduled jobs."""
-    app = await get_compiled_graph()
-    config = {"configurable": {"thread_id": f"analysis-{signal_id}"}}
-
-    result = await app.ainvoke(
-        {
-            "signal_id": signal_id,
-            "raw_text": raw_text,
-            "company_id": company_id,
-            "status": "PENDING",
-            "error": None,
-        },
-        config=config,
-    )
-
-    if result.get("status") == "FAILED":
-        raise AnalysisFailedError(result.get("error"))
-
-    return result
+Themes identified:
+${themes.map(t => `- ${t.label}: ${t.evidence.join(", ")}`).join("\n")}
+`;
+  
+  return provider.completeStructured(
+    [
+      {
+        role: "system",
+        content: `Score confidence in strategic inferences. Consider: evidence quality, source reliability, corroboration, specificity, and consistency.`,
+      },
+      { role: "user", content: context },
+    ],
+    ConfidenceSchema,
+  );
+}
 ```
 
 ## Quick Reference
@@ -360,25 +268,17 @@ async def run_analysis_pipeline(signal_id: str, raw_text: str, company_id: str) 
 - Corroboration (multiple sources confirm)
 - Specificity (concrete details > vague claims)
 
-### Context Enrichment
-
-- Link to company profile (industry, size, stage)
-- Historical signals (trend analysis)
-- Competitor signals (relative positioning)
-- Market context (macro trends)
-
 ## Common Mistakes
 
 | Mistake | Problem | Fix |
-|---|---|---|
-| Sequential LLM calls | No crash recovery — if node 3/5 fails, all prior work lost | Use LangGraph graph with checkpointing |
-| No `output_type` | Manual JSON parsing, no validation, no auto-retry | PydanticAI agent with `output_type=Model` |
-| No conditional routing | Runs all 5 nodes even on empty facts, wastes tokens | `add_conditional_edges()` to skip to FAILED |
-| No checkpointing | Crash at node 4/5 = restart from node 1 | `AsyncPostgresSaver` checkpointer |
+|---------|---------|-----|
+| Sequential LLM calls without error handling | If stage 3/5 fails, all prior work lost | Wrap each stage in try/catch, log failures |
+| No Zod schema for LLM output | Manual JSON parsing, no validation | Use `provider.completeStructured(messages, schema)` |
+| No logging | Can't debug failures or track progress | Use centralized logger with signalId context |
+| Monolithic analysis prompt | Unpredictable output, hard to debug | Break into stages with focused prompts |
 
 ## Related Skills
 
-- **pydanticai-agents** — PydanticAI agent patterns: `output_type`, dependency injection, tools, streaming
-- **langgraph-orchestration** — LangGraph patterns: StateGraph, checkpointing, interrupts, streaming, subgraphs
-- **data-modeling** — Pydantic model design (applies to `output_type` models)
-- **llm-abstraction** — Lower-level LLM provider abstraction (use PydanticAI agents instead for pipeline nodes)
+- **llm-abstraction** - LLM provider abstraction with structured outputs
+- **data-modeling** - Zod schema design for analysis results
+- **article-generation** - Transform analysis into news-style articles

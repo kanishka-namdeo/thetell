@@ -1,49 +1,12 @@
 ---
-description: Coding style conventions for Python backend and TypeScript frontend
+description: Coding style conventions for TypeScript frontend
 globs:
 alwaysApply: true
 ---
 
 # Code Style
 
-Enforce consistent coding style across the Python 3.13 FastAPI backend and Next.js 16.2.9 TypeScript frontend.
-
-## Python Conventions
-
-### Formatting & Linting
-- **Formatter:** Black (line length 88, default)
-- **Linter:** Ruff (replaces flake8, isort, pyupgrade)
-- **Type checking:** mypy with `--strict`
-- Run `ruff check --fix` then `ruff format` before committing (separate commands for PowerShell 5.1 compatibility)
-
-### Type Hints
-Always annotate function signatures. Use `from __future__ import annotations` for modern syntax.
-
-```python
-# Good
-def scrape_company(url: str, *, max_retries: int = 3) -> CompanyData:
-    ...
-
-# Bad - missing types
-def scrape_company(url, max_retries=3):
-    ...
-```
-
-### Pydantic Models
-- Use Pydantic v2 `BaseModel` for all data structures
-- Use `Field()` for validation constraints and descriptions
-- Prefer `model_validator` over legacy `validator`
-
-```python
-from pydantic import BaseModel, Field
-
-class Signal(BaseModel):
-    source_url: str = Field(..., description="URL where signal was found")
-    confidence: float = Field(..., ge=0.0, le=1.0)
-```
-
-### Import Ordering
-Ruff handles this automatically: stdlib → third-party → local, separated by blank lines.
+Enforce consistent coding style for the Next.js 16.2.9 TypeScript application.
 
 ## TypeScript Conventions
 
@@ -85,15 +48,12 @@ export function ArticleList({ signals, onSelect }: ArticleListProps) {
 - Types: `PascalCase` with descriptive suffix (`SignalData`, `AnalysisResult`)
 - Constants: `UPPER_SNAKE_CASE` (`MAX_RETRIES`, `API_BASE_URL`)
 
-## Cross-Language Conventions
-
 ### Error Handling
-- **Python:** Raise specific exceptions, catch narrowly. Never bare `except:`.
-- **TypeScript:** Use typed error boundaries in React. Never swallow errors silently.
+- Use typed error boundaries in React. Never swallow errors silently.
 
 ### Comments
 - Write self-documenting code; comment only *why*, never *what*
-- Use docstrings (Python) and JSDoc (TypeScript) for public APIs
+- Use JSDoc for public APIs
 - Add `TODO(name):` with a ticket reference for deferred work
 
 ### File Size

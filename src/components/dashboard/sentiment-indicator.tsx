@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { motion } from "motion/react";
 
 interface SentimentIndicatorProps {
   sentiment: "POSITIVE" | "NEGATIVE" | "NEUTRAL";
@@ -17,23 +18,23 @@ export function SentimentIndicator({
   const config = {
     POSITIVE: {
       icon: TrendingUp,
-      color: "text-green-600",
-      bgColor: "bg-green-50",
-      borderColor: "border-green-600",
+      color: "text-success",
+      bgColor: "bg-success/10",
+      borderColor: "border-success",
       label: "Positive",
     },
     NEGATIVE: {
       icon: TrendingDown,
-      color: "text-red-600",
-      bgColor: "bg-red-50",
-      borderColor: "border-red-600",
+      color: "text-destructive",
+      bgColor: "bg-destructive/10",
+      borderColor: "border-destructive",
       label: "Negative",
     },
     NEUTRAL: {
       icon: Minus,
-      color: "text-neutral-600",
-      bgColor: "bg-neutral-50",
-      borderColor: "border-neutral-600",
+      color: "text-muted-foreground",
+      bgColor: "bg-muted",
+      borderColor: "border-border",
       label: "Neutral",
     },
   };
@@ -41,7 +42,10 @@ export function SentimentIndicator({
   const { icon: Icon, color, bgColor, borderColor, label } = config[sentiment];
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.3 }}
       className={cn(
         "inline-flex items-center gap-1.5 px-2 py-1 border font-mono text-xs uppercase tracking-wider",
         bgColor,
@@ -52,6 +56,6 @@ export function SentimentIndicator({
     >
       <Icon className="h-3 w-3" />
       {showLabel && <span>{label}</span>}
-    </div>
+    </motion.div>
   );
 }

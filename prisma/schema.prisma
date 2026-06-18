@@ -75,6 +75,18 @@ enum SourceType {
   SOCIAL
   BLOG
   JOB_POSTING
+  RSS
+  PATENT
+  LITIGATION
+  FDA
+  CONTRACT
+  TECH_SIGNAL
+  WEB_ARCHIVE
+  LEGISLATION
+  ACADEMIC
+  PODCAST
+  CONFERENCE
+  PRESS_RELEASE
 }
 
 enum SignalStatus {
@@ -93,6 +105,11 @@ enum Sentiment {
 enum ArticleStatus {
   DRAFT
   PUBLISHED
+}
+
+enum AgentPersona {
+  ANALYST
+  GOSSIP_GIRL
 }
 
 model Company {
@@ -118,6 +135,7 @@ model Signal {
   sourceType    SourceType
   title         String
   rawContent    String       @db.Text
+  contentHash   String?      @unique
   publishedAt   DateTime?
   scrapedAt     DateTime     @default(now())
   companyId     String
@@ -125,45 +143,51 @@ model Signal {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  company  Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  analysis Analysis?
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  analyses  Analysis[]
 
   @@index([companyId])
   @@index([sourceType])
   @@index([status])
   @@index([scrapedAt])
+  @@index([contentHash])
 }
 
 model Analysis {
-  id                String    @id @default(cuid())
-  signalId          String    @unique
-  summary           String    @db.Text
+  id                String       @id @default(cuid())
+  signalId          String
+  agentPersona      AgentPersona
+  summary           String       @db.Text
   keyFacts          Json
   sentiment         Sentiment
   strategicThemes   Json
   confidence        Float
   modelUsed         String
-  analyzedAt        DateTime  @default(now())
+  crossReferences   Json?
+  analyzedAt        DateTime     @default(now())
 
   signal Signal @relation(fields: [signalId], references: [id], onDelete: Cascade)
 
+  @@unique([signalId, agentPersona])
   @@index([sentiment])
   @@index([analyzedAt])
+  @@index([agentPersona])
 }
 
 model Article {
-  id          String        @id @default(cuid())
-  title       String
-  slug        String        @unique
-  summary     String        @db.Text
-  body        String        @db.Text
-  companyId   String
-  analysisIds Json          @default("[]")
-  publishedAt DateTime?
-  status      ArticleStatus @default(DRAFT)
-  authorId    String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id            String        @id @default(cuid())
+  title         String
+  slug          String        @unique
+  summary       String        @db.Text
+  body          String        @db.Text
+  companyId     String
+  agentPersona  AgentPersona
+  analysisIds   Json          @default("[]")
+  publishedAt   DateTime?
+  status        ArticleStatus @default(DRAFT)
+  authorId      String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   author  User?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
@@ -172,6 +196,7 @@ model Article {
   @@index([companyId])
   @@index([status])
   @@index([publishedAt])
+  @@index([agentPersona])
 }
 
 model WatchedCompany {
@@ -185,4 +210,16 @@ model WatchedCompany {
 
   @@unique([userId, companyId])
   @@index([userId])
+}
+
+// ─── Scraping Cache ─────────────────────────────────────────────────────────
+
+model ScrapeCache {
+  id        String   @id @default(cuid())
+  url       String   @unique
+  content   String   @db.Text
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
 }

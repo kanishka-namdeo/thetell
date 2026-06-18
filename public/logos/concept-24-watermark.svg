@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Concept 24: "Watermark" - Hidden in Plain Sight -->
+  <!-- Subtle pattern that only appears at certain angles -->
+  <!-- Suggests: hidden signals, invisible ink, secret messages -->
+  
+  <!-- Background grid (very subtle) -->
+  <rect x="8" y="8" width="48" height="1" fill="currentColor" opacity="0.1"/>
+  <rect x="8" y="16" width="48" height="1" fill="currentColor" opacity="0.1"/>
+  <rect x="8" y="24" width="48" height="1" fill="currentColor" opacity="0.1"/>
+  <rect x="8" y="32" width="48" height="1" fill="currentColor" opacity="0.1"/>
+  <rect x="8" y="40" width="48" height="1" fill="currentColor" opacity="0.1"/>
+  <rect x="8" y="48" width="48" height="1" fill="currentColor" opacity="0.1"/>
+  <rect x="8" y="56" width="48" height="1" fill="currentColor" opacity="0.1"/>
+  
+  <!-- Hidden "T" watermark (slightly more visible) -->
+  <rect x="20" y="16" width="24" height="4" fill="currentColor" opacity="0.25"/>
+  <rect x="28" y="16" width="8" height="32" fill="currentColor" opacity="0.25"/>
+  
+  <!-- Reveal marker (magnifying area) -->
+  <rect x="16" y="12" width="32" height="40" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 2"/>
+  
+  <!-- Corner focus marks -->
+  <rect x="14" y="10" width="6" height="2" fill="currentColor"/>
+  <rect x="14" y="10" width="2" height="6" fill="currentColor"/>
+  <rect x="44" y="10" width="6" height="2" fill="currentColor"/>
+  <rect x="48" y="10" width="2" height="6" fill="currentColor"/>
+  <rect x="14" y="52" width="6" height="2" fill="currentColor"/>
+  <rect x="14" y="48" width="2" height="6" fill="currentColor"/>
+  <rect x="44" y="52" width="6" height="2" fill="currentColor"/>
+  <rect x="48" y="48" width="2" height="6" fill="currentColor"/>
+</svg>

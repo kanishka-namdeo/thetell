@@ -28,7 +28,7 @@ export default async function CompanyDetailPage({ params }: CompanyDetailPagePro
         orderBy: { scrapedAt: "desc" },
         include: {
           company: true,
-          analysis: true,
+          analyses: true,
         },
       },
       articles: {

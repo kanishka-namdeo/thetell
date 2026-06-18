@@ -1,334 +1,277 @@
 ---
 name: llm-abstraction
-description: Use when integrating LLM-powered features, supporting multiple LLM providers (OpenAI, Anthropic, etc.), or implementing prompt templating and structured output parsing
+description: Use when integrating LLM-powered features, supporting multiple LLM providers (OpenAI, Anthropic), implementing structured output parsing with Zod schemas, or working with the AI provider abstraction layer
 ---
 
 # LLM Abstraction
 
 ## Overview
 
-Use **PydanticAI** as the LLM abstraction layer. It provides multi-provider support, guaranteed structured outputs with auto-retry, dependency injection, and observability — replacing the need for hand-rolled provider classes.
+Use the **LLM provider abstraction** at `src/lib/ai/provider.ts` to interact with multiple LLM providers through a unified interface. It provides:
 
-**Do not** write custom `LLMProvider` Protocol classes or factory functions. PydanticAI handles all of this natively.
+- **Multi-provider support** — OpenAI and Anthropic through a single `LLMProvider` interface
+- **Zod-validated structured outputs** — `completeStructured()` guarantees typed results
+- **Consistent logging** — token usage, latency, and errors via the centralized logger
+- **Provider switching** — change providers without changing calling code
 
 ## When to Use
 
 - Any LLM-powered feature (analysis, generation, extraction)
 - When you need structured, validated outputs from LLMs
 - When you need to support multiple LLM providers
-- When you need dependency injection for DB sessions, config, or API clients
-- When you need cost tracking or observability
-- When you need prompt templating (combine with Jinja2)
+- When you need token usage tracking
+- When you need prompt construction for LLM calls
 
-## Core Pattern: PydanticAI Agents
+## Core Pattern: Provider Interface
 
-### Agent Definition
+### The LLMProvider Interface
 
-```python
-from pydantic_ai import Agent
-from pydantic import BaseModel, Field
+```typescript
+// src/lib/ai/provider.ts
+import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
+import type { LLMMessage } from "./types";
 
-class FactExtractionOutput(BaseModel):
-    facts: list[str] = Field(description="List of extracted facts")
-    entities: list[str] = Field(description="Mentioned entities")
-    sentiment: str = Field(description="Overall sentiment: positive/negative/neutral")
+export type ProviderName = "openai" | "anthropic";
 
-# Model identifier string — switch providers without code changes
-fact_agent = Agent(
-    'openai:gpt-4o',
-    output_type=FactExtractionOutput,
-    instructions='Extract key facts from corporate signals. Identify entities and strategic implications.',
-)
+export interface LLMProvider {
+  completeStructured<T>(
+    messages: LLMMessage[],
+    schema: z.ZodSchema<T>,
+    options?: { model?: string; temperature?: number }
+  ): Promise<T>;
+}
+```
 
-# Output is guaranteed FactExtractionOutput (validated by Pydantic)
-result = fact_agent.run_sync('Revenue grew 20% YoY with expanding margins...')
-print(result.output.facts)       # Type-safe access
-print(result.output.sentiment)   # "positive"
+### Usage
+
+```typescript
+import { getProvider } from "@/lib/ai/provider";
+import { z } from "zod";
+
+// Define output schema
+const SentimentSchema = z.object({
+  sentiment: z.enum(["positive", "negative", "neutral"]),
+  confidence: z.number().min(0).max(1),
+  reasoning: z.string(),
+});
+
+// Get provider and call with structured output
+const provider = getProvider("openai");
+const result = await provider.completeStructured(
+  [
+    { role: "system", content: "Classify sentiment of corporate communications." },
+    { role: "user", content: "Revenue grew 20% YoY with expanding margins..." },
+  ],
+  SentimentSchema,
+  { temperature: 0.3 },
+);
+
+console.log(result.sentiment);   // "positive"
+console.log(result.confidence);  // 0.85
 ```
 
 **Key points:**
-- Model strings: `'openai:gpt-4o'`, `'anthropic:claude-sonnet-4-5'`, `'groq:llama-3-70b'`
-- `output_type` guarantees the return type — no manual JSON parsing
-- PydanticAI auto-retries when LLM output fails schema validation
-- `instructions` is the system prompt (static string or dynamic function)
+- `getProvider("openai")` or `getProvider("anthropic")` selects the provider
+- `completeStructured()` sends messages, parses JSON response, validates with Zod
+- The result is guaranteed to match the Zod schema — no manual JSON parsing
+- Token usage is logged automatically via the centralized logger
 
 ### Multi-Provider Support
 
-```python
-# Configurable model via constructor
-def create_analysis_agent(provider: str = 'openai') -> Agent:
-    models = {
-        'openai': 'openai:gpt-4o',
-        'anthropic': 'anthropic:claude-sonnet-4-5',
-        'groq': 'groq:llama-3-70b',
-    }
-    return Agent(
-        models[provider],
-        output_type=AnalysisOutput,
-        instructions='Analyze corporate signals.',
-    )
+```typescript
+import { getProvider, type ProviderName } from "@/lib/ai/provider";
 
-# Override model per-call
-result = await agent.run('Analyze...', model='anthropic:claude-sonnet-4-5')
+// Switch providers without code changes
+function analyzeWithProvider(text: string, providerName: ProviderName) {
+  const provider = getProvider(providerName);
+  return provider.completeStructured(
+    [
+      { role: "system", content: "Analyze corporate signals." },
+      { role: "user", content: text },
+    ],
+    AnalysisSchema,
+  );
+}
+
+// Override model per-call
+const provider = getProvider("openai");
+const result = await provider.completeStructured(
+  messages,
+  schema,
+  { model: "gpt-4o-mini", temperature: 0.1 },
+);
 ```
 
-### Structured Outputs with Auto-Retry
+### Structured Outputs with Zod
 
-```python
-class SentimentOutput(BaseModel):
-    sentiment: str = Field(description="positive, negative, or neutral")
-    confidence: float = Field(description="Confidence 0.0-1.0", ge=0.0, le=1.0)
-    reasoning: str = Field(description="Brief explanation")
+```typescript
+import { z } from "zod";
 
-sentiment_agent = Agent(
-    'openai:gpt-4o',
-    output_type=SentimentOutput,
-    instructions='Classify sentiment of corporate communications.',
-)
+const FactExtractionSchema = z.object({
+  facts: z.array(z.object({
+    text: z.string(),
+    category: z.enum(["financial", "strategic", "operational", "personnel"]),
+    confidence: z.number().min(0).max(1),
+  })),
+  entities: z.array(z.string()),
+  sentiment: z.enum(["positive", "negative", "neutral"]),
+});
 
-# If LLM returns invalid JSON or confidence=1.5, PydanticAI
-# automatically retries with the validation error as feedback
-result = sentiment_agent.run_sync('Revenue grew 20% YoY...')
-# result.output is guaranteed valid SentimentOutput
-
-# Log retries for debugging
-if result.usage().retries > 0:
-    logger.warning(f"Validation retried {result.usage().retries} times")
-```
-
-### Dependency Injection via RunContext
-
-```python
-from dataclasses import dataclass
-from pydantic_ai import Agent, RunContext
-from sqlalchemy.orm import Session
-
-@dataclass
-class AnalysisDeps:
-    db_session: Session
-    rate_limiter: RateLimiter
-
-analysis_agent = Agent(
-    'openai:gpt-4o',
-    deps_type=AnalysisDeps,
-    output_type=AnalysisOutput,
-    instructions='Analyze corporate signals and extract strategic insights.',
-)
-
-# Tools access dependencies via ctx.deps
-@analysis_agent.tool
-def fetch_company_context(ctx: RunContext[AnalysisDeps], company_id: str) -> str:
-    """Fetch company profile and recent signals for context."""
-    company = ctx.deps.db_session.query(Company).get(company_id)
-    return f"Company: {company.name}, Industry: {company.industry}"
-
-# Dynamic instructions can also use dependencies
-@analysis_agent.instructions
-def add_rate_limit_info(ctx: RunContext[AnalysisDeps]) -> str:
-    remaining = ctx.deps.rate_limiter.remaining_requests()
-    return f"Rate limit: {remaining} requests remaining today."
-
-# Run with injected dependencies
-result = analysis_agent.run_sync(
-    'Analyze this earnings call transcript...',
-    deps=AnalysisDeps(db_session=db_session, rate_limiter=rate_limiter),
-)
+async function extractFacts(text: string) {
+  const provider = getProvider("openai");
+  return provider.completeStructured(
+    [
+      { role: "system", content: "Extract key facts from corporate signals." },
+      { role: "user", content: text },
+    ],
+    FactExtractionSchema,
+  );
+  // Return type is inferred from the Zod schema
+}
 ```
 
 ### Fallback Models
 
-```python
-async def run_with_fallback(agent: Agent, prompt: str) -> Any:
-    """Try primary model, fallback to secondary on failure."""
-    models_to_try = [
-        'openai:gpt-4o',
-        'anthropic:claude-sonnet-4-5',
-        'groq:llama-3-70b',
-    ]
-    for model_id in models_to_try:
-        try:
-            result = await agent.run(prompt, model=model_id)
-            return result.output
-        except Exception as e:
-            logger.warning(f"Model {model_id} failed: {e}")
-            continue
-    raise RuntimeError("All models failed")
+```typescript
+import { getProvider, type ProviderName } from "@/lib/ai/provider";
+import { logger } from "@/lib/logger";
+
+async function runWithFallback<T>(
+  messages: LLMMessage[],
+  schema: z.ZodSchema<T>,
+): Promise<T> {
+  const providersToTry: ProviderName[] = ["openai", "anthropic"];
+
+  for (const name of providersToTry) {
+    try {
+      const provider = getProvider(name);
+      return await provider.completeStructured(messages, schema);
+    } catch (error) {
+      logger.warn("llm.fallback", { provider: name, error: String(error) });
+      continue;
+    }
+  }
+
+  throw new Error("All LLM providers failed");
+}
 ```
 
-## Cost Tracking via Logfire
+## Prompt Construction
 
-```python
-import logfire
+Build prompts as message arrays. Keep system prompts focused and user prompts data-driven.
 
-# Configure Logfire (reads LOGFIRE_TOKEN from environment)
-logfire.configure()
+```typescript
+import type { LLMMessage } from "@/lib/ai/types";
 
-# Instrument PydanticAI — all agent runs are traced automatically
-logfire.instrument_pydantic_ai()
-
-# Logfire dashboard shows per-call:
-# - Model and provider
-# - Token usage (prompt, completion, total)
-# - Latency (time to first token, total time)
-# - Validation retries
-# - Tool calls with arguments and results
-# - Full prompt/response for debugging
+function buildAnalysisMessages(text: string, signalType: string): LLMMessage[] {
+  return [
+    {
+      role: "system",
+      content: `You are a corporate intelligence analyst. Analyze the following ${signalType} signal. Extract key facts, classify sentiment, and identify strategic implications.`,
+    },
+    {
+      role: "user",
+      content: text,
+    },
+  ];
+}
 ```
 
-## Prompt Templating with Jinja2
+## Type Definitions
 
-Jinja2 templates remain useful for complex prompt construction. Combine with PydanticAI agents:
+```typescript
+// src/lib/ai/types.ts
+import { z } from "zod";
 
-```python
-from jinja2 import Template
+export const MessageRoleEnum = z.enum(["system", "user", "assistant"]);
+export type MessageRole = z.infer<typeof MessageRoleEnum>;
 
-EXTRACT_FACTS_PROMPT = Template("""
-Extract key facts from the following corporate signal.
+export const LLMMessageSchema = z.object({
+  role: MessageRoleEnum,
+  content: z.string(),
+});
+export type LLMMessage = z.infer<typeof LLMMessageSchema>;
 
-Signal type: {{ signal_type }}
-Source: {{ source }}
+// Analysis result types
+export const SentimentResultSchema = z.object({
+  sentiment: z.enum(["POSITIVE", "NEGATIVE", "NEUTRAL"]),
+  confidence: z.number().min(0).max(1),
+  key_phrases: z.array(z.string()).default([]),
+});
+export type SentimentResult = z.infer<typeof SentimentResultSchema>;
 
-Text:
-{{ text }}
-
-Return structured output with:
-- facts: list of key facts
-- entities: list of mentioned entities
-- sentiment: overall sentiment (positive/negative/neutral)
-""")
-
-async def extract_facts(text: str, signal_type: str, source: str) -> FactExtractionOutput:
-    prompt = EXTRACT_FACTS_PROMPT.render(
-        text=text, signal_type=signal_type, source=source
-    )
-    result = await fact_agent.run(prompt)
-    return result.output
+export const FactExtractionResultSchema = z.object({
+  facts: z.array(FactSchema).default([]),
+});
+export type FactExtractionResult = z.infer<typeof FactExtractionResultSchema>;
 ```
-
-## Migration from Legacy Provider Pattern
-
-If you have existing code using the old `LLMProvider` Protocol pattern from `backend/app/llm/provider.py`:
-
-### Before (Legacy)
-
-```python
-# Old pattern — DO NOT use this anymore
-class LLMProvider(Protocol):
-    async def complete(self, prompt: str) -> str: ...
-    async def complete_structured(self, prompt: str, response_model: type[BaseModel]) -> BaseModel: ...
-
-llm = get_llm_provider()
-result = await llm.complete_structured(prompt, FactsResponse)
-```
-
-### After (PydanticAI)
-
-```python
-# New pattern — use PydanticAI agents
-from pydantic_ai import Agent
-
-fact_agent = Agent(
-    'openai:gpt-4o',              # Replaces get_llm_provider()
-    output_type=FactsResponse,     # Replaces complete_structured()
-    instructions='Extract key facts from corporate signals.',
-)
-
-# Usage — output_type guarantees validated FactsResponse
-result = await fact_agent.run(text)
-facts = result.output  # FactsResponse — type-safe, validated
-```
-
-### Migration Checklist
-
-| Old Pattern | New Pattern |
-|---|---|
-| `LLMProvider` Protocol | `Agent(model, output_type=...)` |
-| `OpenAIProvider` / `AnthropicProvider` classes | Model strings: `'openai:gpt-4o'`, `'anthropic:claude-sonnet-4-5'` |
-| `get_llm_provider()` factory | Pass model string to `Agent()` or override with `run(model=...)` |
-| `complete(prompt)` | `agent.run(prompt)` → `result.output` (string) |
-| `complete_structured(prompt, Model)` | `Agent(output_type=Model)` → `result.output` (validated Model) |
-| Manual JSON parsing + error handling | Automatic with `output_type` + auto-retry |
-| Custom `LLMProviderError` hierarchy | PydanticAI exceptions + `ModelRetry` for validation |
-| Manual DI (passing `llm` around) | `deps_type` + `RunContext[Deps]` |
-| Manual token counting | `logfire.instrument_pydantic_ai()` |
-| Manual cost tracking | Logfire traces token usage per call |
 
 ## Common Mistakes
 
-### Mistake 1: Not Defining `output_type`
+### Mistake 1: Not Using Zod for Structured Output
 
 **Bad:**
-```python
-agent = Agent('openai:gpt-4o', instructions='Extract facts...')
-result = agent.run_sync('Text...')
-# result.output is a raw string — must manually parse JSON
+```typescript
+const response = await provider.complete(messages); // No such method
+const data = JSON.parse(response); // Manual parsing, may fail
 ```
 
 **Good:**
-```python
-agent = Agent('openai:gpt-4o', output_type=FactExtractionOutput, instructions='Extract facts...')
-result = agent.run_sync('Text...')
-# result.output is FactExtractionOutput — type-safe, validated
+```typescript
+const result = await provider.completeStructured(messages, MySchema);
+// result is typed and validated
 ```
 
-### Mistake 2: Writing Custom Provider Classes or Manual Parsing
+### Mistake 2: Hardcoding Provider
 
 **Bad:**
-```python
-class MyOpenAIProvider:
-    async def complete(self, prompt): ...
-    async def complete_structured(self, prompt, model): ...
-
-response = await llm.complete(prompt)
-data = json.loads(response)  # May fail, no retry
-result = MyModel(**data)
+```typescript
+import OpenAI from "openai";
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const response = await client.chat.completions.create({ ... });
 ```
 
 **Good:**
-```python
-agent = Agent('openai:gpt-4o', output_type=MyModel)
-result = await agent.run(prompt)  # validated MyModel, auto-retry
-# Switch provider: Agent('anthropic:claude-sonnet-4-5', output_type=MyModel)
+```typescript
+const provider = getProvider("openai");
+const result = await provider.completeStructured(messages, schema);
+// Can switch to getProvider("anthropic") without code changes
 ```
 
-### Mistake 4: Ignoring Rate Limits
+### Mistake 3: Ignoring Rate Limits
 
-```python
-# Bad: No concurrency control
-results = [await agent.run(t) for t in texts]  # Rapid fire!
+```typescript
+// Bad: No concurrency control
+const results = await Promise.all(texts.map(t => extractFacts(t))); // Rapid fire!
 
-# Good: Semaphore for concurrency control
-semaphore = asyncio.Semaphore(5)
-async def limited_run(text):
-    async with semaphore:
-        return await agent.run(text)
-results = await asyncio.gather(*[limited_run(t) for t in texts])
+// Good: Limit concurrency
+const CONCURRENCY = 5;
+async function mapWithLimit<T, R>(items: T[], fn: (item: T) => Promise<R>, limit: number): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += limit) {
+    const batch = items.slice(i, i + limit);
+    results.push(...await Promise.all(batch.map(fn)));
+  }
+  return results;
+}
 ```
 
 ## Quick Reference
 
 | Pattern | Code |
 |---|---|
-| **Agent definition** | `Agent('openai:gpt-4o', output_type=MyOutput, instructions='...')` |
-| **Multi-provider** | Model strings: `'openai:gpt-4o'`, `'anthropic:claude-sonnet-4-5'` |
-| **Override model** | `agent.run(prompt, model='anthropic:claude-sonnet-4-5')` |
-| **Structured output** | `output_type=MyPydanticModel` (auto-validates, auto-retries) |
-| **Dependency injection** | `deps_type=MyDeps`, pass `deps=MyDeps(...)` to `run()` |
-| **Access deps in tools** | `ctx.deps.field_name` via `RunContext[MyDeps]` |
-| **Cost tracking** | `logfire.instrument_pydantic_ai()` |
-| **Test model** | `TestModel(custom_output=MyOutput(...))` |
-| **Prompt templates** | Jinja2 `Template` → render → pass to `agent.run()` |
-| **Fallback** | Loop over model strings with try/except |
+| **Get provider** | `getProvider("openai")` or `getProvider("anthropic")` |
+| **Structured output** | `provider.completeStructured(messages, zodSchema)` |
+| **Override model** | `provider.completeStructured(messages, schema, { model: "gpt-4o-mini" })` |
+| **Message format** | `{ role: "system" \| "user" \| "assistant", content: string }` |
+| **Fallback** | Loop over providers with try/catch |
+| **Type definitions** | `src/lib/ai/types.ts` |
+| **Provider implementation** | `src/lib/ai/provider.ts` |
 
 ## Related Skills
 
-- **pydanticai-agents** — Full PydanticAI patterns (tools, streaming, testing, The Tell-specific agents)
-- **signal-analysis** — Analysis pipeline patterns (use PydanticAI agents for LLM nodes)
-- **data-modeling** — Pydantic model design (applies to `output_type` models)
-- **llm-abstraction** — This skill (provider abstraction + migration)
-
-## Resources
-
-- [PydanticAI Documentation](https://ai.pydantic.dev/)
-- [PydanticAI GitHub](https://github.com/pydantic/pydantic-ai)
-- [Logfire Documentation](https://logfire.pydantic.dev/)
+- **signal-analysis** — Analysis pipeline patterns (uses provider for LLM calls)
+- **data-modeling** — Zod schema design (applies to structured output schemas)
+- **article-generation** — Article generation from analysis results

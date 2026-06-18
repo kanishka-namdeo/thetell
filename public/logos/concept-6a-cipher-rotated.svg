@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Concept 6a: "Cipher" - Rotated squares -->
+  <!-- Concentric squares with rotation -->
+  
+  <!-- Outer square -->
+  <rect x="8" y="8" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2"/>
+  
+  <!-- Middle square, rotated 15 degrees (approximated) -->
+  <rect x="18" y="14" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" transform="rotate(15 32 32)"/>
+  
+  <!-- Inner square, solid -->
+  <rect x="26" y="26" width="12" height="12" fill="currentColor"/>
+  
+  <!-- Offset segments suggesting cipher alignment -->
+  <rect x="8" y="30" width="6" height="4" fill="currentColor"/>
+  <rect x="50" y="30" width="6" height="4" fill="currentColor"/>
+  <rect x="30" y="8" width="4" height="6" fill="currentColor"/>
+  <rect x="30" y="50" width="4" height="6" fill="currentColor"/>
+</svg>

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Concept 17: "Strata" - Geological Layers -->
+  <!-- Horizontal layers of varying thickness and opacity -->
+  <!-- Suggests: depth, hidden layers, excavation, archaeology -->
+  
+  <!-- Layer 1 (top, thin) -->
+  <rect x="8" y="8" width="48" height="3" fill="currentColor"/>
+  
+  <!-- Layer 2 -->
+  <rect x="8" y="15" width="48" height="5" fill="currentColor" opacity="0.8"/>
+  
+  <!-- Layer 3 (thick, prominent) -->
+  <rect x="8" y="24" width="48" height="8" fill="currentColor"/>
+  
+  <!-- Layer 4 (gap/stratum) -->
+  <rect x="8" y="36" width="48" height="2" fill="currentColor" opacity="0.4"/>
+  
+  <!-- Layer 5 -->
+  <rect x="8" y="42" width="48" height="6" fill="currentColor" opacity="0.6"/>
+  
+  <!-- Layer 6 (bottom, thick) -->
+  <rect x="8" y="52" width="48" height="4" fill="currentColor"/>
+  
+  <!-- Excavation marker: vertical cut through layers -->
+  <rect x="38" y="8" width="2" height="48" fill="currentColor" opacity="0.15"/>
+</svg>

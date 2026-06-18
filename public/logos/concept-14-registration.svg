@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Concept 14: "Registration Marks" - Print/Editorial -->
+  <!-- Crop marks and registration marks from print design -->
+  <!-- Suggests: precision, editorial process, alignment -->
+  
+  <!-- Top-left crop mark -->
+  <rect x="4" y="4" width="12" height="2" fill="currentColor"/>
+  <rect x="4" y="4" width="2" height="12" fill="currentColor"/>
+  
+  <!-- Top-right crop mark -->
+  <rect x="48" y="4" width="12" height="2" fill="currentColor"/>
+  <rect x="58" y="4" width="2" height="12" fill="currentColor"/>
+  
+  <!-- Bottom-left crop mark -->
+  <rect x="4" y="58" width="12" height="2" fill="currentColor"/>
+  <rect x="4" y="48" width="2" height="12" fill="currentColor"/>
+  
+  <!-- Bottom-right crop mark -->
+  <rect x="48" y="58" width="12" height="2" fill="currentColor"/>
+  <rect x="58" y="48" width="2" height="12" fill="currentColor"/>
+  
+  <!-- Center registration crosshair -->
+  <rect x="30" y="24" width="4" height="16" fill="currentColor"/>
+  <rect x="24" y="30" width="16" height="4" fill="currentColor"/>
+  
+  <!-- Registration circle (as small rect approximation) -->
+  <rect x="28" y="28" width="8" height="2" fill="currentColor"/>
+  <rect x="28" y="34" width="8" height="2" fill="currentColor"/>
+  <rect x="28" y="28" width="2" height="8" fill="currentColor"/>
+  <rect x="34" y="28" width="2" height="8" fill="currentColor"/>
+</svg>

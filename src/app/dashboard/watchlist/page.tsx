@@ -31,7 +31,7 @@ export default async function WatchlistPage() {
             take: 5,
             orderBy: { scrapedAt: "desc" },
             include: {
-              analysis: true,
+              analyses: true,
             },
           },
         },
@@ -118,9 +118,9 @@ export default async function WatchlistPage() {
                                 day: "numeric",
                               })}
                             </span>
-                            {signal.analysis && (
+                            {signal.analyses && signal.analyses.length > 0 && (
                               <Badge variant="outline" className="text-[9px]">
-                                {Math.round(signal.analysis.confidence * 100)}% confidence
+                                {Math.round(signal.analyses[0].confidence * 100)}% confidence
                               </Badge>
                             )}
                           </div>

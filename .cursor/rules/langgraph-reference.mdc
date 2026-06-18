@@ -1,11 +1,13 @@
 ---
-description: LangGraph Python extended reference — checkpointer setup, graph compilation, conditional edges, ToolNode, anti-patterns table, verification checklist. Apply when building new agents or debugging LangGraph issues.
+description: LangGraph TypeScript/JS extended reference — checkpointer setup, graph compilation, conditional edges, ToolNode, anti-patterns table, verification checklist. Apply when building new agents or debugging LangGraph issues.
 alwaysApply: false
 ---
 
-# LangGraph Reference (Python)
+# LangGraph Reference (TypeScript)
 
-**Trigger**: Reference material for LangGraph Python implementation. Read when building new agents, debugging graph issues, or verifying agent structure.
+**Trigger**: Reference material for LangGraph.js TypeScript implementation. Read when building new agents, debugging graph issues, or verifying agent structure.
+
+> **Note**: LangGraph.js is aspirational — not yet implemented in this project. This reference serves as the guide for when the agent layer is built.
 
 > **Core patterns**: See [langgraph-patterns.mdc](.cursor/rules/langgraph-patterns.mdc) for state design, node purity, tool loops, routing, and interrupts.
 
@@ -13,14 +15,15 @@ alwaysApply: false
 
 ## Checkpointer Setup
 
-Use `AsyncPostgresSaver` from `langgraph-checkpoint-postgres`. Reuses the existing `DATABASE_URL`. Never use `MemorySaver` in production.
+Use `PostgresSaver` from `@langchain/langgraph-checkpoint-postgres`. Reuses the existing `DATABASE_URL`. Never use `MemorySaver` in production.
 
-```python
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from app.config import settings
+```typescript
+import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+import { DATABASE_URL } from "@/lib/config";
 
-async def get_checkpointer() -> AsyncPostgresSaver:
-    return AsyncPostgresSaver.from_conn_string(settings.database_url)
+export async function getCheckpointer(): Promise<PostgresSaver> {
+  return PostgresSaver.fromConnString(DATABASE_URL);
+}
 ```
 
 ### Checkpointer Rules
@@ -29,118 +32,146 @@ async def get_checkpointer() -> AsyncPostgresSaver:
 |------|--------|
 | Lazy init | Create once per process, cache the instance |
 | Call `setup()` once | Only on first creation (creates tables) |
-| Thread isolation | Each user session gets a unique `thread_id` |
+| Thread isolation | Each user session gets a unique `threadId` |
 | No manual DB writes in nodes | Let the checkpointer handle persistence |
-| Connection pooling | `AsyncPostgresSaver` manages its own pool |
+| Connection pooling | `PostgresSaver` manages its own pool |
 
 ### Graph Compilation with Checkpointer
 
-```python
-from langgraph.graph import StateGraph, START, END
+```typescript
+import { StateGraph, START, END } from "@langchain/langgraph";
+import { getCheckpointer } from "./checkpointer";
 
-async def build_graph():
-    checkpointer = await get_checkpointer()
-    graph = StateGraph(SignalAnalysisState)
-    graph.add_node("extract_facts", extract_facts)
-    graph.add_node("classify", classify_sentiment)
-    graph.add_edge(START, "extract_facts")
-    graph.add_edge("extract_facts", "classify")
-    graph.add_edge("classify", END)
-    return graph.compile(checkpointer=checkpointer)
+export async function buildGraph() {
+  const checkpointer = await getCheckpointer();
+  
+  const graph = new StateGraph<SignalAnalysisState>({
+    channels: {
+      // ... state schema
+    },
+  });
+  
+  graph.addNode("extractFacts", extractFacts);
+  graph.addNode("classify", classifySentiment);
+  graph.addEdge(START, "extractFacts");
+  graph.addEdge("extractFacts", "classify");
+  graph.addEdge("classify", END);
+  
+  return graph.compile({ checkpointer });
+}
 ```
 
 ### Invoke with Thread Config
 
-```python
-result = await app.ainvoke(
-    {"signal_id": "abc-123", "raw_text": "...", "company_id": "co-456"},
-    config={"configurable": {"thread_id": "analysis-abc-123"}},
-)
+```typescript
+const result = await graph.invoke(
+  {
+    signalId: "abc-123",
+    rawText: "...",
+    companyId: "co-456",
+  },
+  {
+    configurable: { threadId: "analysis-abc-123" },
+  }
+);
 ```
 
 ---
 
 ## State Definition
 
-Use `TypedDict` with `Annotated` reducers. Every list field needs an append reducer.
+Use TypeScript interfaces with explicit field types. Every list field needs a reducer pattern.
 
-```python
-from typing import TypedDict, Annotated
-from langgraph.graph.message import add_messages
-from langchain_core.messages import BaseMessage
+```typescript
+// src/lib/agent/types.ts
+import { BaseMessage } from "@langchain/core/messages";
 
-class SignalAnalysisState(TypedDict):
-    signal_id: str
-    raw_text: str
-    company_id: str
-    facts: Annotated[list[dict], lambda a, b: a + b]
-    sentiment: str
-    confidence_score: float
-    summary: str
-    error: str | None
-    messages: Annotated[list[BaseMessage], add_messages]
+interface SignalAnalysisState {
+  signalId: string;
+  rawText: string;
+  companyId: string;
+  facts: Array<{ text: string; confidence: number }>;
+  sentiment: "POSITIVE" | "NEGATIVE" | "NEUTRAL";
+  confidenceScore: number;
+  summary: string;
+  error?: string;
+  messages: BaseMessage[];
+}
 ```
 
 ### Reducer Selection
 
-| Pattern | Reducer | Use Case |
-|---------|---------|----------|
-| Replace value | No reducer needed (last-write-wins) | `sentiment`, `confidence_score`, `error` |
-| Append list | `lambda a, b: a + b` | `facts`, `patterns`, `signal_texts` |
-| Messages | `add_messages` | Chat history (built-in dedup + ordering) |
+| Pattern | Implementation | Use Case |
+|---------|----------------|----------|
+| Replace value | Direct assignment (last-write-wins) | `sentiment`, `confidenceScore`, `error` |
+| Append list | Spread operator or concat | `facts`, `patterns`, `signalTexts` |
+| Messages | Built-in message reducer | Chat history (built-in dedup + ordering) |
 
 ---
 
-## add_conditional_edges() Patterns
+## addConditionalEdges() Patterns
 
 ### Basic Routing
 
-```python
-def route_by_confidence(state: SignalAnalysisState) -> str:
-    if state.get("error"):
-        return "dead_letter"
-    if state["confidence_score"] >= 0.8:
-        return "publish"
-    return "review"
+```typescript
+import { StateGraph } from "@langchain/langgraph";
 
-graph.add_conditional_edges(
-    "score_confidence",
-    route_by_confidence,
-    {
-        "publish": "generate_summary",
-        "review": "analyst_review",
-        "dead_letter": "failed_analysis",
-    },
-)
+function routeByConfidence(state: SignalAnalysisState): string {
+  if (state.error) {
+    return "deadLetter";
+  }
+  if (state.confidenceScore >= 0.8) {
+    return "publish";
+  }
+  return "review";
+}
+
+const graph = new StateGraph<SignalAnalysisState>({
+  channels: { /* ... */ },
+});
+
+graph.addConditionalEdges(
+  "scoreConfidence",
+  routeByConfidence,
+  {
+    publish: "generateSummary",
+    review: "analystReview",
+    deadLetter: "failedAnalysis",
+  }
+);
 ```
 
 ### Tool Loop Routing
 
-```python
-from langchain_core.messages import AIMessage
+```typescript
+import { AIMessage } from "@langchain/core/messages";
 
-def should_call_tools(state: SignalAnalysisState) -> str:
-    last = state["messages"][-1]
-    if isinstance(last, AIMessage) and last.tool_calls:
-        return "tools"
-    return "end"
+function shouldCallTools(state: SignalAnalysisState): string {
+  const last = state.messages[state.messages.length - 1];
+  if (last instanceof AIMessage && last.tool_calls?.length > 0) {
+    return "tools";
+  }
+  return "end";
+}
 
-graph.add_conditional_edges("model", should_call_tools, {
-    "tools": "tools",
-    "end": END,
-})
-graph.add_edge("tools", "model")  # loop back
+graph.addConditionalEdges("model", shouldCallTools, {
+  tools: "tools",
+  end: END,
+});
+graph.addEdge("tools", "model"); // loop back
 ```
 
 ### Max Iteration Guard
 
-```python
-def should_continue(state: InferenceState) -> str:
-    if state["iteration"] >= MAX_ITERATIONS:
-        return "finalize"
-    return "detect_patterns"
+```typescript
+function shouldContinue(state: InferenceState): string {
+  if (state.iteration >= MAX_ITERATIONS) {
+    return "finalize";
+  }
+  return "detectPatterns";
+}
 
-graph.add_conditional_edges("refine", should_continue)
+graph.addConditionalEdges("refine", shouldContinue);
 ```
 
 ### Routing Rules
@@ -149,35 +180,37 @@ graph.add_conditional_edges("refine", should_continue)
 |------|--------|
 | Pure functions only | No mutation, no side effects, no LLM calls |
 | Return string keys | Must match a key in the path map (or be the node name if no map) |
-| Always handle errors | Check `state.get("error")` before other conditions |
+| Always handle errors | Check `state.error` before other conditions |
 | Log routing decisions | Use `logger.debug()` for routing trace |
 
 ---
 
-## ToolNode from langgraph.prebuilt
+## ToolNode from @langchain/langgraph/prebuilt
 
 Use `ToolNode` for explicit tool execution loops. Never handle tool calls inside model nodes.
 
-```python
-from langgraph.prebuilt import ToolNode
-from langchain_openai import ChatOpenAI
+```typescript
+import { ToolNode } from "@langchain/langgraph/prebuilt";
+import { ChatOpenAI } from "@langchain/openai";
+import { searchTool, scrapeTool } from "./tools";
 
-tools = [search_tool, scrape_tool]
-llm = ChatOpenAI(model="gpt-4o").bind_tools(tools)
+const tools = [searchTool, scrapeTool];
+const llm = new ChatOpenAI({ model: "gpt-4o" }).bindTools(tools);
 
-async def model_node(state: SignalAnalysisState) -> dict:
-    response = await llm.ainvoke(state["messages"])
-    return {"messages": [response]}
+async function modelNode(state: SignalAnalysisState) {
+  const response = await llm.invoke(state.messages);
+  return { messages: [response] };
+}
 
-tool_node = ToolNode(tools)
+const toolNode = new ToolNode(tools);
 
-graph.add_node("model", model_node)
-graph.add_node("tools", tool_node)
-graph.add_conditional_edges("model", should_call_tools, {
-    "tools": "tools",
-    "end": END,
-})
-graph.add_edge("tools", "model")  # loop back to model after tool execution
+graph.addNode("model", modelNode);
+graph.addNode("tools", toolNode);
+graph.addConditionalEdges("model", shouldCallTools, {
+  tools: "tools",
+  end: END,
+});
+graph.addEdge("tools", "model"); // loop back to model after tool execution
 ```
 
 ### ToolNode Rules
@@ -186,7 +219,7 @@ graph.add_edge("tools", "model")  # loop back to model after tool execution
 |------|--------|
 | Explicit loop | Model → conditional → ToolNode → model |
 | Never hide tool calls | Graph must see every tool invocation |
-| Bind tools to LLM | `llm.bind_tools([tools])` before model node |
+| Bind tools to LLM | `llm.bindTools([tools])` before model node |
 | Tool-loop guard | Add iteration counter to prevent infinite loops |
 
 ---
@@ -195,86 +228,115 @@ graph.add_edge("tools", "model")  # loop back to model after tool execution
 
 | Anti-Pattern | Why It's Bad | Fix |
 |---|---|---|
-| **State mutation in nodes** | Breaks reducer merge, corrupts checkpoints | Return partial state dicts: `return {"facts": [...]}` |
+| **State mutation in nodes** | Breaks reducer merge, corrupts checkpoints | Return partial state objects: `return { facts: [...] }` |
 | **Hidden tool calls in model nodes** | Graph can't track or replay tool execution | Use `ToolNode` + conditional edge + loop-back |
 | **Unbounded loops** | Infinite loops burn tokens and crash | Add `iteration` field + `MAX_ITERATIONS` guard |
-| **Blocking I/O in async nodes** | Blocks the event loop, kills concurrency | Use `httpx.AsyncClient`, `asyncpg`, not `requests`/`psycopg2` |
-| **Missing checkpointing** | No crash recovery, lost progress on failure | Always `compile(checkpointer=...)` in production |
+| **Blocking I/O in async nodes** | Blocks the event loop, kills concurrency | Use native `fetch()`, Prisma — no blocking calls |
+| **Missing checkpointing** | No crash recovery, lost progress on failure | Always `compile({ checkpointer })` in production |
 | **Side effects in routing functions** | Non-deterministic routing, breaks replay | Pure inspection only — read state, return string |
 | **Manual DB writes + checkpointer** | Double-write, inconsistent state on replay | Use checkpointer for all graph persistence |
 | **God nodes** | Multiple responsibilities, hard to test | Split into focused single-purpose nodes |
-| **`MemorySaver` in production** | Lost on restart, no crash recovery | Use `AsyncPostgresSaver` with `DATABASE_URL` |
-| **Sync I/O in async nodes** | Blocks event loop | Use `await` for all I/O; wrap sync calls in `asyncio.to_thread()` |
+| **`MemorySaver` in production** | Lost on restart, no crash recovery | Use `PostgresSaver` with `DATABASE_URL` |
+| **Sync I/O in async nodes** | Blocks event loop | Use `await` for all I/O |
 
 ---
 
 ## Interrupts (Human-in-the-Loop)
 
-```python
-from langgraph.types import interrupt
+```typescript
+import { interrupt } from "@langchain/langgraph";
 
-async def analyst_review(state: SignalAnalysisState) -> dict:
-    decision = interrupt({
-        "signal_id": state["signal_id"],
-        "summary": state["summary"],
-        "confidence": state["confidence_score"],
-        "action": "approve or reject this inference",
-    })
-    if decision == "approve":
-        return {"messages": [{"role": "human", "content": "Approved"}]}
-    return {"error": "Rejected by analyst"}
+async function analystReview(
+  state: SignalAnalysisState
+): Promise<Partial<SignalAnalysisState>> {
+  const decision = await interrupt({
+    signalId: state.signalId,
+    summary: state.summary,
+    confidence: state.confidenceScore,
+    action: "approve or reject this inference",
+  });
+  
+  if (decision === "approve") {
+    return { messages: [{ role: "human", content: "Approved" }] };
+  }
+  return { error: "Rejected by analyst" };
+}
 ```
 
 ---
 
 ## Crash Recovery & Time-Travel
 
-```python
-# Resume from last checkpoint after failure
-state = await app.aget_state(config)
-result = await app.ainvoke(None, config=config)
+```typescript
+// Resume from last checkpoint after failure
+const state = await graph.getState({
+  configurable: { threadId: "analysis-abc-123" },
+});
+const result = await graph.invoke(null, {
+  configurable: { threadId: "analysis-abc-123" },
+});
 
-# List checkpoint history
-history = [c async for c in app.aget_state_history(config)]
+// List checkpoint history
+const history = await graph.getStateHistory({
+  configurable: { threadId: "analysis-abc-123" },
+});
 
-# Replay from specific checkpoint
-await app.ainvoke(None, config={
-    "configurable": {"thread_id": "...", "checkpoint_id": "..."}
-})
+// Replay from specific checkpoint
+await graph.invoke(null, {
+  configurable: {
+    threadId: "...",
+    checkpointId: "...",
+  },
+});
 ```
 
 ---
 
 ## Streaming
 
-```python
-# Token-level streaming (for WebSocket/SSE to frontend)
-async for event in app.astream_events(input_data, config=config, version="v2"):
-    if event["event"] == "on_chat_model_stream":
-        token = event["data"]["chunk"].content
-        await websocket.send_json({"type": "token", "content": token})
+```typescript
+// Token-level streaming (for WebSocket/SSE to frontend)
+const stream = await graph.streamEvents(inputData, {
+  configurable: { threadId: "analysis-abc-123" },
+  version: "v2",
+});
 
-# Node-level streaming (intermediate results)
-async for chunk in app.astream(input_data, config=config):
-    for node_name, node_output in chunk.items():
-        await websocket.send_json({"type": "node_output", "node": node_name, "data": node_output})
+for await (const event of stream) {
+  if (event.event === "on_chat_model_stream") {
+    const token = event.data.chunk.content;
+    websocket.send(JSON.stringify({ type: "token", content: token }));
+  }
+}
+
+// Node-level streaming (intermediate results)
+const nodeStream = await graph.stream(inputData, {
+  configurable: { threadId: "analysis-abc-123" },
+});
+
+for await (const [nodeName, nodeOutput] of nodeStream) {
+  websocket.send(JSON.stringify({
+    type: "node_output",
+    node: nodeName,
+    data: nodeOutput,
+  }));
+}
 ```
 
 ---
 
 ## Verification Checklist
 
-Before committing Python LangGraph code:
+Before committing TypeScript LangGraph code:
 
-- [ ] State uses `TypedDict` with `Annotated` reducers for list fields
-- [ ] All nodes are `async def` and return partial state dicts
+- [ ] State uses TypeScript interfaces with explicit field types
+- [ ] All nodes are `async` functions and return partial state objects
 - [ ] All routing functions are pure (no mutation, no side effects, no LLM calls)
 - [ ] Tool-enabled steps use `ToolNode` + conditional edge + loop-back edge
 - [ ] Tool-loop guards present with `iteration` field + `MAX_ITERATIONS`
-- [ ] Graph compiled with `checkpointer=AsyncPostgresSaver` (not `MemorySaver`)
-- [ ] All I/O is async (`httpx`, `asyncpg`) — no blocking `requests`/`psycopg2`
+- [ ] Graph compiled with `checkpointer: PostgresSaver` (not `MemorySaver`)
+- [ ] All I/O is async (`fetch`, Prisma) — no blocking calls
 - [ ] No manual DB writes in node functions (use checkpointer)
-- [ ] Thread config uses unique `thread_id` per session
+- [ ] Thread config uses unique `threadId` per session
 - [ ] Error paths route to dead-letter nodes, not silent drops
 - [ ] Interrupts used for human-in-the-loop on high-confidence decisions
-- [ ] Streaming uses `astream_events(version="v2")` for token-level output
+- [ ] Streaming uses `streamEvents({ version: "v2" })` for token-level output

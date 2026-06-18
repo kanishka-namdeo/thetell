@@ -1,26 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
+import { AgentPersona } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
-  try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json(
-        { error: "unauthorized", message: "Authentication required" },
-        { status: 401 }
-      );
-    }
+  const requestId = crypto.randomUUID();
+  const log = logger.child({ requestId, route: "GET /api/v1/articles" });
 
+  try {
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get("limit") || "20");
     const cursor = searchParams.get("cursor");
     const companyId = searchParams.get("companyId");
-    const status = searchParams.get("status");
+    const agentPersona = searchParams.get("agentPersona") as AgentPersona | null;
 
-    const where: any = {};
+    log.info("api.request.start", { method: "GET", path: "/api/v1/articles" });
+
+    const where: Record<string, unknown> = { status: "PUBLISHED" };
     if (companyId) where.companyId = companyId;
-    if (status) where.status = status;
+    if (agentPersona) where.agentPersona = agentPersona;
 
     const articles = await prisma.article.findMany({
       where,
@@ -43,13 +42,15 @@ export async function GET(request: NextRequest) {
     const items = hasMore ? articles.slice(0, limit) : articles;
     const nextCursor = hasMore ? items[items.length - 1].id : null;
 
+    log.info("api.request.success", { count: items.length, hasMore });
+
     return NextResponse.json({
       items,
       nextCursor,
       hasMore,
     });
   } catch (error) {
-    console.error("Error fetching articles:", error);
+    log.error("api.request.error", { error: String(error) });
     return NextResponse.json(
       { error: "internal_error", message: "Failed to fetch articles" },
       { status: 500 }
@@ -68,9 +69,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { title, slug, summary, body: articleBody, companyId, analysisIds, status } = body;
+    const { title, slug, summary, body: articleBody, companyId, agentPersona, analysisIds, status } = body;
 
-    if (!title || !slug || !summary || !articleBody || !companyId) {
+    if (!title || !slug || !summary || !articleBody || !companyId || !agentPersona) {
       return NextResponse.json(
         {
           error: "validation_error",
@@ -81,6 +82,20 @@ export async function POST(request: NextRequest) {
             summary: !summary ? ["Required"] : undefined,
             body: !articleBody ? ["Required"] : undefined,
             companyId: !companyId ? ["Required"] : undefined,
+            agentPersona: !agentPersona ? ["Required"] : undefined,
+          },
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!["ANALYST", "GOSSIP_GIRL"].includes(agentPersona)) {
+      return NextResponse.json(
+        {
+          error: "validation_error",
+          message: "Invalid agent persona",
+          details: {
+            agentPersona: ["Must be ANALYST or GOSSIP_GIRL"],
           },
         },
         { status: 400 }
@@ -116,6 +131,7 @@ export async function POST(request: NextRequest) {
         summary,
         body: articleBody,
         companyId,
+        agentPersona,
         analysisIds: analysisIds || [],
         status: status || "DRAFT",
         authorId: session.user.id,
@@ -125,7 +141,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(article, { status: 201 });
   } catch (error) {
-    console.error("Error creating article:", error);
+    logger.error("Error creating article", { error: String(error) });
     return NextResponse.json(
       { error: "internal_error", message: "Failed to create article" },
       { status: 500 }

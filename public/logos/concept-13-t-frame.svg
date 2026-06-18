@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <!-- Concept 13: "T-Frame" - Asymmetric rectangular frame -->
+  <!-- Top horizontal bar -->
+  <rect x="2" y="2" width="20" height="3" fill="currentColor"/>
+  <!-- Right vertical bar (taller, full height) -->
+  <rect x="19" y="2" width="3" height="20" fill="currentColor"/>
+  <!-- Bottom horizontal bar -->
+  <rect x="2" y="19" width="20" height="3" fill="currentColor"/>
+  <!-- Left vertical bar (shorter, partial height) -->
+  <rect x="2" y="2" width="3" height="12" fill="currentColor"/>
+</svg>

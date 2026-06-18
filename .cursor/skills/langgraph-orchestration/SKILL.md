@@ -1,17 +1,17 @@
 ---
 name: langgraph-orchestration
-description: Use when building multi-step LLM workflows, implementing state machines, cross-signal inference, or article generation pipelines with LangGraph in The Tell backend
+description: Use when building multi-step LLM workflows, implementing state machines, cross-signal inference, or article generation pipelines with LangGraph.js in TypeScript
 ---
 
 # LangGraph Orchestration
 
 ## Overview
 
-LangGraph provides explicit control over multi-step LLM workflows through a state machine model. Unlike simple chain-of-thought prompting, LangGraph gives you:
+LangGraph.js provides explicit control over multi-step LLM workflows through a state machine model. Unlike simple chain-of-thought prompting, LangGraph gives you:
 
-- **Nodes** — async Python functions that process and return partial state
+- **Nodes** — async TypeScript functions that process and return partial state
 - **Edges** — deterministic or conditional transitions between nodes
-- **State** — a `TypedDict` that flows through the graph
+- **State** — a TypeScript interface that flows through the graph
 - **Checkpointing** — crash recovery via PostgreSQL (reuses existing `DATABASE_URL`)
 - **Interrupts** — human-in-the-loop pauses for analyst review
 - **Streaming** — token-level and node-level real-time updates to the frontend
@@ -28,118 +28,143 @@ LangGraph provides explicit control over multi-step LLM workflows through a stat
 
 ### State Definition
 
-Use `TypedDict` with `Annotated` reducers. Every list field needs an append reducer.
+Use TypeScript interfaces with explicit field types. Every field should be clearly typed.
 
-```python
-from typing import TypedDict, Annotated
-from langgraph.graph.message import add_messages
-from langchain_core.messages import BaseMessage
+```typescript
+// src/lib/agent/types.ts
+interface Fact {
+  statement: string;
+  confidence: number;
+  sourceUrl: string;
+}
 
-class Fact(TypedDict):
-    statement: str
-    confidence: float
-    source_url: str
-
-class SignalAnalysisState(TypedDict):
-    # Input
-    signal_id: str
-    raw_text: str
-    company_id: str
-    # Intermediate
-    facts: Annotated[list[Fact], lambda a, b: a + b]
-    sentiment: str
-    themes: list[str]
-    # Output
-    confidence_score: float
-    summary: str
-    # Control
-    error: str | None
-    messages: Annotated[list[BaseMessage], add_messages]
+interface SignalAnalysisState {
+  // Input
+  signalId: string;
+  rawText: string;
+  companyId: string;
+  // Intermediate
+  facts: Fact[];
+  sentiment: "POSITIVE" | "NEGATIVE" | "NEUTRAL";
+  themes: string[];
+  // Output
+  confidenceScore: number;
+  summary: string;
+  // Control
+  error: string | null;
+}
 ```
 
 ### Node Functions
 
-Nodes are async functions that return partial state dicts. Never mutate state directly.
+Nodes are async functions that return partial state objects. Never mutate state directly.
 
-```python
-from app.llm.provider import get_llm_provider
+```typescript
+import { getProvider } from "@/lib/ai/provider";
 
-async def extract_facts(state: SignalAnalysisState) -> dict:
-    llm = get_llm_provider()
-    prompt = f"Extract key facts from:\n{state['raw_text']}"
-    response = await llm.complete_structured(prompt, FactListSchema)
-    return {"facts": response.facts}
+async function extractFacts(state: SignalAnalysisState): Promise<Partial<SignalAnalysisState>> {
+  const provider = getProvider("openai");
+  const prompt = `Extract key facts from:\n${state.rawText}`;
+  
+  const response = await provider.completeStructured(
+    [{ role: "user", content: prompt }],
+    FactListSchema,
+  );
+  
+  return { facts: response.facts };
+}
 
-async def classify_sentiment(state: SignalAnalysisState) -> dict:
-    llm = get_llm_provider()
-    facts_text = "\n".join(f["statement"] for f in state["facts"])
-    prompt = f"Classify sentiment as positive/negative/neutral:\n{facts_text}"
-    result = await llm.complete(prompt)
-    return {"sentiment": result.strip().lower()}
+async function classifySentiment(state: SignalAnalysisState): Promise<Partial<SignalAnalysisState>> {
+  const provider = getProvider("openai");
+  const factsText = state.facts.map(f => f.statement).join("\n");
+  const prompt = `Classify sentiment as positive/negative/neutral:\n${factsText}`;
+  
+  const result = await provider.completeStructured(
+    [{ role: "user", content: prompt }],
+    SentimentSchema,
+  );
+  
+  return { sentiment: result.sentiment };
+}
 ```
 
 ### Graph Compilation
 
-```python
-from langgraph.graph import StateGraph, START, END
+```typescript
+import { StateGraph, START, END } from "@langchain/langgraph";
 
-graph = StateGraph(SignalAnalysisState)
-graph.add_node("extract_facts", extract_facts)
-graph.add_node("classify_sentiment", classify_sentiment)
-graph.add_node("identify_themes", identify_themes)
-graph.add_node("score_confidence", score_confidence)
-graph.add_node("generate_summary", generate_summary)
+const graph = new StateGraph<SignalAnalysisState>({
+  channels: {
+    signalId: { value: (x, y) => y ?? x },
+    rawText: { value: (x, y) => y ?? x },
+    companyId: { value: (x, y) => y ?? x },
+    facts: { value: (x, y) => y ?? x },
+    sentiment: { value: (x, y) => y ?? x },
+    themes: { value: (x, y) => y ?? x },
+    confidenceScore: { value: (x, y) => y ?? x },
+    summary: { value: (x, y) => y ?? x },
+    error: { value: (x, y) => y ?? x },
+  },
+});
 
-graph.add_edge(START, "extract_facts")
-graph.add_edge("extract_facts", "classify_sentiment")
-graph.add_edge("classify_sentiment", "identify_themes")
-graph.add_edge("identify_themes", "score_confidence")
-graph.add_edge("score_confidence", "generate_summary")
-graph.add_edge("generate_summary", END)
+graph.addNode("extract_facts", extractFacts);
+graph.addNode("classify_sentiment", classifySentiment);
+graph.addNode("identify_themes", identifyThemes);
+graph.addNode("score_confidence", scoreConfidence);
+graph.addNode("generate_summary", generateSummary);
 
-app = graph.compile()
+graph.addEdge(START, "extract_facts");
+graph.addEdge("extract_facts", "classify_sentiment");
+graph.addEdge("classify_sentiment", "identify_themes");
+graph.addEdge("identify_themes", "score_confidence");
+graph.addEdge("score_confidence", "generate_summary");
+graph.addEdge("generate_summary", END);
+
+const app = graph.compile();
 ```
 
 ### Conditional Routing
 
-Use `add_conditional_edges()` with a pure router function — no side effects.
+Use `addConditionalEdges()` with a pure router function — no side effects.
 
-```python
-def route_by_confidence(state: SignalAnalysisState) -> str:
-    if state.get("error"):
-        return "dead_letter"
-    if state["confidence_score"] >= 0.8:
-        return "publish"
-    return "review"
+```typescript
+function routeByConfidence(state: SignalAnalysisState): string {
+  if (state.error) {
+    return "dead_letter";
+  }
+  if (state.confidenceScore >= 0.8) {
+    return "publish";
+  }
+  return "review";
+}
 
-graph.add_conditional_edges(
-    "score_confidence",
-    route_by_confidence,
-    {
-        "publish": "generate_summary",
-        "review": "analyst_review",
-        "dead_letter": "failed_analysis",
-    }
-)
+graph.addConditionalEdges("score_confidence", routeByConfidence, {
+  publish: "generate_summary",
+  review: "analyst_review",
+  dead_letter: "failed_analysis",
+});
 ```
 
 ### Interrupts (Human-in-the-Loop)
 
 Pause execution for analyst review before publishing high-impact inferences.
 
-```python
-from langgraph.types import interrupt, Command
+```typescript
+import { interrupt } from "@langchain/langgraph";
 
-async def analyst_review(state: SignalAnalysisState) -> dict:
-    decision = interrupt({
-        "signal_id": state["signal_id"],
-        "summary": state["summary"],
-        "confidence": state["confidence_score"],
-        "action": "approve or reject this inference",
-    })
-    if decision == "approve":
-        return {"messages": [{"role": "human", "content": "Approved"}]}
-    return {"error": "Rejected by analyst"}
+async function analystReview(state: SignalAnalysisState): Promise<Partial<SignalAnalysisState>> {
+  const decision = await interrupt({
+    signalId: state.signalId,
+    summary: state.summary,
+    confidence: state.confidenceScore,
+    action: "approve or reject this inference",
+  });
+  
+  if (decision === "approve") {
+    return {};
+  }
+  return { error: "Rejected by analyst" };
+}
 ```
 
 ## The Tell Workflows
@@ -148,246 +173,333 @@ async def analyst_review(state: SignalAnalysisState) -> dict:
 
 Linear graph: extract → classify → identify themes → score → summarize.
 
-```python
-from langgraph.graph import StateGraph, START, END
+```typescript
+import { StateGraph, START, END } from "@langchain/langgraph";
 
-def build_signal_analysis_graph():
-    graph = StateGraph(SignalAnalysisState)
+function buildSignalAnalysisGraph() {
+  const graph = new StateGraph<SignalAnalysisState>({
+    channels: {
+      signalId: { value: (x, y) => y ?? x },
+      rawText: { value: (x, y) => y ?? x },
+      companyId: { value: (x, y) => y ?? x },
+      facts: { value: (x, y) => y ?? x },
+      sentiment: { value: (x, y) => y ?? x },
+      themes: { value: (x, y) => y ?? x },
+      confidenceScore: { value: (x, y) => y ?? x },
+      summary: { value: (x, y) => y ?? x },
+      error: { value: (x, y) => y ?? x },
+    },
+  });
 
-    graph.add_node("extract_facts", extract_facts)
-    graph.add_node("classify_sentiment", classify_sentiment)
-    graph.add_node("identify_themes", identify_themes)
-    graph.add_node("score_confidence", score_confidence)
-    graph.add_node("generate_summary", generate_summary)
-    graph.add_node("failed_analysis", dead_letter_node)
+  graph.addNode("extract_facts", extractFacts);
+  graph.addNode("classify_sentiment", classifySentiment);
+  graph.addNode("identify_themes", identifyThemes);
+  graph.addNode("score_confidence", scoreConfidence);
+  graph.addNode("generate_summary", generateSummary);
+  graph.addNode("failed_analysis", deadLetterNode);
 
-    graph.add_edge(START, "extract_facts")
-    graph.add_edge("extract_facts", "classify_sentiment")
-    graph.add_edge("classify_sentiment", "identify_themes")
-    graph.add_edge("identify_themes", "score_confidence")
+  graph.addEdge(START, "extract_facts");
+  graph.addEdge("extract_facts", "classify_sentiment");
+  graph.addEdge("classify_sentiment", "identify_themes");
+  graph.addEdge("identify_themes", "score_confidence");
 
-    graph.add_conditional_edges(
-        "score_confidence",
-        lambda s: "failed_analysis" if s.get("error") else "generate_summary",
-    )
+  graph.addConditionalEdges("score_confidence", (state) => 
+    state.error ? "failed_analysis" : "generate_summary"
+  );
 
-    graph.add_edge("generate_summary", END)
-    graph.add_edge("failed_analysis", END)
+  graph.addEdge("generate_summary", END);
+  graph.addEdge("failed_analysis", END);
 
-    return graph.compile()
+  return graph.compile();
+}
 ```
 
 ### Cross-Signal Inference
 
 Cyclic graph that connects multiple signals for pattern detection. Uses a loop with a max iteration guard.
 
-```python
-class InferenceState(TypedDict):
-    signal_ids: list[str]
-    signal_texts: Annotated[list[str], lambda a, b: a + b]
-    patterns: Annotated[list[dict], lambda a, b: a + b]
-    iteration: int
-    final_inference: str
+```typescript
+interface InferenceState {
+  signalIds: string[];
+  signalTexts: string[];
+  patterns: Array<{ conclusion: string; evidence: string[] }>;
+  iteration: number;
+  finalInference: string;
+}
 
-async def gather_signals(state: InferenceState) -> dict:
-    texts = await fetch_signal_texts(state["signal_ids"])
-    return {"signal_texts": texts}
+async function gatherSignals(state: InferenceState): Promise<Partial<InferenceState>> {
+  const texts = await fetchSignalTexts(state.signalIds);
+  return { signalTexts: texts };
+}
 
-async def detect_patterns(state: InferenceState) -> dict:
-    llm = get_llm_provider()
-    combined = "\n---\n".join(state["signal_texts"])
-    prompt = f"Detect strategic patterns across these signals:\n{combined}"
-    result = await llm.complete_structured(prompt, PatternListSchema)
-    return {"patterns": result.patterns}
+async function detectPatterns(state: InferenceState): Promise<Partial<InferenceState>> {
+  const provider = getProvider("openai");
+  const combined = state.signalTexts.join("\n---\n");
+  const prompt = `Detect strategic patterns across these signals:\n${combined}`;
+  
+  const result = await provider.completeStructured(
+    [{ role: "user", content: prompt }],
+    PatternListSchema,
+  );
+  
+  return { patterns: [...state.patterns, ...result.patterns] };
+}
 
-async def refine_inference(state: InferenceState) -> dict:
-    iteration = state["iteration"] + 1
-    if iteration >= 3:
-        return {"iteration": iteration, "final_inference": state["patterns"][-1].get("conclusion", "")}
-    return {"iteration": iteration}
+async function refineInference(state: InferenceState): Promise<Partial<InferenceState>> {
+  const iteration = state.iteration + 1;
+  if (iteration >= 3) {
+    return {
+      iteration,
+      finalInference: state.patterns[state.patterns.length - 1]?.conclusion ?? "",
+    };
+  }
+  return { iteration };
+}
 
-def should_continue(state: InferenceState) -> str:
-    if state["iteration"] >= 3:
-        return "finalize"
-    return "detect_patterns"
+function shouldContinue(state: InferenceState): string {
+  if (state.iteration >= 3) {
+    return "finalize";
+  }
+  return "detect_patterns";
+}
 
-def build_cross_signal_graph():
-    graph = StateGraph(InferenceState)
-    graph.add_node("gather_signals", gather_signals)
-    graph.add_node("detect_patterns", detect_patterns)
-    graph.add_node("refine_inference", refine_inference)
-    graph.add_node("finalize", finalize_inference)
+function buildCrossSignalGraph() {
+  const graph = new StateGraph<InferenceState>({
+    channels: {
+      signalIds: { value: (x, y) => y ?? x },
+      signalTexts: { value: (x, y) => y ?? x },
+      patterns: { value: (x, y) => [...x, ...y] },
+      iteration: { value: (x, y) => y ?? x },
+      finalInference: { value: (x, y) => y ?? x },
+    },
+  });
 
-    graph.add_edge(START, "gather_signals")
-    graph.add_edge("gather_signals", "detect_patterns")
-    graph.add_edge("detect_patterns", "refine_inference")
-    graph.add_conditional_edges("refine_inference", should_continue)
-    graph.add_edge("finalize", END)
+  graph.addNode("gather_signals", gatherSignals);
+  graph.addNode("detect_patterns", detectPatterns);
+  graph.addNode("refine_inference", refineInference);
+  graph.addNode("finalize", finalizeInference);
 
-    return graph.compile()
+  graph.addEdge(START, "gather_signals");
+  graph.addEdge("gather_signals", "detect_patterns");
+  graph.addEdge("detect_patterns", "refine_inference");
+  graph.addConditionalEdges("refine_inference", shouldContinue);
+  graph.addEdge("finalize", END);
+
+  return graph.compile();
+}
 ```
 
 ### Article Generation
 
 Sequential graph with an editorial review interrupt before publishing.
 
-```python
-class ArticleState(TypedDict):
-    signal_id: str
-    analysis: dict
-    headline: str
-    summary: str
-    body: str
-    approved: bool
-    messages: Annotated[list[BaseMessage], add_messages]
+```typescript
+interface ArticleState {
+  signalId: string;
+  analysis: any;
+  headline: string;
+  summary: string;
+  body: string;
+  approved: boolean;
+}
 
-async def generate_headline(state: ArticleState) -> dict:
-    llm = get_llm_provider()
-    prompt = f"Write a compelling headline for:\n{state['analysis']['summary']}"
-    return {"headline": (await llm.complete(prompt)).strip()}
+async function generateHeadline(state: ArticleState): Promise<Partial<ArticleState>> {
+  const provider = getProvider("openai");
+  const prompt = `Write a compelling headline for:\n${state.analysis.summary}`;
+  
+  const result = await provider.completeStructured(
+    [{ role: "user", content: prompt }],
+    HeadlineSchema,
+  );
+  
+  return { headline: result.headline };
+}
 
-async def generate_summary(state: ArticleState) -> dict:
-    llm = get_llm_provider()
-    prompt = f"Write a 2-paragraph summary:\n{state['headline']}\n{state['analysis']['summary']}"
-    return {"summary": (await llm.complete(prompt)).strip()}
+async function generateSummary(state: ArticleState): Promise<Partial<ArticleState>> {
+  const provider = getProvider("openai");
+  const prompt = `Write a 2-paragraph summary:\n${state.headline}\n${state.analysis.summary}`;
+  
+  const result = await provider.completeStructured(
+    [{ role: "user", content: prompt }],
+    SummarySchema,
+  );
+  
+  return { summary: result.summary };
+}
 
-async def generate_body(state: ArticleState) -> dict:
-    llm = get_llm_provider()
-    prompt = f"Write the full article body:\nHeadline: {state['headline']}\nSummary: {state['summary']}"
-    return {"body": (await llm.complete(prompt)).strip()}
+async function generateBody(state: ArticleState): Promise<Partial<ArticleState>> {
+  const provider = getProvider("openai");
+  const prompt = `Write the full article body:\nHeadline: ${state.headline}\nSummary: ${state.summary}`;
+  
+  const result = await provider.completeStructured(
+    [{ role: "user", content: prompt }],
+    BodySchema,
+  );
+  
+  return { body: result.body };
+}
 
-async def editorial_review(state: ArticleState) -> dict:
-    decision = interrupt({
-        "headline": state["headline"],
-        "summary": state["summary"],
-        "action": "approve or request changes",
-    })
-    return {"approved": decision == "approve"}
+async function editorialReview(state: ArticleState): Promise<Partial<ArticleState>> {
+  const decision = await interrupt({
+    headline: state.headline,
+    summary: state.summary,
+    action: "approve or request changes",
+  });
+  
+  return { approved: decision === "approve" };
+}
 
-def build_article_generation_graph():
-    graph = StateGraph(ArticleState)
-    graph.add_node("generate_headline", generate_headline)
-    graph.add_node("generate_summary", generate_summary)
-    graph.add_node("generate_body", generate_body)
-    graph.add_node("editorial_review", editorial_review)
-    graph.add_node("publish", publish_article)
-    graph.add_node("revise", revise_article)
+function buildArticleGenerationGraph() {
+  const graph = new StateGraph<ArticleState>({
+    channels: {
+      signalId: { value: (x, y) => y ?? x },
+      analysis: { value: (x, y) => y ?? x },
+      headline: { value: (x, y) => y ?? x },
+      summary: { value: (x, y) => y ?? x },
+      body: { value: (x, y) => y ?? x },
+      approved: { value: (x, y) => y ?? x },
+    },
+  });
 
-    graph.add_edge(START, "generate_headline")
-    graph.add_edge("generate_headline", "generate_summary")
-    graph.add_edge("generate_summary", "generate_body")
-    graph.add_edge("generate_body", "editorial_review")
-    graph.add_conditional_edges(
-        "editorial_review",
-        lambda s: "publish" if s.get("approved") else "revise",
-    )
-    graph.add_edge("revise", "editorial_review")
-    graph.add_edge("publish", END)
+  graph.addNode("generate_headline", generateHeadline);
+  graph.addNode("generate_summary", generateSummary);
+  graph.addNode("generate_body", generateBody);
+  graph.addNode("editorial_review", editorialReview);
+  graph.addNode("publish", publishArticle);
+  graph.addNode("revise", reviseArticle);
 
-    return graph.compile()
+  graph.addEdge(START, "generate_headline");
+  graph.addEdge("generate_headline", "generate_summary");
+  graph.addEdge("generate_summary", "generate_body");
+  graph.addEdge("generate_body", "editorial_review");
+  
+  graph.addConditionalEdges("editorial_review", (state) => 
+    state.approved ? "publish" : "revise"
+  );
+  
+  graph.addEdge("revise", "editorial_review");
+  graph.addEdge("publish", END);
+
+  return graph.compile();
+}
 ```
 
 ## Checkpointing
 
-Use `AsyncPostgresSaver` for crash recovery. Reuses the existing `DATABASE_URL`.
+Use `PostgresSaver` for crash recovery. Reuses the existing `DATABASE_URL`.
 
-```python
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from app.config import settings
+```typescript
+import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 
-async def get_checkpointer() -> AsyncPostgresSaver:
-    return AsyncPostgresSaver.from_conn_string(settings.database_url)
+async function getCheckpointer(): Promise<PostgresSaver> {
+  return await PostgresSaver.fromConnString(process.env.DATABASE_URL!);
+}
 
-# Compile with checkpointer
-async def build_graph():
-    checkpointer = await get_checkpointer()
-    graph = build_signal_analysis_graph()  # raw graph before compile
-    return graph.compile(checkpointer=checkpointer)
+async function buildGraph() {
+  const checkpointer = await getCheckpointer();
+  const graph = buildSignalAnalysisGraph();
+  return graph.compile({ checkpointer });
+}
 
-# Invoke with thread_id for isolation
-result = await app.ainvoke(
-    {"signal_id": "abc-123", "raw_text": "...", "company_id": "co-456"},
-    config={"configurable": {"thread_id": "analysis-abc-123"}},
-)
+// Invoke with threadId for isolation
+const result = await app.invoke(
+  { signalId: "abc-123", rawText: "...", companyId: "co-456" },
+  { configurable: { threadId: "analysis-abc-123" } },
+);
 ```
 
 ### Crash Recovery
 
 Resume from the last checkpoint after a failure:
 
-```python
-# Get the state at any checkpoint
-state = await app.aget_state(config)
+```typescript
+// Get the state at any checkpoint
+const state = await app.getState(config);
 
-# Resume from where it left off
-result = await app.ainvoke(None, config=config)
+// Resume from where it left off
+const result = await app.invoke(null, config);
 ```
 
 ### Time-Travel Debugging
 
 Replay from any previous checkpoint:
 
-```python
-# List all checkpoints for a thread
-history = [c async for c in app.aget_state_history(config)]
+```typescript
+// List all checkpoints for a thread
+const history = await app.getStateHistory(config);
 
-# Replay from a specific checkpoint
-await app.ainvoke(None, config={"configurable": {"thread_id": "...", "checkpoint_id": "..."}})
+// Replay from a specific checkpoint
+await app.invoke(null, {
+  configurable: { threadId: "...", checkpointId: "..." },
+});
 ```
 
 ## Streaming
 
 ### Token-Level Streaming
 
-Use `astream_events()` for real-time token streaming to the frontend via WebSocket or SSE.
+Use `streamEvents()` for real-time token streaming to the frontend via WebSocket or SSE.
 
-```python
-async def stream_analysis(signal_data: dict, websocket):
-    config = {"configurable": {"thread_id": f"analysis-{signal_data['signal_id']}"}}
-    async for event in app.astream_events(signal_data, config=config, version="v2"):
-        kind = event["event"]
-        if kind == "on_chat_model_stream":
-            token = event["data"]["chunk"].content
-            await websocket.send_json({"type": "token", "content": token})
-        elif kind == "on_chain_end":
-            await websocket.send_json({"type": "node_complete", "node": event["name"]})
+```typescript
+async function streamAnalysis(signalData: any, websocket: WebSocket) {
+  const config = { configurable: { threadId: `analysis-${signalData.signalId}` } };
+  
+  for await (const event of app.streamEvents(signalData, config, "v2")) {
+    const kind = event.event;
+    if (kind === "on_chat_model_stream") {
+      const token = event.data.chunk.content;
+      websocket.send(JSON.stringify({ type: "token", content: token }));
+    } else if (kind === "on_chain_end") {
+      websocket.send(JSON.stringify({ type: "node_complete", node: event.name }));
+    }
+  }
+}
 ```
 
 ### Node-Level Streaming
 
 Stream intermediate results (facts extracted, sentiment classified) without token-level detail:
 
-```python
-async for chunk in app.astream(signal_data, config=config):
-    for node_name, node_output in chunk.items():
-        await websocket.send_json({
-            "type": "node_output",
-            "node": node_name,
-            "data": node_output,
-        })
+```typescript
+for await (const chunk of app.stream(signalData, config)) {
+  for (const [nodeName, nodeOutput] of Object.entries(chunk)) {
+    websocket.send(JSON.stringify({
+      type: "node_output",
+      node: nodeName,
+      data: nodeOutput,
+    }));
+  }
+}
 ```
 
 ## Subgraph Patterns
 
 Use subgraphs when a workflow has distinct phases with their own state.
 
-```python
-# Child graph: fact extraction sub-workflow
-fact_graph = StateGraph(FactState)
-fact_graph.add_node("parse", parse_text)
-fact_graph.add_node("validate", validate_facts)
-fact_graph.add_edge(START, "parse")
-fact_graph.add_edge("parse", "validate")
-fact_graph.add_edge("validate", END)
-compiled_facts = fact_graph.compile()
+```typescript
+// Child graph: fact extraction sub-workflow
+const factGraph = new StateGraph<FactState>({
+  channels: {
+    text: { value: (x, y) => y ?? x },
+    facts: { value: (x, y) => y ?? x },
+  },
+});
+factGraph.addNode("parse", parseText);
+factGraph.addNode("validate", validateFacts);
+factGraph.addEdge(START, "parse");
+factGraph.addEdge("parse", "validate");
+factGraph.addEdge("validate", END);
+const compiledFacts = factGraph.compile();
 
-# Parent graph: uses child as a node
-parent_graph = StateGraph(SignalAnalysisState)
-parent_graph.add_node("extract_facts", compiled_facts)
-parent_graph.add_node("classify", classify_sentiment)
-parent_graph.add_edge(START, "extract_facts")
-parent_graph.add_edge("extract_facts", "classify")
-parent_graph.add_edge("classify", END)
+// Parent graph: uses child as a node
+const parentGraph = new StateGraph<SignalAnalysisState>({
+  channels: { /* ... */ },
+});
+parentGraph.addNode("extract_facts", compiledFacts);
+parentGraph.addNode("classify", classifySentiment);
+parentGraph.addEdge(START, "extract_facts");
+parentGraph.addEdge("extract_facts", "classify");
+parentGraph.addEdge("classify", END);
 ```
 
 **When to use subgraphs vs. flat graphs:**
@@ -404,27 +516,33 @@ parent_graph.add_edge("classify", END)
 
 Single analysis context — facts and context persist across nodes within one thread.
 
-```python
-# State automatically persists across nodes within a thread_id
-config = {"configurable": {"thread_id": "analysis-abc-123"}}
-result = await app.ainvoke(input_data, config=config)
+```typescript
+// State automatically persists across nodes within a threadId
+const config = { configurable: { threadId: "analysis-abc-123" } };
+const result = await app.invoke(inputData, config);
 ```
 
 ### Cross-Thread Memory (Store API)
 
 Company context across multiple analyses using LangGraph's `Store` API:
 
-```python
-from langgraph.store.memory import InMemoryStore
+```typescript
+import { InMemoryStore } from "@langchain/langgraph";
 
-store = InMemoryStore()
+const store = new InMemoryStore();
 
-async def enrich_with_company_context(state: SignalAnalysisState, *, store):
-    company_id = state["company_id"]
-    # Retrieve previous analysis context
-    previous = await store.aget(("company", company_id), "analysis_context")
-    context = previous.value if previous else {}
-    return {"messages": [{"role": "system", "content": f"Prior context: {context}"}]}
+async function enrichWithCompanyContext(
+  state: SignalAnalysisState,
+  { store }: { store: InMemoryStore }
+): Promise<Partial<SignalAnalysisState>> {
+  const companyId = state.companyId;
+  const previous = await store.get(["company", companyId], "analysis_context");
+  const context = previous?.value ?? {};
+  
+  return {
+    // Add context to state
+  };
+}
 ```
 
 ## Error Recovery
@@ -433,41 +551,47 @@ async def enrich_with_company_context(state: SignalAnalysisState, *, store):
 
 Wrap individual nodes with retry logic:
 
-```python
-import asyncio
-
-async def extract_facts_with_retry(state: SignalAnalysisState) -> dict:
-    for attempt in range(3):
-        try:
-            return await extract_facts(state)
-        except LLMProviderError:
-            if attempt == 2:
-                return {"error": f"Failed after 3 attempts"}
-            await asyncio.sleep(2 ** attempt)
+```typescript
+async function extractFactsWithRetry(state: SignalAnalysisState): Promise<Partial<SignalAnalysisState>> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await extractFacts(state);
+    } catch (error) {
+      if (attempt === 2) {
+        return { error: `Failed after 3 attempts: ${error}` };
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
+    }
+  }
+  return { error: "Unreachable" };
+}
 ```
 
 ### Fallback Edges
 
 Route to fallback nodes when a primary node fails:
 
-```python
-def route_on_error(state: SignalAnalysisState) -> str:
-    if state.get("error"):
-        return "fallback_summary"
-    return "generate_summary"
+```typescript
+function routeOnError(state: SignalAnalysisState): string {
+  if (state.error) {
+    return "fallback_summary";
+  }
+  return "generate_summary";
+}
 
-graph.add_conditional_edges("score_confidence", route_on_error)
+graph.addConditionalEdges("score_confidence", routeOnError);
 ```
 
 ### Dead-Letter Node
 
 Capture failed analyses for later investigation:
 
-```python
-async def dead_letter_node(state: SignalAnalysisState) -> dict:
-    logger.error(f"Analysis failed for signal {state['signal_id']}: {state.get('error')}")
-    await save_failed_analysis(state["signal_id"], state.get("error"))
-    return {}
+```typescript
+async function deadLetterNode(state: SignalAnalysisState): Promise<Partial<SignalAnalysisState>> {
+  console.error(`Analysis failed for signal ${state.signalId}: ${state.error}`);
+  await saveFailedAnalysis(state.signalId, state.error);
+  return {};
+}
 ```
 
 ## Performance
@@ -476,16 +600,22 @@ async def dead_letter_node(state: SignalAnalysisState) -> dict:
 
 Use `Send()` API to fan out independent work across multiple signals:
 
-```python
-from langgraph.types import Send
+```typescript
+import { Send } from "@langchain/langgraph";
 
-async def fan_out_signals(state: BatchState) -> list[Send]:
-    return [
-        Send("analyze_single", {"signal_id": sid, "raw_text": text})
-        for sid, text in zip(state["signal_ids"], state["raw_texts"])
-    ]
+interface BatchState {
+  signalIds: string[];
+  rawTexts: string[];
+  results: any[];
+}
 
-graph.add_conditional_edges("fan_out", fan_out_signals)
+async function fanOutSignals(state: BatchState): Promise<Send[]> {
+  return state.signalIds.map((signalId, i) => 
+    new Send("analyze_single", { signalId, rawText: state.rawTexts[i] })
+  );
+}
+
+graph.addConditionalEdges("fan_out", fanOutSignals);
 ```
 
 ### When to Parallelize
@@ -500,81 +630,93 @@ graph.add_conditional_edges("fan_out", fan_out_signals)
 
 ### 1. Mutating State in Nodes
 
-```python
-# BAD — mutates state directly
-async def bad_node(state: SignalAnalysisState) -> dict:
-    state["facts"].append(new_fact)  # Mutation!
-    return state
+```typescript
+// BAD — mutates state directly
+async function badNode(state: SignalAnalysisState): Promise<SignalAnalysisState> {
+  state.facts.push(newFact); // Mutation!
+  return state;
+}
 
-# GOOD — return partial state
-async def good_node(state: SignalAnalysisState) -> dict:
-    return {"facts": state["facts"] + [new_fact]}
+// GOOD — return partial state
+async function goodNode(state: SignalAnalysisState): Promise<Partial<SignalAnalysisState>> {
+  return { facts: [...state.facts, newFact] };
+}
 ```
 
 ### 2. Hidden Tool Calls in Model Nodes
 
-```python
-# BAD — LLM calls tools internally, graph can't track them
-async def bad_model_node(state):
-    response = await llm.complete(prompt, tools=[search_tool])
-    # Tool results hidden from graph state
-    return {"summary": response}
+```typescript
+// BAD — LLM calls tools internally, graph can't track them
+async function badModelNode(state) {
+  const response = await provider.complete(prompt, { tools: [searchTool] });
+  // Tool results hidden from graph state
+  return { summary: response };
+}
 
-# GOOD — explicit tool loop in graph structure
-graph.add_node("model", model_with_tools)
-graph.add_node("tools", ToolNode([search_tool]))
-graph.add_conditional_edges("model", should_call_tools)
+// GOOD — explicit tool loop in graph structure
+graph.addNode("model", modelWithTools);
+graph.addNode("tools", toolNode([searchTool]));
+graph.addConditionalEdges("model", shouldCallTools);
 ```
 
 ### 3. Unbounded Loops
 
-```python
-# BAD — can loop forever
-graph.add_edge("refine", "check")
-graph.add_conditional_edges("check", lambda s: "refine" if not done(s) else END)
+```typescript
+// BAD — can loop forever
+graph.addEdge("refine", "check");
+graph.addConditionalEdges("check", (s) => !done(s) ? "refine" : END);
 
-# GOOD — max iteration guard
-async def refine(state):
-    if state["iteration"] >= MAX_ITERATIONS:
-        return {"error": "Max iterations reached"}
-    return {"iteration": state["iteration"] + 1}
+// GOOD — max iteration guard
+async function refine(state) {
+  if (state.iteration >= MAX_ITERATIONS) {
+    return { error: "Max iterations reached" };
+  }
+  return { iteration: state.iteration + 1 };
+}
 ```
 
 ### 4. Blocking I/O in Async Nodes
 
-```python
-# BAD — blocks the event loop
-async def bad_node(state):
-    response = requests.get(url)  # Blocking!
-    return {"data": response.json()}
+```typescript
+// BAD — blocks the event loop
+async function badNode(state) {
+  const response = await fetch(url); // This is fine in Node.js
+  return { data: await response.json() };
+}
 
-# GOOD — async I/O
-async def good_node(state):
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url)
-    return {"data": response.json()}
+// GOOD — proper async I/O
+async function goodNode(state) {
+  const response = await fetch(url);
+  return { data: await response.json() };
+}
 ```
 
 ### 5. Not Using Checkpointing
 
-```python
-# BAD — no crash recovery
-app = graph.compile()
+```typescript
+// BAD — no crash recovery
+const app = graph.compile();
 
-# GOOD — checkpoint for recovery
-app = graph.compile(checkpointer=checkpointer)
+// GOOD — checkpoint for recovery
+const app = graph.compile({ checkpointer });
 ```
 
 ## Quick Reference
 
 | Pattern | Code |
 |---|---|
-| **State definition** | `class MyState(TypedDict): field: Annotated[list, lambda a,b: a+b]` |
-| **Node function** | `async def node(state: MyState) -> dict: return {"field": value}` |
-| **Graph compilation** | `StateGraph(MyState).add_node().add_edge().compile()` |
-| **Conditional routing** | `graph.add_conditional_edges("node", router_fn, {"a": "b", "c": "d"})` |
-| **Checkpointing** | `graph.compile(checkpointer=AsyncPostgresSaver.from_conn_string(url))` |
-| **Interrupt** | `decision = interrupt({"action": "approve?"})` |
-| **Streaming** | `async for event in app.astream_events(input, version="v2"):` |
-| **Parallel fan-out** | `return [Send("node", data) for data in items]` |
-| **Thread config** | `config={"configurable": {"thread_id": "unique-id"}}` |
+| **State definition** | `interface MyState { field: Type }` |
+| **Node function** | `async function node(state: MyState): Promise<Partial<MyState>>` |
+| **Graph compilation** | `new StateGraph({ channels }).addNode().addEdge().compile()` |
+| **Conditional routing** | `graph.addConditionalEdges("node", routerFn, { "a": "b" })` |
+| **Checkpointing** | `graph.compile({ checkpointer: await PostgresSaver.fromConnString(url) })` |
+| **Interrupt** | `const decision = await interrupt({ action: "approve?" })` |
+| **Streaming** | `for await (const event of app.streamEvents(input, config, "v2"))` |
+| **Parallel fan-out** | `return items.map(item => new Send("node", data))` |
+| **Thread config** | `{ configurable: { threadId: "unique-id" } }` |
+
+## Related Skills
+
+- **pydanticai-agents** — LLM agent patterns with structured outputs
+- **signal-analysis** — Analysis pipeline patterns
+- **data-modeling** — TypeScript interface design

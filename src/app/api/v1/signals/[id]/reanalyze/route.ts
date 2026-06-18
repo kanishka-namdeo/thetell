@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { triggerBackendAnalysis } from "@/lib/backend-client";
+import { inngest } from "@/lib/inngest/client";
 
 export async function POST(
   request: NextRequest,
@@ -34,12 +34,14 @@ export async function POST(
       data: { status: "PENDING" },
     });
 
-    // Trigger backend analysis
+    // Trigger analysis via Inngest
     try {
-      await triggerBackendAnalysis(id);
-    } catch {
-      // Backend might be down, but signal is still created
-      // It can be re-analyzed later when backend is available
+      await inngest.send({
+        name: "signal/analysis.requested",
+        data: { signalId: id },
+      });
+    } catch (err) {
+      console.error("Failed to trigger analysis:", err);
     }
 
     return NextResponse.json({ success: true, signalId: id });

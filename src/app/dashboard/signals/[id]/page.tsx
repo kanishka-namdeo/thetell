@@ -30,7 +30,7 @@ export default async function SignalDetailPage({ params }: SignalDetailPageProps
     where: { id: params.id },
     include: {
       company: true,
-      analysis: true,
+      analyses: true,
     },
   });
 
@@ -38,26 +38,26 @@ export default async function SignalDetailPage({ params }: SignalDetailPageProps
     notFound();
   }
 
-  const initialAnalysis = signal.analysis
+  const initialAnalysis = signal.analyses && signal.analyses.length > 0
     ? {
-        id: signal.analysis.id,
-        signalId: signal.analysis.signalId,
-        summary: signal.analysis.summary,
-        keyFacts: (signal.analysis.keyFacts as Array<{
+        id: signal.analyses[0].id,
+        signalId: signal.analyses[0].signalId,
+        summary: signal.analyses[0].summary,
+        keyFacts: (signal.analyses[0].keyFacts as Array<{
           text: string;
           category: string;
           confidence: number;
           sourceSentence?: string;
         }>) ?? [],
-        sentiment: signal.analysis.sentiment,
-        strategicThemes: (signal.analysis.strategicThemes as Array<{
+        sentiment: signal.analyses[0].sentiment,
+        strategicThemes: (signal.analyses[0].strategicThemes as Array<{
           label: string;
           evidence: string[];
           correlationHints?: string[];
         }>) ?? [],
-        confidence: signal.analysis.confidence,
-        modelUsed: signal.analysis.modelUsed,
-        analyzedAt: signal.analysis.analyzedAt.toISOString(),
+        confidence: signal.analyses[0].confidence,
+        modelUsed: signal.analyses[0].modelUsed,
+        analyzedAt: signal.analyses[0].analyzedAt.toISOString(),
       }
     : null;
 
@@ -90,10 +90,10 @@ export default async function SignalDetailPage({ params }: SignalDetailPageProps
           >
             {signal.status}
           </Badge>
-          {signal.analysis && (
+          {signal.analyses && signal.analyses.length > 0 && (
             <>
-              <SentimentIndicator sentiment={signal.analysis.sentiment} />
-              <ConfidenceBadge confidence={signal.analysis.confidence} />
+              <SentimentIndicator sentiment={signal.analyses[0].sentiment} />
+              <ConfidenceBadge confidence={signal.analyses[0].confidence} />
             </>
           )}
         </div>

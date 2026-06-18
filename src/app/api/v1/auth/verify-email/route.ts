@@ -50,7 +50,7 @@ export async function GET(req: Request) {
     return NextResponse.redirect(
       new URL("/sign-in?verified=true", req.url)
     );
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: "Failed to verify email" },
       { status: 500 }

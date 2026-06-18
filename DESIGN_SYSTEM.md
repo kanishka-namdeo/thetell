@@ -58,6 +58,96 @@ import { Button, Card, Headline, Icon, Newspaper } from "@/components";
 5. **Information Density** - Tight spacing, efficient layouts
 6. **Bold Interactions** - Hard shadows, color inversions, no soft effects
 
+## Motion Principles
+
+Motion is purposeful, not decorative. Every animation must explain a state change, confirm an action, or guide attention. The newsprint aesthetic demands snappy, editorial motion -- never bouncy or playful.
+
+### Core Rules
+
+1. **Purposeful, not decorative** -- every animation explains a state change or confirms an action
+2. **Sharp and editorial** -- snappy easings, no bouncy springs, fits the newsprint aesthetic
+3. **Fast** -- nothing takes longer than 700ms. Analysts value efficiency.
+4. **Consistent** -- same tokens across all components. Predictable motion builds trust.
+5. **Accessible** -- `prefers-reduced-motion` is respected. No animation is essential for understanding.
+
+### Motion Tokens (`src/app/globals.css`)
+
+**Durations:**
+- `--motion-duration-instant: 100ms` -- micro feedback (button press, toggle)
+- `--motion-duration-fast: 200ms` -- hover states, tooltip appear
+- `--motion-duration-normal: 300ms` -- card transitions, filter changes
+- `--motion-duration-slow: 500ms` -- page transitions, staggered reveals
+- `--motion-duration-deliberate: 700ms` -- hero section entrance, chart draw
+
+**Easings:**
+- `--motion-ease-standard: cubic-bezier(0.4, 0.0, 0.2, 1)` -- default for most transitions
+- `--motion-ease-enter: cubic-bezier(0.0, 0.0, 0.2, 1)` -- elements entering screen
+- `--motion-ease-exit: cubic-bezier(0.4, 0.0, 1, 1)` -- elements leaving screen
+- `--motion-ease-sharp: cubic-bezier(0.4, 0.0, 0.6, 1)` -- editorial, snappy (fits newsprint)
+
+### Animation Library
+
+Use `motion` (framer-motion v11+) for:
+- Layout animations (filter changes, card reordering)
+- Exit animations (`AnimatePresence`)
+- Scroll-triggered reveals (`whileInView`)
+- Staggered children animations
+
+**Reduced motion support:** Use `useReducedMotion()` hook from `motion/react` and provide static fallbacks.
+
+**Page transitions:** Use CSS-only fade animations for route changes. Avoid component-level wrappers that force remounts and break server component streaming.
+
+### What to Animate
+
+- **Data-driven indicators** -- confidence bands, sentiment indicators, stat counts (communicates "live intelligence")
+- **Filter/sort transitions** -- cards animate to new positions, filtered items fade out
+- **Feed card reveals** -- staggered entrance on initial load (50ms delay between cards)
+- **Loading states** -- choreographed skeleton reveals (typesetting animation for newsprint theme)
+- **Button press** -- `scale(0.97)` on active state (tactile feedback)
+- **Page transitions** -- CSS-only fade on route changes (no component wrappers)
+
+### What NOT to Animate
+
+- Newsprint texture overlay -- must remain static
+- Typography (headlines, body text) -- editorial content should not bounce or slide
+- Border/grid structure -- the visible structure is the design's backbone
+- Ornament dividers -- decorative, should not move
+- Sharp corner aesthetic -- no rounded morphing or border-radius transitions
+
+### Accessibility
+
+All motion must respect `prefers-reduced-motion: reduce`. The CSS includes:
+
+```css
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+```
+
+In React components:
+```tsx
+import { useReducedMotion } from 'motion/react';
+
+function MyComponent() {
+  const reducedMotion = useReducedMotion();
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: reducedMotion ? 0 : 0.3 }}
+    >
+      Content
+    </motion.div>
+  );
+}
+```
+
+Every animation must have a static fallback that communicates the same information.
+
 ## Usage Example
 
 ```tsx
@@ -137,6 +227,7 @@ src/
 - **clsx** - Conditional class names
 - **tailwind-merge** - Tailwind class merging
 - **lucide-react** - Icon library
+- **motion** - Animation library (framer-motion v11+) for layout animations, exit animations, scroll-triggered reveals
 
 ## Next Steps
 

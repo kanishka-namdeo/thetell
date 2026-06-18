@@ -48,7 +48,7 @@ export interface SignalWithRelations {
     slug: string;
     ticker: string | null;
   };
-  analysis: AnalysisData | null;
+  analyses: AnalysisData[];
 }
 
 export interface AnalysisData {

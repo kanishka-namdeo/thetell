@@ -23,7 +23,7 @@ export async function GET() {
             take: 5,
             orderBy: { scrapedAt: "desc" },
             include: {
-              analysis: true,
+              analyses: true,
             },
           },
         },

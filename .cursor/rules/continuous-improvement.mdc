@@ -52,7 +52,7 @@ Determine whether the mistake belongs to a rule domain or a skill domain, then i
 | React | `react-components.mdc` | Re-renders, hooks misuse, component coupling |
 | Next.js | `nextjs-patterns.mdc` | Routing, server components, API routes |
 | LangGraph | `langgraph-patterns.mdc` | State design, node patterns, graph compilation, conditional routing, checkpointing, tool loops |
-| Pydantic | `data-layer.mdc` | Pydantic model validation, Field constraints, model_validator, serializer issues |
+| Zod | `data-layer.mdc` | Zod schema validation, parse errors, type coercion |
 | UI/Design | `design-assets-enforcement.mdc` | Raw HTML, hardcoded colors, missing shadcn |
 | Data/DB | `data-layer.mdc` | N+1 queries, missing indexes, migration issues |
 | Testing | `testing-conventions.mdc` | Flaky tests, missing assertions |
@@ -70,9 +70,8 @@ Determine whether the mistake belongs to a rule domain or a skill domain, then i
 | Planning | `.agents/skills/writing-plans/`, `.agents/skills/executing-plans/` | Missing research, vague verification steps |
 | Parallel agents | `.agents/skills/dispatching-parallel-agents/` | Incorrect dependency splitting, shared state races |
 | Subagent-driven dev | `.agents/skills/subagent-driven-development/` | Missing handoff context, unclear success criteria |
-| LLM/PydanticAI | `.cursor/skills/llm-abstraction/` | PydanticAI agents, output_type validation, multi-provider LLM, RunContext DI |
-| PydanticAI | `.cursor/skills/pydanticai-agents/` | Agent definition, tool registration, structured outputs, streaming, Logfire |
-| LangGraph orchestration | `.cursor/skills/langgraph-orchestration/` | Signal pipeline graph, cross-signal inference, article generation, checkpointing, streaming |
+| LLM Provider | `.cursor/skills/llm-abstraction/` | OpenAI/Anthropic provider, Zod structured output, multi-provider LLM |
+| LangGraph orchestration | `.cursor/skills/langgraph-orchestration/` | Signal pipeline graph (LangGraph.js), cross-signal inference, article generation, checkpointing, streaming |
 
 ### 2. Research Current Best Practice
 

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Concept 5a: "Seismograph" - Spike pattern -->
+  <!-- Vertical bars with sharp spike in center -->
+  
+  <!-- Vertical bars with dramatic central spike -->
+  <rect x="10" y="28" width="3" height="8" fill="currentColor"/>
+  <rect x="15" y="26" width="3" height="12" fill="currentColor"/>
+  <rect x="20" y="24" width="3" height="16" fill="currentColor"/>
+  <rect x="25" y="20" width="3" height="24" fill="currentColor"/>
+  <rect x="30" y="8" width="4" height="48" fill="currentColor"/>
+  <rect x="36" y="20" width="3" height="24" fill="currentColor"/>
+  <rect x="41" y="24" width="3" height="16" fill="currentColor"/>
+  <rect x="46" y="26" width="3" height="12" fill="currentColor"/>
+  <rect x="51" y="28" width="3" height="8" fill="currentColor"/>
+  
+  <!-- Baseline -->
+  <rect x="8" y="58" width="48" height="2" fill="currentColor"/>
+</svg>

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 64" fill="none">
+  <!-- Concept 4a: "Marginalia" - Compact version -->
+  <!-- "THE TELL" wordmark with tighter spacing -->
+  
+  <!-- T -->
+  <rect x="8" y="12" width="18" height="4" fill="currentColor"/>
+  <rect x="15" y="12" width="4" height="40" fill="currentColor"/>
+  
+  <!-- H -->
+  <rect x="28" y="12" width="4" height="40" fill="currentColor"/>
+  <rect x="28" y="30" width="14" height="4" fill="currentColor"/>
+  <rect x="38" y="12" width="4" height="40" fill="currentColor"/>
+  
+  <!-- E -->
+  <rect x="44" y="12" width="4" height="40" fill="currentColor"/>
+  <rect x="44" y="12" width="14" height="4" fill="currentColor"/>
+  <rect x="44" y="30" width="10" height="4" fill="currentColor"/>
+  <rect x="44" y="48" width="14" height="4" fill="currentColor"/>
+  
+  <!-- Space -->
+  
+  <!-- T -->
+  <rect x="66" y="12" width="18" height="4" fill="currentColor"/>
+  <rect x="73" y="12" width="4" height="40" fill="currentColor"/>
+  
+  <!-- E -->
+  <rect x="88" y="12" width="4" height="40" fill="currentColor"/>
+  <rect x="88" y="12" width="14" height="4" fill="currentColor"/>
+  <rect x="88" y="30" width="10" height="4" fill="currentColor"/>
+  <rect x="88" y="48" width="14" height="4" fill="currentColor"/>
+  
+  <!-- L -->
+  <rect x="106" y="12" width="4" height="40" fill="currentColor"/>
+  <rect x="106" y="48" width="14" height="4" fill="currentColor"/>
+  
+  <!-- L -->
+  <rect x="124" y="12" width="4" height="40" fill="currentColor"/>
+  <rect x="124" y="48" width="14" height="4" fill="currentColor"/>
+  
+  <!-- Editorial accent: double vertical rule on left -->
+  <rect x="2" y="8" width="1.5" height="48" fill="currentColor"/>
+  <rect x="5" y="8" width="1.5" height="48" fill="currentColor"/>
+</svg>

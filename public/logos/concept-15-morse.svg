@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Concept 15: "Morse" - Communication/Code -->
+  <!-- Dots and dashes forming a pattern -->
+  <!-- Suggests: hidden messages, signal transmission, decoding -->
+  
+  <!-- Row 1: dash dot dash -->
+  <rect x="8" y="10" width="14" height="4" fill="currentColor"/>
+  <rect x="26" y="10" width="4" height="4" fill="currentColor"/>
+  <rect x="34" y="10" width="14" height="4" fill="currentColor"/>
+  
+  <!-- Row 2: dot dash dot dot -->
+  <rect x="8" y="20" width="4" height="4" fill="currentColor"/>
+  <rect x="16" y="20" width="14" height="4" fill="currentColor"/>
+  <rect x="34" y="20" width="4" height="4" fill="currentColor"/>
+  <rect x="42" y="20" width="4" height="4" fill="currentColor"/>
+  
+  <!-- Row 3: dash dash (T in morse) -->
+  <rect x="8" y="30" width="14" height="4" fill="currentColor"/>
+  <rect x="26" y="30" width="14" height="4" fill="currentColor"/>
+  
+  <!-- Row 4: dot dot dot dot (H in morse) -->
+  <rect x="8" y="40" width="4" height="4" fill="currentColor"/>
+  <rect x="16" y="40" width="4" height="4" fill="currentColor"/>
+  <rect x="24" y="40" width="4" height="4" fill="currentColor"/>
+  <rect x="32" y="40" width="4" height="4" fill="currentColor"/>
+  
+  <!-- Row 5: dash dot dash (C in morse) -->
+  <rect x="8" y="50" width="14" height="4" fill="currentColor"/>
+  <rect x="26" y="50" width="4" height="4" fill="currentColor"/>
+  <rect x="34" y="50" width="14" height="4" fill="currentColor"/>
+</svg>

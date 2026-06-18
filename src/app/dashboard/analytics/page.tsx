@@ -13,7 +13,7 @@ export default async function AnalyticsPage() {
     include: {
       signals: {
         include: {
-          analysis: true,
+          analyses: true,
         },
       },
       articles: true,
@@ -23,17 +23,17 @@ export default async function AnalyticsPage() {
 
   const companyStats = companies.map((company) => {
     const signals = company.signals;
-    const analyses = signals.filter((s) => s.analysis).map((s) => s.analysis!);
+    const allAnalyses = signals.flatMap((s) => s.analyses || []);
 
     const avgConfidence =
-      analyses.length > 0
-        ? analyses.reduce((sum, a) => sum + a.confidence, 0) / analyses.length
+      allAnalyses.length > 0
+        ? allAnalyses.reduce((sum, a) => sum + a.confidence, 0) / allAnalyses.length
         : 0;
 
     const sentimentCounts = {
-      POSITIVE: analyses.filter((a) => a.sentiment === "POSITIVE").length,
-      NEGATIVE: analyses.filter((a) => a.sentiment === "NEGATIVE").length,
-      NEUTRAL: analyses.filter((a) => a.sentiment === "NEUTRAL").length,
+      POSITIVE: allAnalyses.filter((a) => a.sentiment === "POSITIVE").length,
+      NEGATIVE: allAnalyses.filter((a) => a.sentiment === "NEGATIVE").length,
+      NEUTRAL: allAnalyses.filter((a) => a.sentiment === "NEUTRAL").length,
     };
 
     const mostRecentSignal = signals.sort(

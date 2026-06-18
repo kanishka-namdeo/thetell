@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <!-- Concept 13d: Floating bars with gaps between them -->
+  <!-- Top horizontal bar -->
+  <rect x="2" y="2" width="18" height="2.5" fill="currentColor"/>
+  <!-- Right vertical bar (taller, offset from top) -->
+  <rect x="19.5" y="4" width="2.5" height="18" fill="currentColor"/>
+  <!-- Bottom horizontal bar (offset from right) -->
+  <rect x="4" y="19.5" width="18" height="2.5" fill="currentColor"/>
+  <!-- Left vertical bar (shorter, offset from bottom) -->
+  <rect x="2" y="2" width="2.5" height="11" fill="currentColor"/>
+</svg>

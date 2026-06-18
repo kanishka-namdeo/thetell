@@ -42,7 +42,8 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
   }, [options.limit]);
 
   useEffect(() => {
-    fetchCompanies();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetch, setState is after await
+    void fetchCompanies();
   }, [fetchCompanies]);
 
   const loadMore = useCallback(() => {

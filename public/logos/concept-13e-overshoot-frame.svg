@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <!-- Concept 13e: Bars extend beyond corners (overshoot) -->
+  <!-- Top horizontal bar (extends past right corner) -->
+  <rect x="2" y="2" width="22" height="2.5" fill="currentColor"/>
+  <!-- Right vertical bar (extends past top and bottom) -->
+  <rect x="19.5" y="0" width="2.5" height="22" fill="currentColor"/>
+  <!-- Bottom horizontal bar (extends past left corner) -->
+  <rect x="0" y="19.5" width="22" height="2.5" fill="currentColor"/>
+  <!-- Left vertical bar (shorter, extends past top) -->
+  <rect x="2" y="0" width="2.5" height="13" fill="currentColor"/>
+</svg>

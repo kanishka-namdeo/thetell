@@ -6,7 +6,7 @@ alwaysApply: true
 
 # Git Workflow
 
-Standardize git operations for the monorepo (Python backend + Next.js frontend).
+Standardize git operations for the Next.js TypeScript application.
 
 ## Branch Naming
 
@@ -43,7 +43,7 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 - `perf` — performance improvement
 
 ### Scopes
-Use the area of the codebase: `backend`, `frontend`, `scraping`, `llm`, `api`, `ci`, `deps`.
+Use the area of the codebase: `ai`, `scraping`, `frontend`, `api`, `ci`, `deps`.
 
 ### Examples
 ```
@@ -93,7 +93,6 @@ What changed and why.
 ## Tags & Releases
 
 - Tag releases as `v<MAJOR>.<MINOR>.<PATCH>` (semver)
-- Backend and frontend can be versioned independently if needed: `backend-v1.2.0`, `frontend-v1.3.0`
 - Always tag from `main` branch
 
 ## Protecting Main

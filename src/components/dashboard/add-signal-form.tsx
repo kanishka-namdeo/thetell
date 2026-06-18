@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CompanyWithCounts } from "@/lib/api/schemas";
-import { Loader2, Plus } from "lucide-react";
+import { Download, Loader2, Plus } from "lucide-react";
 
 const SOURCE_TYPES = [
   { value: "NEWS", label: "News" },
@@ -33,6 +33,7 @@ interface AddSignalFormProps {
 export function AddSignalForm({ companies }: AddSignalFormProps) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
+  const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [sourceUrl, setSourceUrl] = useState("");
@@ -42,12 +43,63 @@ export function AddSignalForm({ companies }: AddSignalFormProps) {
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [publishedAt, setPublishedAt] = useState("");
 
+  async function handleFetchFromUrl() {
+    setError(null);
+
+    if (!sourceUrl || !sourceType || !companyId) {
+      setError("Please fill in Source URL, Source Type, and Company first.");
+      return;
+    }
+
+    setFetching(true);
+
+    try {
+      const res = await fetch("/api/v1/signals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceUrl,
+          sourceType,
+          companyId,
+          publishedAt: publishedAt || null,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ message: "Failed to fetch content" }));
+        throw new Error(data.message || `HTTP ${res.status}`);
+      }
+
+      const signal = await res.json();
+      
+      // Auto-fill the form with scraped data
+      if (signal.title) {
+        setTitle(signal.title);
+      }
+      if (signal.rawContent) {
+        setRawContent(signal.rawContent);
+      }
+      if (signal.publishedAt && !publishedAt) {
+        // Convert ISO string to datetime-local format
+        const date = new Date(signal.publishedAt);
+        const localDateTime = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+          .toISOString()
+          .slice(0, 16);
+        setPublishedAt(localDateTime);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch content from URL");
+    } finally {
+      setFetching(false);
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
-    if (!sourceUrl || !sourceType || !title || !rawContent || !companyId) {
-      setError("All fields are required.");
+    if (!sourceUrl || !sourceType || !companyId) {
+      setError("Source URL, Source Type, and Company are required.");
       return;
     }
 
@@ -60,8 +112,8 @@ export function AddSignalForm({ companies }: AddSignalFormProps) {
         body: JSON.stringify({
           sourceUrl,
           sourceType,
-          title,
-          rawContent,
+          title: title || undefined,
+          rawContent: rawContent || undefined,
           companyId,
           publishedAt: publishedAt || null,
         }),
@@ -96,14 +148,39 @@ export function AddSignalForm({ companies }: AddSignalFormProps) {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="sourceUrl">Source URL</Label>
-            <Input
-              id="sourceUrl"
-              type="url"
-              placeholder="https://example.com/article"
-              value={sourceUrl}
-              onChange={(e) => setSourceUrl(e.target.value)}
-              required
-            />
+            <div className="flex gap-2">
+              <Input
+                id="sourceUrl"
+                type="url"
+                placeholder="https://example.com/article"
+                value={sourceUrl}
+                onChange={(e) => setSourceUrl(e.target.value)}
+                required
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleFetchFromUrl}
+                disabled={fetching || !sourceUrl || !sourceType || !companyId}
+                className="shrink-0"
+              >
+                {fetching ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Fetching...
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4 mr-2" />
+                    Fetch Content
+                  </>
+                )}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground font-body">
+              Enter a URL and click &quot;Fetch Content&quot; to automatically extract the title and content.
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -165,28 +242,29 @@ export function AddSignalForm({ companies }: AddSignalFormProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="title">Title</Label>
+            <Label htmlFor="title">Title (optional)</Label>
             <Input
               id="title"
               placeholder="Signal title or headline"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              required
             />
+            <p className="text-xs text-muted-foreground font-body">
+              Will be auto-filled if you use &quot;Fetch Content&quot; above.
+            </p>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="rawContent">Content</Label>
+            <Label htmlFor="rawContent">Content (optional)</Label>
             <Textarea
               id="rawContent"
-              placeholder="Paste the signal content here..."
+              placeholder="Paste the signal content here, or use 'Fetch Content' to extract automatically..."
               value={rawContent}
               onChange={(e) => setRawContent(e.target.value)}
               rows={10}
-              required
             />
             <p className="text-xs text-muted-foreground font-body">
-              The full text content will be analyzed by the AI pipeline.
+              The full text content will be analyzed by the AI pipeline. If not provided, the server will attempt to scrape it from the URL.
             </p>
           </div>
         </CardContent>

@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { AgentPersona } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { generateBackendArticle } from "@/lib/backend-client";
+import { logger } from "@/lib/logger";
+import { generateArticle } from "@/lib/ai/article-generator";
+import { generateArticleWithAgent } from "@/lib/ai/agent/article-generator";
+import { getAgentConfig } from "@/lib/ai/agent/personas";
 
 export async function POST(request: NextRequest) {
+  const requestId = crypto.randomUUID();
+  const log = logger.child({ requestId, route: "POST /api/v1/articles/generate" });
+
   try {
     const session = await auth();
     if (!session?.user) {
@@ -14,7 +21,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { companyId, analysisIds, customHeadline } = body;
+    const { companyId, analysisIds, agentPersona, customHeadline } = body;
+
+    log.info("api.request.start", { method: "POST", path: "/api/v1/articles/generate" });
 
     if (!companyId || !analysisIds || !Array.isArray(analysisIds) || analysisIds.length === 0) {
       return NextResponse.json(
@@ -30,7 +39,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify company exists
+    if (agentPersona && !["ANALYST", "GOSSIP_GIRL"].includes(agentPersona)) {
+      return NextResponse.json(
+        {
+          error: "validation_error",
+          message: "Invalid agent persona",
+          details: {
+            agentPersona: ["Must be ANALYST or GOSSIP_GIRL"],
+          },
+        },
+        { status: 400 }
+      );
+    }
+
     const company = await prisma.company.findUnique({
       where: { id: companyId },
     });
@@ -42,7 +63,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify all analyses exist
     const analyses = await prisma.analysis.findMany({
       where: { id: { in: analysisIds } },
       include: { signal: true },
@@ -55,54 +75,65 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Call backend to generate article
-    try {
-      const article = await generateBackendArticle({
+    const analysesForGeneration = analyses.map((a) => ({
+      summary: a.summary,
+      keyFacts: (a.keyFacts as Array<{ text: string }>) || [],
+      sentiment: a.sentiment,
+      strategicThemes: (a.strategicThemes as Array<{ label: string }>) || [],
+    }));
+
+    const resolvedPersona: AgentPersona = agentPersona ?? "ANALYST";
+    let article: { title: string; slug: string; summary: string; body: string };
+
+    if (agentPersona) {
+      const agentConfig = getAgentConfig(agentPersona);
+
+      const crossRefAnalyses = await prisma.analysis.findMany({
+        where: {
+          signalId: { in: analyses.map((a) => a.signalId) },
+          agentPersona: { not: agentPersona },
+        },
+      });
+
+      const crossRefs = crossRefAnalyses.map((a) => ({
+        summary: a.summary,
+        agentPersona: a.agentPersona,
+        keyFacts: ((a.keyFacts as Array<{ text: string }>) || []).map((f) => f.text),
+      }));
+
+      article = await generateArticleWithAgent(
+        { companyId, companyName: company.name, analyses: analysesForGeneration },
+        agentConfig,
+        crossRefs.length > 0 ? crossRefs : undefined
+      );
+    } else {
+      article = await generateArticle({
         companyId,
-        analysisIds,
+        companyName: company.name,
+        analyses: analysesForGeneration,
       });
-
-      // Create article in our database
-      const dbArticle = await prisma.article.create({
-        data: {
-          title: customHeadline || article.title,
-          slug: article.slug,
-          summary: article.summary,
-          body: article.body,
-          companyId,
-          analysisIds: analysisIds,
-          status: "DRAFT",
-          authorId: session.user.id,
-          publishedAt: new Date(),
-        },
-      });
-
-      return NextResponse.json(dbArticle, { status: 201 });
-    } catch (backendError) {
-      // If backend is down, create a placeholder article
-      console.error("Backend article generation failed:", backendError);
-
-      const fallbackSlug = `article-${Date.now()}`;
-      const fallbackTitle = customHeadline || `Article for ${company.name}`;
-
-      const dbArticle = await prisma.article.create({
-        data: {
-          title: fallbackTitle,
-          slug: fallbackSlug,
-          summary: "Article generation is pending. The AI backend is currently unavailable.",
-          body: "This article will be populated once the AI backend becomes available.",
-          companyId,
-          analysisIds: analysisIds,
-          status: "DRAFT",
-          authorId: session.user.id,
-          publishedAt: new Date(),
-        },
-      });
-
-      return NextResponse.json(dbArticle, { status: 201 });
     }
+
+    const dbArticle = await prisma.article.create({
+      data: {
+        title: customHeadline || article.title,
+        slug: article.slug,
+        summary: article.summary,
+        body: article.body,
+        companyId,
+        agentPersona: resolvedPersona,
+        analysisIds: analysisIds,
+        status: "DRAFT",
+        authorId: session.user.id,
+        publishedAt: new Date(),
+      },
+    });
+
+    log.info("api.request.success", { articleId: dbArticle.id, agentPersona: resolvedPersona });
+
+    return NextResponse.json(dbArticle, { status: 201 });
   } catch (error) {
-    console.error("Error generating article:", error);
+    log.error("api.request.error", { error: String(error) });
     return NextResponse.json(
       { error: "internal_error", message: "Failed to generate article" },
       { status: 500 }

@@ -50,7 +50,8 @@ export function useSignals(options: UseSignalsOptions = {}) {
   }, [options.limit, options.companyId, options.sourceType, options.status, options.sentiment]);
 
   useEffect(() => {
-    fetchSignals();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetch, setState is after await
+    void fetchSignals();
   }, [fetchSignals]);
 
   const loadMore = useCallback(() => {

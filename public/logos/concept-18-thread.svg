@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Concept 18: "Thread" - Connection/Evidence Board -->
+  <!-- Intersecting lines suggesting red string on evidence board -->
+  <!-- Suggests: connecting dots, pattern detection, investigation -->
+  
+  <!-- Horizontal threads -->
+  <rect x="4" y="16" width="56" height="1.5" fill="currentColor"/>
+  <rect x="4" y="32" width="56" height="1.5" fill="currentColor"/>
+  <rect x="4" y="48" width="56" height="1.5" fill="currentColor"/>
+  
+  <!-- Diagonal threads (approximated with rotated rects) -->
+  <rect x="8" y="8" width="48" height="1.5" fill="currentColor" transform="rotate(30 32 32)"/>
+  <rect x="8" y="8" width="48" height="1.5" fill="currentColor" transform="rotate(-30 32 32)"/>
+  
+  <!-- Intersection nodes (where threads cross) -->
+  <rect x="18" y="14" width="4" height="4" fill="currentColor"/>
+  <rect x="42" y="14" width="4" height="4" fill="currentColor"/>
+  <rect x="30" y="30" width="4" height="4" fill="currentColor"/>
+  <rect x="18" y="46" width="4" height="4" fill="currentColor"/>
+  <rect x="42" y="46" width="4" height="4" fill="currentColor"/>
+  
+  <!-- Central node (larger, the key insight) -->
+  <rect x="28" y="28" width="8" height="8" fill="currentColor"/>
+</svg>

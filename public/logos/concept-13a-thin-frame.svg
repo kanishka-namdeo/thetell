@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <!-- Concept 13a: Thin wireframe version -->
+  <!-- Top horizontal bar -->
+  <rect x="2" y="2" width="20" height="1.5" fill="currentColor"/>
+  <!-- Right vertical bar (taller, full height) -->
+  <rect x="20.5" y="2" width="1.5" height="20" fill="currentColor"/>
+  <!-- Bottom horizontal bar -->
+  <rect x="2" y="20.5" width="20" height="1.5" fill="currentColor"/>
+  <!-- Left vertical bar (shorter, partial height) -->
+  <rect x="2" y="2" width="1.5" height="12" fill="currentColor"/>
+</svg>

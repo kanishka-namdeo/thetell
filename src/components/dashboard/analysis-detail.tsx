@@ -8,8 +8,11 @@ import { SentimentIndicator } from "./sentiment-indicator";
 import { AnalysisData, KeyFact, StrategicTheme } from "@/lib/api/schemas";
 import { Brain, Lightbulb, Quote } from "lucide-react";
 
+type AgentPersona = "ANALYST" | "GOSSIP_GIRL";
+
 interface AnalysisDetailProps {
   analysis: AnalysisData;
+  agentPersona?: AgentPersona;
 }
 
 const categoryLabels: Record<string, string> = {
@@ -20,17 +23,39 @@ const categoryLabels: Record<string, string> = {
   market: "Market",
 };
 
-export function AnalysisDetail({ analysis }: AnalysisDetailProps) {
+const agentLabels: Record<AgentPersona, string> = {
+  ANALYST: "The Analyst",
+  GOSSIP_GIRL: "Gossip Girl",
+};
+
+export function AnalysisDetail({ analysis, agentPersona }: AnalysisDetailProps) {
   const keyFacts = analysis.keyFacts as KeyFact[];
   const themes = analysis.strategicThemes as StrategicTheme[];
 
   return (
     <div className="space-y-6">
       {/* Summary */}
-      <Card>
+      <Card
+        className={
+          agentPersona === "ANALYST"
+            ? "border-l-4 border-l-primary"
+            : agentPersona === "GOSSIP_GIRL"
+            ? "border-l-4 border-l-accent"
+            : undefined
+        }
+      >
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">Analysis Summary</CardTitle>
+            <div className="flex items-center gap-2">
+              {agentPersona && (
+                <Badge
+                  variant={agentPersona === "ANALYST" ? "default" : "accent"}
+                >
+                  {agentLabels[agentPersona]}
+                </Badge>
+              )}
+              <CardTitle className="text-lg">Analysis Summary</CardTitle>
+            </div>
             <div className="flex items-center gap-3">
               <SentimentIndicator sentiment={analysis.sentiment} />
               <ConfidenceBadge confidence={analysis.confidence} />

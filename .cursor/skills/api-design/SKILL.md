@@ -1,127 +1,164 @@
 ---
 name: api-design
-description: Use when designing REST API endpoints, creating FastAPI routers, defining request/response schemas, or implementing pagination, filtering, and error handling for the backend API
+description: Use when designing REST API endpoints, creating Next.js Route Handlers, defining Zod schemas for validation, or implementing pagination, filtering, and error handling for the API
 ---
 
 # API Design
 
 ## Overview
 
-Design **RESTful, consistent, and well-documented** APIs using FastAPI. Every endpoint should have clear request/response schemas, proper error handling, and follow REST conventions.
+Design **RESTful, consistent, and well-documented** APIs using Next.js Route Handlers. Every endpoint should have clear Zod schemas for validation, proper error handling, and follow REST conventions.
 
 ## When to Use
 
-- Creating new API endpoints
-- Designing request/response schemas
-- Implementing pagination or filtering
+- Creating new API endpoints in `src/app/api/v1/`
+- Designing request/response schemas with Zod
+- Implementing cursor-based pagination or filtering
 - Adding error handling to routes
-- Structuring FastAPI routers
+- Structuring Next.js Route Handlers
 
 ## Core Pattern
 
 ### Before: Ad-hoc Endpoints (Problematic)
 
-```python
-# Bad: Inconsistent, no schemas, no error handling
-from fastapi import APIRouter
+```typescript
+// Bad: Inconsistent, no schemas, no error handling
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
 
-router = APIRouter()
+export async function GET() {
+  const signals = await prisma.signal.findMany();
+  return NextResponse.json({ data: signals });
+}
 
-@router.get("/get_signals")
-async def get_signals():
-    signals = db.query("SELECT * FROM signals")
-    return {"data": [dict(s) for s in signals]}
-
-@router.post("/analyze")
-async def analyze(request: Request):
-    data = await request.json()
-    result = analyze_text(data["text"])
-    return result
+export async function POST(req: Request) {
+  const data = await req.json();
+  const result = await analyzeText(data.text);
+  return NextResponse.json(result);
+}
 ```
 
 **Problems:**
 - Non-standard endpoint names (`/get_signals` instead of `/signals`)
-- No request/response schemas
+- No request/response validation with Zod
 - No error handling
 - No pagination
 - Inconsistent response format
 
 ### After: Structured, RESTful API
 
-```python
-# Good: RESTful, typed, with error handling
-from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, Field
-from uuid import UUID
+```typescript
+// Good: RESTful, typed, with error handling
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { prisma } from "@/lib/db";
+import { auth } from "@/lib/auth";
 
-router = APIRouter(prefix="/api/v1", tags=["signals"])
+// --- Schemas ---
 
-# --- Schemas ---
+const SignalSummarySchema = z.object({
+  id: z.string().uuid(),
+  sourceUrl: z.string().url(),
+  sourceType: z.enum(["NEWS", "FILING", "TRANSCRIPT", "SOCIAL"]),
+  scrapedAt: z.string().datetime(),
+  hasAnalysis: z.boolean(),
+});
 
-class SignalSummary(BaseModel):
-    id: UUID
-    source_url: str
-    source_type: str
-    scraped_at: datetime
-    has_analysis: bool
+const PaginatedResponseSchema = z.object({
+  items: z.array(SignalSummarySchema),
+  nextCursor: z.string().nullable(),
+  hasMore: z.boolean(),
+});
 
-class SignalDetail(SignalSummary):
-    raw_text: str
-    analysis: Analysis | None = None
+const ErrorResponseSchema = z.object({
+  error: z.string(),
+  message: z.string(),
+  details: z.record(z.array(z.string())).optional(),
+});
 
-class PaginatedResponse(BaseModel):
-    items: list
-    total: int
-    page: int
-    page_size: int
-    pages: int
+// --- Endpoints ---
 
-class ErrorResponse(BaseModel):
-    detail: str
-    error_code: str
-    context: dict | None = None
+export async function GET(request: NextRequest) {
+  try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json(
+        { error: "unauthorized", message: "Authentication required" },
+        { status: 401 }
+      );
+    }
 
-# --- Endpoints ---
+    const { searchParams } = new URL(request.url);
+    const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 100);
+    const cursor = searchParams.get("cursor");
+    const sourceType = searchParams.get("sourceType");
 
-@router.get("/signals", response_model=PaginatedResponse)
-async def list_signals(
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
-    source_type: str | None = Query(None, description="Filter by source type"),
-):
-    """List all signals with pagination and filtering."""
-    query = Signal.query()
-    
-    if source_type:
-        query = query.filter(Signal.source_type == source_type)
-    
-    total = query.count()
-    items = query.offset((page - 1) * page_size).limit(page_size).all()
-    
-    return PaginatedResponse(
-        items=[SignalSummary.from_orm(s) for s in items],
-        total=total,
-        page=page,
-        page_size=page_size,
-        pages=(total + page_size - 1) // page_size,
-    )
+    const where: any = {};
+    if (sourceType) where.sourceType = sourceType;
 
-@router.get("/signals/{signal_id}", response_model=SignalDetail)
-async def get_signal(signal_id: UUID):
-    """Get a single signal by ID."""
-    signal = await Signal.get(signal_id)
-    if not signal:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Signal {signal_id} not found",
-        )
-    return SignalDetail.from_orm(signal)
+    const signals = await prisma.signal.findMany({
+      where,
+      take: limit + 1,
+      cursor: cursor ? { id: cursor } : undefined,
+      orderBy: { scrapedAt: "desc" },
+    });
 
-@router.post("/signals", response_model=SignalSummary, status_code=status.HTTP_201_CREATED)
-async def create_signal(signal_in: SignalCreate):
-    """Create a new signal."""
-    signal = await Signal.create(**signal_in.model_dump())
-    return SignalSummary.from_orm(signal)
+    const hasMore = signals.length > limit;
+    const items = hasMore ? signals.slice(0, limit) : signals;
+    const nextCursor = hasMore ? items[items.length - 1].id : null;
+
+    return NextResponse.json({
+      items,
+      nextCursor,
+      hasMore,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: "internal_error", message: "Failed to fetch signals" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json(
+        { error: "unauthorized", message: "Authentication required" },
+        { status: 401 }
+      );
+    }
+
+    const body = await request.json();
+    const { sourceUrl, sourceType, title, rawContent, companyId } = body;
+
+    if (!sourceUrl || !sourceType || !title || !rawContent || !companyId) {
+      return NextResponse.json(
+        {
+          error: "validation_error",
+          message: "Missing required fields",
+          details: {
+            sourceUrl: !sourceUrl ? ["Required"] : undefined,
+            sourceType: !sourceType ? ["Required"] : undefined,
+          },
+        },
+        { status: 400 }
+      );
+    }
+
+    const signal = await prisma.signal.create({
+      data: { sourceUrl, sourceType, title, rawContent, companyId },
+    });
+
+    return NextResponse.json(signal, { status: 201 });
+  } catch (error) {
+    return NextResponse.json(
+      { error: "internal_error", message: "Failed to create signal" },
+      { status: 500 }
+    );
+  }
+}
 ```
 
 ## Quick Reference
@@ -131,11 +168,11 @@ async def create_signal(signal_in: SignalCreate):
 | **Endpoint naming** | Plural nouns: `/signals`, `/articles` |
 | **HTTP methods** | GET (read), POST (create), PUT (update), DELETE (remove) |
 | **Status codes** | 200 OK, 201 Created, 400 Bad Request, 404 Not Found, 500 Server Error |
-| **Pagination** | `page` + `page_size` query params, return total |
+| **Pagination** | Cursor-based with `cursor` + `limit` query params |
 | **Filtering** | Query params for each filterable field |
-| **Error format** | Consistent `ErrorResponse` schema |
+| **Error format** | Consistent `{ error, message, details? }` structure |
 | **Versioning** | URL prefix: `/api/v1/` |
-| **Tags** | Group routers by domain |
+| **Validation** | Zod schemas for all request/response data |
 
 ### RESTful Endpoint Design
 
@@ -146,31 +183,39 @@ async def create_signal(signal_in: SignalCreate):
 | Create signal | POST | `/api/v1/signals` | 201 |
 | Update signal | PUT | `/api/v1/signals/{id}` | 200 |
 | Delete signal | DELETE | `/api/v1/signals/{id}` | 204 |
-| Trigger analysis | POST | `/api/v1/signals/{id}/analyze` | 202 |
+| Trigger analysis | POST | `/api/v1/signals/{id}/reanalyze` | 202 |
 
 ### Error Response Format
 
-```python
-# Consistent error format across all endpoints
-class ErrorResponse(BaseModel):
-    detail: str
-    error_code: str
-    context: dict | None = None
+```typescript
+// Consistent error format across all endpoints
+interface ErrorResponse {
+  error: string;
+  message: string;
+  details?: Record<string, string[]>;
+}
 
-# Usage
-@router.get("/signals/{signal_id}")
-async def get_signal(signal_id: UUID):
-    signal = await Signal.get(signal_id)
-    if not signal:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "detail": f"Signal {signal_id} not found",
-                "error_code": "SIGNAL_NOT_FOUND",
-                "context": {"signal_id": str(signal_id)},
-            },
-        )
-    return signal
+// Usage
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const signal = await prisma.signal.findUnique({
+    where: { id: params.id },
+  });
+  
+  if (!signal) {
+    return NextResponse.json(
+      {
+        error: "not_found",
+        message: `Signal ${params.id} not found`,
+      },
+      { status: 404 }
+    );
+  }
+  
+  return NextResponse.json(signal);
+}
 ```
 
 ## Common Mistakes
@@ -179,130 +224,199 @@ async def get_signal(signal_id: UUID):
 
 **Problem:** Not RESTful, harder to document.
 
-```python
-# Bad: Verb-based
-@router.get("/get_signals")
-@router.post("/create_signal")
-@router.post("/delete_signal")
+```typescript
+// Bad: Verb-based
+// POST /api/v1/get_signals
+// POST /api/v1/create_signal
+// POST /api/v1/delete_signal
 
-# Good: Noun-based with HTTP methods
-@router.get("/signals")        # List
-@router.post("/signals")       # Create
-@router.delete("/signals/{id}") # Delete
+// Good: Noun-based with HTTP methods
+// GET /api/v1/signals        (List)
+// POST /api/v1/signals       (Create)
+// DELETE /api/v1/signals/{id} (Delete)
 ```
 
 ### Mistake 2: No request/response schemas
 
-**Problem:** No validation, no docs, no type safety.
+**Problem:** No validation, no type safety, runtime errors.
 
-```python
-# Bad: Raw dicts
-@router.post("/analyze")
-async def analyze(request: Request):
-    data = await request.json()
-    return {"result": data["text"]}
+```typescript
+// Bad: Raw objects
+export async function POST(req: Request) {
+  const data = await req.json();
+  return NextResponse.json({ result: data.text });
+}
 
-# Good: Pydantic schemas
-class AnalyzeRequest(BaseModel):
-    text: str = Field(..., min_length=1, max_length=10000)
-    signal_type: SignalType | None = None
+// Good: Zod schemas
+const AnalyzeRequestSchema = z.object({
+  text: z.string().min(1).max(10000),
+  signalType: z.enum(["NEWS", "FILING", "TRANSCRIPT"]).optional(),
+});
 
-class AnalyzeResponse(BaseModel):
-    analysis: Analysis
-    processing_time_ms: float
+const AnalyzeResponseSchema = z.object({
+  analysis: z.any(),
+  processingTimeMs: z.number(),
+});
 
-@router.post("/signals/{signal_id}/analyze", response_model=AnalyzeResponse)
-async def analyze_signal(signal_id: UUID, req: AnalyzeRequest):
-    analysis = await run_analysis(signal_id, req.text, req.signal_type)
-    return AnalyzeResponse(analysis=analysis, processing_time_ms=...)
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+  const parsed = AnalyzeRequestSchema.safeParse(body);
+  
+  if (!parsed.success) {
+    return NextResponse.json(
+      {
+        error: "validation_error",
+        message: "Invalid request body",
+        details: parsed.error.flatten().fieldErrors,
+      },
+      { status: 400 }
+    );
+  }
+  
+  const analysis = await runAnalysis(parsed.data.text, parsed.data.signalType);
+  return NextResponse.json({
+    analysis,
+    processingTimeMs: Date.now() - startTime,
+  });
+}
 ```
 
 ### Mistake 3: No pagination
 
 **Problem:** Large datasets crash the client, slow responses.
 
-```python
-# Bad: Return everything
-@router.get("/signals")
-async def list_signals():
-    return await Signal.all()  # Could be millions!
+```typescript
+// Bad: Return everything
+export async function GET() {
+  const signals = await prisma.signal.findMany(); // Could be millions!
+  return NextResponse.json(signals);
+}
 
-# Good: Paginated
-@router.get("/signals", response_model=PaginatedResponse)
-async def list_signals(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-):
-    total = await Signal.count()
-    items = await Signal.offset((page - 1) * page_size).limit(page_size).all()
-    return PaginatedResponse(
-        items=items, total=total, page=page, page_size=page_size,
-        pages=(total + page_size - 1) // page_size,
-    )
+// Good: Cursor-based pagination
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 100);
+  const cursor = searchParams.get("cursor");
+  
+  const signals = await prisma.signal.findMany({
+    take: limit + 1,
+    cursor: cursor ? { id: cursor } : undefined,
+    orderBy: { scrapedAt: "desc" },
+  });
+  
+  const hasMore = signals.length > limit;
+  const items = hasMore ? signals.slice(0, limit) : signals;
+  const nextCursor = hasMore ? items[items.length - 1].id : null;
+  
+  return NextResponse.json({
+    items,
+    nextCursor,
+    hasMore,
+  });
+}
 ```
 
 ### Mistake 4: Inconsistent error handling
 
 **Problem:** Clients can't handle errors uniformly.
 
-```python
-# Bad: Different error formats
-@router.get("/signals/{id}")
-async def get_signal(id: UUID):
-    signal = await Signal.get(id)
-    if not signal:
-        return {"error": "not found"}  # 200 with error in body!
+```typescript
+// Bad: Different error formats
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const signal = await prisma.signal.findUnique({ where: { id: params.id } });
+  if (!signal) {
+    return NextResponse.json({ error: "not found" }); // 200 with error in body!
+  }
+  return NextResponse.json(signal);
+}
 
-# Good: HTTP status codes + consistent format
-@router.get("/signals/{id}")
-async def get_signal(id: UUID):
-    signal = await Signal.get(id)
-    if not signal:
-        raise HTTPException(status_code=404, detail="Signal not found")
-    return signal
+// Good: HTTP status codes + consistent format
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const signal = await prisma.signal.findUnique({ where: { id: params.id } });
+    if (!signal) {
+      return NextResponse.json(
+        { error: "not_found", message: "Signal not found" },
+        { status: 404 }
+      );
+    }
+    return NextResponse.json(signal);
+  } catch (error) {
+    return NextResponse.json(
+      { error: "internal_error", message: "Failed to fetch signal" },
+      { status: 500 }
+    );
+  }
+}
 ```
 
 ### Mistake 5: No API versioning
 
 **Problem:** Breaking changes break existing clients.
 
-```python
-# Bad: No versioning
-router = APIRouter()
+```typescript
+// Bad: No versioning
+// src/app/api/signals/route.ts
 
-# Good: Version prefix
-router = APIRouter(prefix="/api/v1")
+// Good: Version prefix
+// src/app/api/v1/signals/route.ts
 
-# Future: /api/v2 when breaking changes needed
+// Future: /api/v2/signals when breaking changes needed
 ```
 
 ## Tools
 
-- **FastAPI** - Web framework with automatic OpenAPI docs
-- **Pydantic** - Request/response validation
-- **Uvicorn** - ASGI server
-- **httpx** - Testing API endpoints
-- **OpenAPI** - Auto-generated API documentation
+- **Next.js Route Handlers** - API endpoints in `src/app/api/`
+- **Zod** - Request/response validation and type inference
+- **Prisma** - Database ORM with type-safe queries
+- **NextAuth** - Authentication and session management
 
-## Router Organization
+## Route Handler Organization
 
-```python
-# app/routers/__init__.py
-from fastapi import APIRouter
-from . import signals, articles, analysis
+```typescript
+// src/app/api/v1/signals/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { auth } from "@/lib/auth";
 
-api_router = APIRouter()
-api_router.include_router(signals.router, prefix="/api/v1")
-api_router.include_router(articles.router, prefix="/api/v1")
-api_router.include_router(analysis.router, prefix="/api/v1")
+export async function GET(req: NextRequest) {
+  // List signals
+}
+
+export async function POST(req: NextRequest) {
+  // Create signal
+}
 ```
 
-```python
-# app/routers/signals.py
-from fastapi import APIRouter
+```typescript
+// src/app/api/v1/signals/[id]/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
 
-router = APIRouter(tags=["signals"])
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  // Get single signal
+}
 
-@router.get("/signals")
-async def list_signals(): ...
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  // Update signal
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  // Delete signal
+}
 ```
+
+## Related Skills
+
+- **data-modeling** - Zod schema design and Prisma models
+- **llm-abstraction** - LLM provider abstraction for AI features
+- **testing-strategies** - Testing API routes with Vitest and MSW

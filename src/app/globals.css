@@ -37,6 +37,8 @@
   --muted-foreground: oklch(0.556 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
+  --success: oklch(0.577 0.174 146.5);
+  --warning: oklch(0.795 0.184 86.047);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.87 0 0);
@@ -53,6 +55,18 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Motion Tokens -- Newsprint Motion Language */
+  --motion-duration-instant: 100ms;
+  --motion-duration-fast: 200ms;
+  --motion-duration-normal: 300ms;
+  --motion-duration-slow: 500ms;
+  --motion-duration-deliberate: 700ms;
+
+  --motion-ease-standard: cubic-bezier(0.4, 0.0, 0.2, 1);
+  --motion-ease-enter: cubic-bezier(0.0, 0.0, 0.2, 1);
+  --motion-ease-exit: cubic-bezier(0.4, 0.0, 1, 1);
+  --motion-ease-sharp: cubic-bezier(0.4, 0.0, 0.6, 1);
 }
 
 @theme inline {
@@ -89,6 +103,8 @@
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
   --color-accent-foreground: var(--accent-foreground);
   --color-muted-foreground: var(--muted-foreground);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -142,7 +158,7 @@ body {
   }
 
   .hard-shadow-hover {
-    transition: all 0.2s ease-out;
+    transition: all var(--motion-duration-fast) var(--motion-ease-sharp);
   }
 
   .hard-shadow-hover:hover {
@@ -187,6 +203,8 @@ body {
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
+  --success: oklch(0.704 0.191 146.5);
+  --warning: oklch(0.795 0.184 86.047);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
@@ -214,5 +232,27 @@ body {
   }
   html {
     @apply font-sans;
+  }
+}
+
+/* Accessibility: Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Page transition fade */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }

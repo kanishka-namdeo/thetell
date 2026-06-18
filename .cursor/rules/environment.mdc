@@ -6,76 +6,42 @@ alwaysApply: true
 
 # Environment Configuration
 
-Manage configuration and environment variables for the monorepo (Python backend + Next.js frontend).
+Manage configuration and environment variables for the Next.js 16.2.9 TypeScript application.
 
 ## File Structure
 
 ```
 the_tell/
-├── backend/
-│   ├── .env              # local dev (gitignored)
-│   ├── .env.example      # template (committed)
-│   └── app/
-│       └── config.py     # Pydantic Settings
-├── src/                  # Next.js frontend (at repo root, not in frontend/)
+├── src/                  # Next.js application
 │   ├── app/
 │   │   └── globals.css   # CSS variables and design tokens
 │   └── lib/
 │       └── config.ts     # runtime config
-├── .env.local            # frontend local dev (gitignored)
-├── .env.example          # frontend template (committed)
-└── .env.example          # root-level shared vars (committed)
+├── .env.local            # local dev (gitignored)
+└── .env.example          # template (committed)
 ```
 
 ## Required Variables
 
-### Backend (.env)
+### .env.local
 ```bash
 # Database
 DATABASE_URL=postgresql://user:pass@localhost:5432/the_tell
+
+# NextAuth
+NEXTAUTH_SECRET=change-me-to-a-random-string
+NEXTAUTH_URL=http://localhost:3000
 
 # LLM Providers
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 
-# LLM Configuration
-DEFAULT_LLM_PROVIDER=openai     # openai | anthropic
-OPENAI_MODEL=gpt-4o
-ANTHROPIC_MODEL=claude-sonnet-4-5
-
-# LangGraph
-LANGGRAPH_CHECKPOINT_URL=postgresql://user:pass@localhost:5432/the_tell_checkpoints
-# Or reuse main database: LANGGRAPH_CHECKPOINT_URL=${DATABASE_URL}
-
-# PydanticAI (optional observability)
-LOGFIRE_TOKEN=your-logfire-token-here
-# Get token from: https://logfire.pydantic.dev/
-
-# Scraping
-SCRAPE_RATE_LIMIT=1.0       # requests per second
-SCRAPE_TIMEOUT=30           # seconds
-
-# API
-API_KEY=your-secret-key
-FRONTEND_URL=http://localhost:3000
-
-# Environment
-ENVIRONMENT=development     # development | test | production
-LOG_LEVEL=INFO
-```
-
-### Frontend (.env.local)
-```bash
-# API
-NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
-
-# Feature flags
-NEXT_PUBLIC_ENABLE_ANALYTICS=false
+# Inngest (optional, for production)
+INNGEST_SIGNING_KEY=
 ```
 
 ### Naming Convention
-- **Backend:** `UPPER_SNAKE_CASE` (no prefix)
-- **Frontend:** `NEXT_PUBLIC_` prefix for client-side vars, no prefix for server-side
+- `NEXT_PUBLIC_` prefix for client-side vars, no prefix for server-side
 
 ## Environment-Specific Configs
 
@@ -86,7 +52,7 @@ NEXT_PUBLIC_ENABLE_ANALYTICS=false
 - Mock external services optional
 
 ### Test
-- In-memory SQLite or test PostgreSQL
+- Test PostgreSQL
 - Minimal logging
 - All external services mocked
 - Fast, deterministic behavior
@@ -98,89 +64,8 @@ NEXT_PUBLIC_ENABLE_ANALYTICS=false
 - Rate limiting enabled
 - HTTPS enforced
 
-## Config Validation
-
-### Backend: Pydantic Settings
-```python
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-class Settings(BaseSettings):
-    database_url: str
-    openai_api_key: str
-    anthropic_api_key: str
-    scrape_rate_limit: float = 1.0
-    scrape_timeout: int = 30
-    api_key: str
-    frontend_url: str
-    environment: Literal["development", "test", "production"]
-    log_level: str = "INFO"
-
-    # LangGraph
-    langgraph_checkpoint_url: str
-
-    # PydanticAI
-    logfire_token: str | None = None
-
-    # LLM
-    default_llm_provider: Literal["openai", "anthropic"] = "openai"
-    openai_model: str = "gpt-4o"
-    anthropic_model: str = "claude-sonnet-4-5"
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-    )
-
-settings = Settings()
-```
-
-### Frontend: Runtime Config
-```typescript
-// src/lib/config.ts
-export const config = {
-  apiUrl: process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1",
-  enableAnalytics: process.env.NEXT_PUBLIC_ENABLE_ANALYTICS === "true",
-} as const;
-```
-
-## Secrets Management
-
-### Never Commit Secrets
-- Add `.env*` to `.gitignore` (already done)
-- Commit `.env.example` with placeholder values
-- Use `.env.example` as the source of truth for required vars
-
-### Production Secrets
-- Use platform-specific secrets management:
-  - **Vercel:** Environment Variables in dashboard
-  - **Railway:** Variables in service settings
-  - **Docker:** Secrets via `docker secret` or env file
-- Never log secrets
-- Rotate keys regularly
-
-### Local Development
-- Copy `.env.example` to `.env`
-- Fill in real values (or use test keys)
-- Never commit `.env` even accidentally
-
 ## Config Access Patterns
 
-### Backend
-```python
-# Good - use settings object
-from app.config import settings
-
-async def scrape():
-    timeout = settings.scrape_timeout
-    ...
-
-# Bad - read env directly
-import os
-timeout = os.getenv("SCRAPE_TIMEOUT")
-```
-
-### Frontend
 ```typescript
 // Good - centralize config
 import { config } from "@/lib/config";
@@ -194,6 +79,25 @@ async function fetchSignals() {
 const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/signals`);
 ```
 
+## Secrets Management
+
+### Never Commit Secrets
+- Add `.env*` to `.gitignore` (already done)
+- Commit `.env.example` with placeholder values
+- Use `.env.example` as the source of truth for required vars
+
+### Production Secrets
+- Use platform-specific secrets management:
+  - **Vercel:** Environment Variables in dashboard
+  - **Railway:** Variables in service settings
+- Never log secrets
+- Rotate keys regularly
+
+### Local Development
+- Copy `.env.example` to `.env.local`
+- Fill in real values (or use test keys)
+- Never commit `.env.local` even accidentally
+
 ## Docker Compose (Local Dev)
 
 ```yaml
@@ -202,27 +106,13 @@ services:
   db:
     image: postgres:16
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
+      POSTGRES_USER: thell_user
+      POSTGRES_PASSWORD: thell_password
       POSTGRES_DB: the_tell
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-
-  backend:
-    build: ./backend
-    ports:
-      - "8000:8000"
-    env_file: ./backend/.env
-    depends_on:
-      - db
-
-  frontend:
-    build: .
-    ports:
-      - "3000:3000"
-    env_file: ./.env.local
 
 volumes:
   pgdata:
@@ -231,11 +121,11 @@ volumes:
 ## Troubleshooting
 
 ### Config Not Loading
-- Check `.env` file exists in correct directory
-- Verify variable names match Settings model (case-insensitive)
-- Restart server after changing `.env`
+- Check `.env.local` file exists
+- Verify variable names match config schema
+- Restart server after changing `.env.local`
 
-### Frontend Env Vars Not Working
+### Env Vars Not Working
 - Client-side vars must have `NEXT_PUBLIC_` prefix
 - Rebuild after changing `.env.local`
 - Check `process.env` access is in server component or API route

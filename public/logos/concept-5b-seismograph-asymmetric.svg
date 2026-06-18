@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Concept 5b: "Seismograph" - Asymmetric pattern -->
+  <!-- Vertical bars with asymmetric signal pattern -->
+  
+  <!-- Vertical bars with right-biased pattern -->
+  <rect x="10" y="30" width="3" height="4" fill="currentColor"/>
+  <rect x="15" y="28" width="3" height="8" fill="currentColor"/>
+  <rect x="20" y="26" width="3" height="12" fill="currentColor"/>
+  <rect x="25" y="24" width="3" height="16" fill="currentColor"/>
+  <rect x="30" y="22" width="3" height="20" fill="currentColor"/>
+  <rect x="35" y="18" width="3" height="28" fill="currentColor"/>
+  <rect x="40" y="14" width="3" height="36" fill="currentColor"/>
+  <rect x="45" y="10" width="3" height="44" fill="currentColor"/>
+  <rect x="50" y="16" width="3" height="32" fill="currentColor"/>
+  
+  <!-- Baseline -->
+  <rect x="8" y="56" width="48" height="2" fill="currentColor"/>
+</svg>

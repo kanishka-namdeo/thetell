@@ -349,6 +349,7 @@ async function main() {
     await prisma.analysis.create({
       data: {
         signalId: signal.id,
+        agentPersona: "ANALYST",
         summary: template.summary,
         keyFacts: template.keyFacts,
         sentiment: template.sentiment,
@@ -456,7 +457,10 @@ We assess with **high confidence (0.91)** that NVIDIA will maintain its AI chip 
     await prisma.article.upsert({
       where: { slug: article.slug },
       update: {},
-      create: article,
+      create: {
+        ...article,
+        agentPersona: "ANALYST",
+      },
     });
   }
 

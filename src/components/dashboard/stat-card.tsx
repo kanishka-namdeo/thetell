@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { LucideIcon } from "lucide-react";
+import { motion, useInView } from "motion/react";
 
 interface StatCardProps {
   title: string;
@@ -16,6 +18,38 @@ interface StatCardProps {
   className?: string;
 }
 
+function useCountUp(target: number, duration: number = 700) {
+  const [count, setCount] = useState(0);
+  const ref = useRef<HTMLDivElement>(null);
+  const isInView = useInView(ref, { once: true, margin: "-100px" });
+
+  useEffect(() => {
+    if (!isInView) return;
+
+    let startTime: number;
+    let animationFrame: number;
+
+    const animate = (timestamp: number) => {
+      if (!startTime) startTime = timestamp;
+      const progress = Math.min((timestamp - startTime) / duration, 1);
+      
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setCount(Math.floor(eased * target));
+
+      if (progress < 1) {
+        animationFrame = requestAnimationFrame(animate);
+      } else {
+        setCount(target);
+      }
+    };
+
+    animationFrame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [isInView, target, duration]);
+
+  return { count, ref };
+}
+
 export function StatCard({
   title,
   value,
@@ -24,6 +58,9 @@ export function StatCard({
   trend,
   className,
 }: StatCardProps) {
+  const numericValue = typeof value === "number" ? value : null;
+  const { count, ref } = useCountUp(numericValue || 0);
+
   return (
     <Card className={cn("relative overflow-hidden", className)}>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -35,21 +72,26 @@ export function StatCard({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="text-3xl font-serif font-bold">{value}</div>
+        <div ref={ref} className="text-3xl font-serif font-bold">
+          {numericValue !== null ? count : value}
+        </div>
         {description && (
           <p className="text-xs text-muted-foreground mt-1 font-body">
             {description}
           </p>
         )}
         {trend && (
-          <div
+          <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.3, delay: 0.5 }}
             className={cn(
               "text-xs font-mono mt-2",
               trend.positive ? "text-green-600" : "text-red-600"
             )}
           >
             {trend.positive ? "↑" : "↓"} {trend.value}
-          </div>
+          </motion.div>
         )}
       </CardContent>
     </Card>

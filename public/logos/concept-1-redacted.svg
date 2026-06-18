@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Concept 1: "The Redacted" - Negative Space / Dual-Read -->
+  <!-- Horizontal bars with gaps that form a "T" -->
+  <!-- Suggests: intelligence, redaction, what's hidden vs. revealed -->
+  
+  <!-- Top bar -->
+  <rect x="8" y="12" width="48" height="8" fill="currentColor"/>
+  
+  <!-- Middle bar with gap forming T's vertical -->
+  <rect x="8" y="28" width="20" height="8" fill="currentColor"/>
+  <rect x="36" y="28" width="20" height="8" fill="currentColor"/>
+  
+  <!-- Bottom bar -->
+  <rect x="8" y="44" width="48" height="8" fill="currentColor"/>
+  
+  <!-- The negative space between middle bars forms a vertical line -->
+  <!-- creating the stem of the "T" -->
+</svg>

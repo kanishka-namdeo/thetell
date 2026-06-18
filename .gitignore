@@ -36,3 +36,10 @@ next-env.d.ts
 
 # prisma
 prisma/migrations/
+
+# cursor plans
+.cursor/plans/
+
+# temporary output files
+*.output.txt
+typecheck-output.txt

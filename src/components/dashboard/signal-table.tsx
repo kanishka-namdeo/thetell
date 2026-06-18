@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { motion, AnimatePresence } from "motion/react";
 import {
   Table,
   TableHeader,
@@ -21,7 +22,7 @@ interface SignalTableProps {
     scrapedAt: Date | string;
     status: string;
     company: { name: string; ticker: string | null };
-    analysis: { sentiment: string; confidence: number } | null;
+    analyses: Array<{ sentiment: string; confidence: number }>;
   }>;
   loading?: boolean;
 }
@@ -80,67 +81,76 @@ export function SignalTable({ signals, loading }: SignalTableProps) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {signals.map((signal) => (
-          <TableRow key={signal.id}>
-            <TableCell>
-              <Link
-                href={`/dashboard/signals/${signal.id}`}
-                className="font-serif text-sm font-medium hover:underline"
-              >
-                {signal.title}
-              </Link>
-            </TableCell>
-            <TableCell className="hidden md:table-cell">
-              <Badge variant="outline">
-                {signal.company.name}
-                {signal.company.ticker && ` (${signal.company.ticker})`}
-              </Badge>
-            </TableCell>
-            <TableCell className="hidden lg:table-cell">
-              <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
-                {sourceTypeLabels[signal.sourceType] || signal.sourceType}
-              </span>
-            </TableCell>
-            <TableCell className="hidden lg:table-cell">
-              <Badge
-                variant={
-                  signal.status === "ANALYZED"
-                    ? "default"
-                    : signal.status === "FAILED"
-                    ? "destructive"
-                    : "outline"
-                }
-              >
-                {statusLabels[signal.status] || signal.status}
-              </Badge>
-            </TableCell>
-            <TableCell>
-              {signal.analysis ? (
-                <SentimentIndicator
-                  sentiment={signal.analysis.sentiment as "POSITIVE" | "NEGATIVE" | "NEUTRAL"}
-                  showLabel={false}
-                />
-              ) : (
-                <span className="text-xs text-muted-foreground">—</span>
-              )}
-            </TableCell>
-            <TableCell className="hidden md:table-cell">
-              {signal.analysis ? (
-                <ConfidenceBadge confidence={signal.analysis.confidence} />
-              ) : (
-                <span className="text-xs text-muted-foreground">—</span>
-              )}
-            </TableCell>
-            <TableCell className="hidden sm:table-cell">
-              <span className="text-xs font-mono text-muted-foreground">
-                {new Date(signal.scrapedAt).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                })}
-              </span>
-            </TableCell>
-          </TableRow>
-        ))}
+        <AnimatePresence mode="popLayout">
+          {signals.map((signal) => (
+            <motion.tr
+              key={signal.id}
+              layout
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              <TableCell>
+                <Link
+                  href={`/dashboard/signals/${signal.id}`}
+                  className="font-serif text-sm font-medium hover:underline"
+                >
+                  {signal.title}
+                </Link>
+              </TableCell>
+              <TableCell className="hidden md:table-cell">
+                <Badge variant="outline">
+                  {signal.company.name}
+                  {signal.company.ticker && ` (${signal.company.ticker})`}
+                </Badge>
+              </TableCell>
+              <TableCell className="hidden lg:table-cell">
+                <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                  {sourceTypeLabels[signal.sourceType] || signal.sourceType}
+                </span>
+              </TableCell>
+              <TableCell className="hidden lg:table-cell">
+                <Badge
+                  variant={
+                    signal.status === "ANALYZED"
+                      ? "default"
+                      : signal.status === "FAILED"
+                      ? "destructive"
+                      : "outline"
+                  }
+                >
+                  {statusLabels[signal.status] || signal.status}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                {signal.analyses[0] ? (
+                  <SentimentIndicator
+                    sentiment={signal.analyses[0].sentiment as "POSITIVE" | "NEGATIVE" | "NEUTRAL"}
+                    showLabel={false}
+                  />
+                ) : (
+                  <span className="text-xs text-muted-foreground">—</span>
+                )}
+              </TableCell>
+              <TableCell className="hidden md:table-cell">
+                {signal.analyses[0] ? (
+                  <ConfidenceBadge confidence={signal.analyses[0].confidence} />
+                ) : (
+                  <span className="text-xs text-muted-foreground">—</span>
+                )}
+              </TableCell>
+              <TableCell className="hidden sm:table-cell">
+                <span className="text-xs font-mono text-muted-foreground">
+                  {new Date(signal.scrapedAt).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
+              </TableCell>
+            </motion.tr>
+          ))}
+        </AnimatePresence>
       </TableBody>
     </Table>
   );

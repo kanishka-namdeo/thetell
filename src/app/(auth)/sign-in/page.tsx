@@ -18,6 +18,10 @@ export default function SignInPage() {
   const [loading, setLoading] = useState(false);
 
   const registered = searchParams.get("registered") === "true";
+  const verified = searchParams.get("verified") === "true";
+  const reset = searchParams.get("reset") === "true";
+  const emailError = searchParams.get("error") === "EmailNotVerified";
+  const isDev = process.env.NODE_ENV === "development";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,7 +36,11 @@ export default function SignInPage() {
       });
 
       if (result?.error) {
-        setError("Invalid email or password");
+        if (result.error === "EmailNotVerified") {
+          setError("Please verify your email before signing in.");
+        } else {
+          setError("Invalid email or password");
+        }
       } else {
         router.push("/dashboard");
         router.refresh();
@@ -60,6 +68,21 @@ export default function SignInPage() {
           {registered && (
             <div className="p-3 mb-4 bg-success/10 border border-success text-success text-sm rounded-md">
               Account created successfully. Please sign in.
+            </div>
+          )}
+          {verified && (
+            <div className="p-3 mb-4 bg-success/10 border border-success text-success text-sm rounded-md">
+              Email verified! You can now sign in.
+            </div>
+          )}
+          {reset && (
+            <div className="p-3 mb-4 bg-success/10 border border-success text-success text-sm rounded-md">
+              Password reset! Sign in with your new password.
+            </div>
+          )}
+          {emailError && (
+            <div className="p-3 mb-4 bg-destructive/10 border border-destructive text-destructive text-sm rounded-md">
+              Please verify your email before signing in.
             </div>
           )}
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -99,16 +122,24 @@ export default function SignInPage() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Signing in..." : "Sign In"}
             </Button>
+            <div className="flex justify-end">
+              <Link
+                href="/forgot-password"
+                className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4"
+              >
+                Forgot password?
+              </Link>
+            </div>
           </form>
-          <div className="mt-6 p-4 bg-muted border border-foreground">
-            <p className="text-xs font-mono text-muted-foreground mb-2">Demo Credentials:</p>
-            <p className="text-xs font-mono">Email: admin@thetell.com</p>
-            <p className="text-xs font-mono">Password: password123</p>
-          </div>
+          {isDev && (
+            <p className="mt-4 text-xs text-muted-foreground text-center">
+              Dev: admin@thetell.com / password123
+            </p>
+          )}
         </CardContent>
         <CardFooter className="justify-center">
           <p className="text-sm text-muted-foreground">
-            Don't have an account?{" "}
+            Don&apos;t have an account?{" "}
             <Link
               href="/sign-up"
               className="text-foreground font-medium underline underline-offset-4 hover:text-foreground/80"

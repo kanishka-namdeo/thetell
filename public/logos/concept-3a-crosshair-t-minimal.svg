@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Concept 3a: "The Crosshair T" - Minimal version -->
+  <!-- Letter "T" with minimal targeting lines -->
+  
+  <!-- Horizontal crosshair line (thin) -->
+  <rect x="12" y="22" width="40" height="1.5" fill="currentColor"/>
+  
+  <!-- Vertical crosshair line (T's stem, thin) -->
+  <rect x="31.25" y="12" width="1.5" height="40" fill="currentColor"/>
+  
+  <!-- Top horizontal bar of T (thicker, prominent) -->
+  <rect x="14" y="18" width="36" height="6" fill="currentColor"/>
+  
+  <!-- Minimal corner dots -->
+  <rect x="10" y="10" width="2" height="2" fill="currentColor"/>
+  <rect x="52" y="10" width="2" height="2" fill="currentColor"/>
+  <rect x="10" y="52" width="2" height="2" fill="currentColor"/>
+  <rect x="52" y="52" width="2" height="2" fill="currentColor"/>
+</svg>

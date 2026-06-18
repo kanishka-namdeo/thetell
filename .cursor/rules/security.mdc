@@ -11,18 +11,17 @@ Security best practices for web scraping, LLM integration, and sensitive data ha
 ## API Key Management
 
 ### Never Hardcode Keys
-```python
-# BAD - NEVER DO THIS
-api_key = "sk-abc123..."
+```typescript
+// BAD - NEVER DO THIS
+const apiKey = "sk-abc123...";
 
-# GOOD - use environment variables
-from app.config import settings
-api_key = settings.openai_api_key
+// GOOD - use environment variables
+const apiKey = process.env.OPENAI_API_KEY;
 ```
 
 ### Key Storage
-- **Development:** `.env` files (gitignored)
-- **Production:** Platform secrets management (Vercel, Railway, etc.)
+- **Development:** `.env.local` files (gitignored)
+- **Production:** Platform secrets management (Vercel environment variables)
 - **CI/CD:** GitHub Secrets or equivalent
 - **Local testing:** Use test/dummy keys when possible
 
@@ -34,14 +33,16 @@ api_key = settings.openai_api_key
 ## Rate Limiting & Polite Scraping
 
 ### Respect robots.txt
-```python
-from urllib.robotparser import RobotFileParser
+```typescript
+import { RobotsParser } from "robots-parser";
 
-async def can_scrape(url: str) -> bool:
-    rp = RobotFileParser()
-    rp.set_url(f"{url}/robots.txt")
-    rp.read()
-    return rp.can_fetch("*", url)
+async function canScrape(url: string): Promise<boolean> {
+  const robotsUrl = new URL("/robots.txt", url).href;
+  const res = await fetch(robotsUrl);
+  const txt = await res.text();
+  const robots = new RobotsParser(robotsUrl, txt);
+  return robots.isAllowed(url, "TheTell-Bot/1.0");
+}
 ```
 
 ### Rate Limiting
@@ -49,31 +50,37 @@ async def can_scrape(url: str) -> bool:
 - Respect `Retry-After` headers
 - Implement exponential backoff on 429/503
 
-```python
-import asyncio
-from datetime import datetime, timedelta
+```typescript
+class RateLimiter {
+  private minInterval: number;
+  private lastRequest = 0;
 
-class RateLimiter:
-    def __init__(self, requests_per_second: float = 1.0):
-        self.min_interval = timedelta(seconds=1.0 / requests_per_second)
-        self.last_request = datetime.min
+  constructor(requestsPerSecond: number = 1.0) {
+    this.minInterval = 1000 / requestsPerSecond;
+  }
 
-    async def wait(self):
-        now = datetime.now()
-        elapsed = now - self.last_request
-        if elapsed < self.min_interval:
-            await asyncio.sleep((self.min_interval - elapsed).total_seconds())
-        self.last_request = datetime.now()
+  async wait(): Promise<void> {
+    const now = Date.now();
+    const elapsed = now - this.lastRequest;
+    if (elapsed < this.minInterval) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, this.minInterval - elapsed)
+      );
+    }
+    this.lastRequest = Date.now();
+  }
+}
 ```
 
 ### User-Agent
 - Identify your scraper with a descriptive User-Agent
 - Include contact info for site owners
 
-```python
-headers = {
-    "User-Agent": "TheTell-Bot/1.0 (+https://thetell.example.com/bot; contact@example.com)"
-}
+```typescript
+const headers = {
+  "User-Agent":
+    "TheTell-Bot/1.0 (+https://thetell.example.com/bot; contact@example.com)",
+};
 ```
 
 ## Input Validation
@@ -81,32 +88,35 @@ headers = {
 ### Prevent Injection Attacks
 
 #### SQL Injection
-Use parameterized queries or ORM (SQLAlchemy):
+Use Prisma ORM — never construct raw SQL with string interpolation:
 
-```python
-# BAD - vulnerable to SQL injection
-query = f"SELECT * FROM signals WHERE id = '{signal_id}'"
+```typescript
+// BAD - vulnerable to SQL injection
+const result = await prisma.$queryRawUnsafe(
+  `SELECT * FROM signals WHERE id = '${signalId}'`
+);
 
-# GOOD - parameterized
-query = text("SELECT * FROM signals WHERE id = :id")
-result = session.execute(query, {"id": signal_id})
+// GOOD - Prisma client handles parameterization
+const signal = await prisma.signal.findUnique({
+  where: { id: signalId },
+});
 
-# BEST - use ORM
-signal = session.get(Signal, signal_id)
+// GOOD - parameterized raw query if needed
+const result = await prisma.$queryRaw`
+  SELECT * FROM signals WHERE id = ${signalId}
+`;
 ```
 
 #### Command Injection
-Never pass user input to shell commands:
+Never pass user input to shell commands. Use `fetch()` for HTTP requests:
 
-```python
-# BAD - command injection risk
-os.system(f"curl {user_url}")
+```typescript
+// BAD - command injection risk
+import { execSync } from "child_process";
+execSync(`curl ${userUrl}`);
 
-# GOOD - use subprocess with list args
-subprocess.run(["curl", user_url], check=True)
-
-# BEST - use httpx/requests for HTTP
-response = httpx.get(user_url)
+// GOOD - use fetch for HTTP requests
+const response = await fetch(userUrl);
 ```
 
 #### XSS (Frontend)
@@ -123,35 +133,35 @@ import DOMPurify from "dompurify";
 ```
 
 ### Validate All Inputs
-Use Pydantic for backend validation:
+Use Zod schemas for API route validation:
 
-```python
-from pydantic import BaseModel, HttpUrl, Field
+```typescript
+import { z } from "zod";
 
-class SignalCreate(BaseModel):
-    source_url: HttpUrl  # validates URL format
-    company_id: UUID     # validates UUID format
-    confidence: float = Field(..., ge=0.0, le=1.0)  # range validation
+const SignalCreateSchema = z.object({
+  sourceUrl: z.string().url(), // validates URL format
+  companyId: z.string().uuid(), // validates UUID format
+  confidence: z.number().min(0).max(1), // range validation
+});
 ```
 
 ## CORS Configuration
 
-### Restrict Origins
-Only allow your frontend domain. Use settings from config (see `api-design.mdc`):
+### Same-Origin by Default
+Next.js API routes and server actions are same-origin by default. When deploying on Vercel, CORS is handled at the platform level. If you need to configure CORS for external API access, use middleware or route handler headers:
 
-```python
-from fastapi.middleware.cors import CORSMiddleware
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[settings.frontend_url],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["*"],
-)
+```typescript
+// In a route handler, if cross-origin access is needed:
+return NextResponse.json(data, {
+  headers: {
+    "Access-Control-Allow-Origin": process.env.FRONTEND_URL || "",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  },
+});
 ```
 
-### Never Use `allow_origins=["*"]` in Production
+### Never Use `Access-Control-Allow-Origin: *` in Production
 This allows any website to make requests to your API.
 
 ## Sensitive Data Handling
@@ -161,73 +171,57 @@ This allows any website to make requests to your API.
 - **Never send PII to LLMs** unless necessary and with consent
 - **Anonymize** data when possible
 
-```python
-# BAD - logging PII
-logger.info(f"User {user.email} requested signal {signal_id}")
+```typescript
+// BAD - logging PII
+logger.info({ email: user.email }, "User requested signal");
 
-# GOOD - anonymize
-logger.info(f"User {user.id} requested signal {signal_id}")
+// GOOD - anonymize
+logger.info({ userId: user.id }, "User requested signal");
 ```
 
 ### Credentials & Tokens
-- **Never commit** `.env`, credentials, or tokens
+- **Never commit** `.env.local`, credentials, or tokens
 - **Never log** API keys, even partially
-- **Use httpOnly cookies** for session tokens (not localStorage)
+- **Use NextAuth** for session management — it handles httpOnly cookies automatically
 
-```python
-# BAD - storing token in localStorage (XSS risk)
+```typescript
+// BAD - storing token in localStorage (XSS risk)
 localStorage.setItem("token", authToken);
 
-# GOOD - httpOnly cookie
-response.set_cookie(
-    key="session",
-    value=session_token,
-    httponly=True,
-    secure=True,  # HTTPS only
-    samesite="lax",
-)
+// GOOD - NextAuth handles httpOnly session cookies automatically
+// Session cookies are httpOnly, secure, and sameSite by default
+import { auth } from "@/lib/auth";
+const session = await auth();
 ```
 
 ### Database Credentials
 - Use strong, unique passwords per environment
 - Restrict database user permissions (principle of least privilege)
-- Use connection pooling with authentication
+- Use connection pooling with authentication (Prisma handles this)
 
 ## HTTPS Enforcement
 
 ### Production
-- Redirect all HTTP to HTTPS
-- Use HSTS (HTTP Strict Transport Security)
-
-```python
-from fastapi import Request
-from fastapi.responses import RedirectResponse
-
-@app.middleware("http")
-async def enforce_https(request: Request, call_next):
-    if not request.url.scheme == "https":
-        url = request.url.replace(scheme="https")
-        return RedirectResponse(url)
-    return await call_next(request)
-```
+- **Vercel handles HTTPS automatically** — all deployments use HTTPS by default
+- HSTS headers are configured at the platform level
+- No code changes needed for HTTPS enforcement
 
 ### Development
 - HTTP is acceptable for local development
-- Document that production requires HTTPS
+- Document that production requires HTTPS (handled by Vercel)
 
 ## Dependency Security
 
 ### Keep Dependencies Updated
-- Run `pip-audit` regularly (backend)
-- Run `pnpm audit` regularly (frontend)
+- Run `pnpm audit` regularly
 - Use Dependabot or similar for automated updates
 
 ### Pin Dependencies
-- Pin exact versions in production (`requirements.txt`, `pnpm-lock.yaml`)
+- Pin exact versions in production (`pnpm-lock.yaml`)
 - Review major version upgrades before accepting
 
 ### Verify Package Sources
-- Only install from official PyPI/npm
+- Only install from official npm registry
 - Check package popularity and maintenance status
 - Review new dependencies before adding
 
@@ -235,12 +229,12 @@ async def enforce_https(request: Request, call_next):
 
 Before deploying:
 - [ ] No hardcoded secrets in code
-- [ ] `.env` files are gitignored
+- [ ] `.env.local` files are gitignored
 - [ ] CORS restricted to specific origins
-- [ ] HTTPS enforced in production
-- [ ] Input validation on all endpoints
+- [ ] HTTPS enforced in production (automatic on Vercel)
+- [ ] Input validation on all API routes (Zod schemas)
 - [ ] Rate limiting enabled for scraping
-- [ ] Dependencies audited (`pip-audit`, `pnpm audit`)
+- [ ] Dependencies audited (`pnpm audit`)
 - [ ] No PII in logs
 - [ ] Database credentials are strong and unique
-- [ ] Session tokens use httpOnly cookies
+- [ ] Session tokens use httpOnly cookies (NextAuth default)

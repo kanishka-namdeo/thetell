@@ -6,31 +6,91 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # The Tell - Project Structure
 
-**The Tell** is an AI system that reads public company signals and infers inner workings. It's a monorepo with a Python 3.13 FastAPI backend and Next.js 16.2.9 frontend.
+**The Tell** is an AI system that reads public company signals and infers inner workings. It's a Next.js 16.2.9 application with integrated TypeScript AI layer.
 
-## Current State (as of 2026-06-15)
+## Current State (as of 2026-06-18)
 
 **Built:**
 - Design system (newsprint aesthetic, shadcn/ui components, typography, layout)
-- Landing page with hero section
+- Public signal feed (casual browsing without login, replaces static landing page)
+- Public signal and article detail pages (read-only, no auth required)
 - Component library (UI primitives, layout, typography, icons)
 - Project structure and configuration
-
-**Not Built:**
-- Backend API (FastAPI)
 - Database layer (Prisma schema, models, migrations)
-- Scraping pipeline
-- AI analysis engine
-- Signal dashboard
-- User authentication
+- Signal dashboard with filtering and search
+- User authentication (NextAuth v5)
+- AI analysis engine (TypeScript, OpenAI/Anthropic)
+- Article generation from analysis results
+- Web scraping pipeline (cheerio-based)
+- Background job processing (Inngest)
+- LLM provider abstraction (OpenAI/Anthropic)
+- Confidence scoring system
+- Strategic theme identification
+- **Dual-agent analysis system** (two distinct AI personas: Analyst and Gossip Girl)
+- **Agent abstraction layer** (persona configs, prompt builders, cross-referencing)
+- **Extended scrapers** (blog, social media, job postings)
 
 **Aspirational (rules exist but features not implemented):**
 - LangGraph agent layer for multi-step analysis
-- Article generation from analysis results
 - Signal ingestion from multiple sources (news, filings, transcripts, social)
-- Confidence scoring system
 - Cross-signal inference engine
-- User authentication and session management
+
+## Dual-Agent Analysis System
+
+The Tell uses two distinct AI personas to analyze signals from different perspectives:
+
+### Agent Personas
+
+**The Analyst** (`ANALYST`)
+- Voice: Authoritative, data-driven Bloomberg Intelligence style
+- Source preferences: NEWS, FILING, TRANSCRIPT
+- Temperature: 0.5 (more conservative)
+- Focus: Specific numbers, dates, named sources, actionable intelligence
+
+**The Gossip Girl** (`GOSSIP_GIRL`)
+- Voice: Sharp-witted Page Six meets Wall Street Journal
+- Source preferences: SOCIAL, BLOG, JOB_POSTING
+- Temperature: 0.7 (more creative)
+- Focus: Subtext, executive behavior, hidden patterns, entertaining narrative
+
+### Data Flow
+
+```
+Signal → Agent Pipeline → Analysis → Article
+  ↓         ↓              ↓          ↓
+Scraped   Persona-specific  Facts,    Headline,
+content   prompts with     sentiment,  summary,
+          agent voice      themes,    body in
+                           confidence agent voice
+```
+
+### Architecture
+
+**Agent Abstraction Layer** (`src/lib/ai/agent/`)
+- `types.ts` - AgentConfig interface, AgentAnalysis shape, Zod schemas
+- `personas.ts` - Persona configurations (ANALYST_CONFIG, GOSSIP_GIRL_CONFIG)
+- `prompts.ts` - Prompt builders that inject agent voice into analysis
+- `pipeline.ts` - `analyzeSignalWithAgent()` runs full analysis with persona
+- `article-generator.ts` - `generateArticleWithAgent()` creates articles in agent voice
+
+**Cross-Referencing**
+- Agents can reference each other's analyses
+- `crossRefAnalyses` parameter allows agents to build on each other's work
+- Enables multi-perspective synthesis
+
+### Extended Scrapers
+
+**Blog Scraper** (`src/lib/scraping/blog-scraper.ts`)
+- Extracts content from company blogs and news sites
+- Handles common blog platforms (WordPress, Medium, custom)
+
+**Social Scraper** (`src/lib/scraping/social-scraper.ts`)
+- Captures social media posts (Twitter/X, LinkedIn)
+- Extracts metadata, engagement metrics, hashtags
+
+**Job Posting Scraper** (`src/lib/scraping/job-scraper.ts`)
+- Scrapes job boards for strategic hiring signals
+- Extracts role, requirements, location, department
 
 ## Domain Terminology
 
@@ -51,11 +111,8 @@ This workspace runs on Windows. All agents must:
 
 1. **Check OS context**: The system provides `win32` in user info indicating Windows
 2. **Use PowerShell commands**: See `powershell-commands-windows.mdc` for command mappings
-3. **Use venv Python**: Use `.venv\Scripts\python.exe` for all Python commands per `python-venv.mdc`
-4. **Avoid `&&` chains**: PowerShell 5.1 (default) does not support `&&`. Use separate commands or upgrade to PowerShell 7+
-5. **Use cross-platform tools**: `pnpm`, `git`, `docker` work identically on Windows
-
-**Cross-platform enforcement**: See `cross-platform-enforcement.mdc` for shell command guidelines.
+3. **Avoid `&&` chains**: PowerShell 5.1 (default) does not support `&&`. Use separate commands or upgrade to PowerShell 7+
+4. **Use cross-platform tools**: `pnpm`, `git`, `docker` work identically on Windows
 
 ## Agent Configuration
 
@@ -76,12 +133,12 @@ The `.cursor/` directory contains 26 rules and 12 skills that guide agent behavi
 - `design-assets-enforcement.mdc` - shadcn/ui enforcement, token system, accessibility
 - `powershell-commands-windows.mdc` - Windows PowerShell command conventions
 - `product-context.mdc` - Points to canonical product docs (DESIGN_SYSTEM.md, docs/research/)
-- `api-design.mdc` - REST conventions, Pydantic schemas, pagination, error format
-- `code-style.mdc` - Python (Black, Ruff, mypy) + TypeScript (ESLint, Prettier) conventions
-- `environment.mdc` - .env structure, Pydantic Settings, Docker Compose
+- `api-design.mdc` - Next.js Route Handler conventions and REST patterns
+- `code-style.mdc` - TypeScript (ESLint, Prettier) conventions
+- `environment.mdc` - .env structure, Docker Compose
 - `git-workflow.mdc` - Branch naming, conventional commits, PR requirements
 - `security.mdc` - API keys, rate limiting, input validation, HTTPS
-- `testing.mdc` - Coverage requirements, pytest/Vitest patterns, mocking strategies
+- `testing.mdc` - Coverage requirements, Vitest patterns, mocking strategies
 
 **Glob-scoped rules** (9):
 - `data-layer.mdc` - Prisma ORM conventions (activates when src/lib/db/ exists)
@@ -110,11 +167,11 @@ The `.cursor/` directory contains 26 rules and 12 skills that guide agent behavi
 ### Skills (`.cursor/skills/`)
 
 **Domain skills** (8):
-- `api-design/` - FastAPI REST patterns, schemas, versioning
+- `api-design/` - Next.js Route Handler patterns, request/response schemas, versioning
 - `article-generation/` - Transform analysis into news-style articles
-- `data-modeling/` - Pydantic models + TypeScript types, layered validation
+- `data-modeling/` - TypeScript types, Zod schemas, layered validation
 - `llm-abstraction/` - Provider-agnostic LLM interface (OpenAI/Anthropic)
-- `monorepo-deployment/` - FastAPI + Next.js deployment patterns
+- `monorepo-deployment/` - Next.js deployment patterns
 - `signal-analysis/` - Extract insights from raw public signals
 - `testing-strategies/` - Test non-deterministic systems (LLM, scraping)
 - `web-scraping/` - Polite scraping with caching, rate limiting, retry logic

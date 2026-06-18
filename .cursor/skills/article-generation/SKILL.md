@@ -7,7 +7,7 @@ description: Use when publishing analysis results, generating news-style article
 
 ## Overview
 
-Transform structured analysis into readable, engaging articles using a **LangGraph orchestration graph** with **PydanticAI writer and editor agents**. The pipeline produces news-style content with proper attribution, citation tracking, and human-in-the-loop review before publishing.
+Transform structured analysis into readable, engaging articles. The pipeline produces news-style content with proper attribution, citation tracking, and editorial review before publishing.
 
 ## When to Use
 
@@ -16,390 +16,156 @@ Transform structured analysis into readable, engaging articles using a **LangGra
 - Creating shareable content from insights
 - Building any feature that presents analysis in human-readable form
 - Scenarios requiring source attribution and evidence
-- Workflows that need editorial review before publication
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    LangGraph Article Graph                       │
-│                                                                  │
-│  START → generate_headline → generate_summary → generate_body   │
-│                                    ↓                             │
-│                              edit_review ──interrupt()──→ END    │
-│                                    ↓                             │
-│                                 publish → END                    │
-│                                                                  │
-│  Nodes use PydanticAI agents with structured output_type         │
-│  Checkpointing via AsyncPostgresSaver for crash recovery         │
-└─────────────────────────────────────────────────────────────────┘
+Analysis Results → generate_headline → generate_summary → generate_body → edit_review → publish
 ```
 
-## Output Models
+Each step uses the LLM provider with Zod schemas for structured output.
 
-Each generation step uses a dedicated Pydantic model as `output_type` for type-safe, validated results.
+## Implementation
 
-```python
-from pydantic import BaseModel, Field
+### Entry Point
 
-class HeadlineOutput(BaseModel):
-    headline: str = Field(description="Article headline, under 100 characters")
-    headline_type: str = Field(
-        description="Pattern: question, revelation, prediction, or contrast"
-    )
-    confidence_aligned: bool = Field(
-        description="True if headline tone matches analysis confidence level"
-    )
+```typescript
+// src/lib/ai/article-generator.ts
+import { getProvider } from "@/lib/ai/provider";
+import { z } from "@/lib/ai/zod";
+import { logger } from "@/lib/logger";
+import type { AnalysisResult } from "@/lib/ai/pipeline";
 
-class SummaryOutput(BaseModel):
-    summary: str = Field(description="2-3 sentence lead paragraph")
-    key_insight: str = Field(description="Single most important takeaway")
+export interface ArticleInput {
+  signalId: string;
+  analysis: AnalysisResult;
+  sources: Array<{
+    url: string;
+    title: string;
+    credibility: "official" | "news" | "social";
+  }>;
+}
 
-class ArticleBodyOutput(BaseModel):
-    body: str = Field(description="Full article body in markdown")
-    citations: list[Citation] = Field(description="Inline citations with source refs")
-    key_takeaways: list[str] = Field(description="3-5 key takeaways")
+export interface GeneratedArticle {
+  headline: string;
+  summary: string;
+  body: string;
+  citations: Array<{
+    sourceUrl: string;
+    sourceTitle: string;
+    quotedText: string;
+  }>;
+  keyTakeaways: string[];
+}
 
-class Citation(BaseModel):
-    source_url: str
-    source_title: str
-    published_at: str | None = None
-    credibility: str = Field(description="official, news, or social")
-    quoted_text: str | None = Field(description="Exact text quoted from this source")
-```
+const HeadlineSchema = z.object({
+  headline: z.string().max(100),
+  headline_type: z.enum(["question", "revelation", "prediction", "contrast"]),
+});
 
-## PydanticAI Agents
+const SummarySchema = z.object({
+  summary: z.string(),
+  key_insight: z.string(),
+});
 
-### Writer Agent
+const CitationSchema = z.object({
+  source_url: z.string().url(),
+  source_title: z.string(),
+  quoted_text: z.string(),
+});
 
-Generates content at each stage. Uses model identifier strings for multi-provider support.
+const ArticleBodySchema = z.object({
+  body: z.string(),
+  citations: z.array(CitationSchema),
+  key_takeaways: z.array(z.string()).min(3).max(5),
+});
 
-```python
-from pydantic_ai import Agent, RunContext
-from dataclasses import dataclass
+export async function generateArticle(input: ArticleInput): Promise<GeneratedArticle> {
+  const log = logger.child({ signalId: input.signalId });
+  const provider = getProvider("openai");
 
-@dataclass
-class ArticleDeps:
-    db_session: Session
-    analysis: dict
-    sources: list[dict]
+  try {
+    log.info("article_generation.start");
 
-writer_agent = Agent(
-    'openai:gpt-4o',
-    deps_type=ArticleDeps,
-    output_type=HeadlineOutput,  # overridden per-step via run()
-    instructions=(
-        'You are a corporate intelligence journalist. '
-        'Write accurate, engaging headlines and articles from analysis results. '
-        'Tone: analytical, not sensational. '
-        'Always cite sources. Match confidence level to tone.'
-    ),
-)
-
-@writer_agent.tool
-def get_analysis_context(ctx: RunContext[ArticleDeps]) -> str:
-    """Provide the analysis data for article generation."""
-    a = ctx.deps.analysis
-    return (
-        f"Company: {a['company_name']}\n"
-        f"Facts: {a['facts']}\n"
-        f"Sentiment: {a['sentiment']}\n"
-        f"Themes: {a['themes']}\n"
-        f"Confidence: {a['confidence']}"
-    )
-
-@writer_agent.tool
-def get_source_list(ctx: RunContext[ArticleDeps]) -> str:
-    """Provide available sources for citation."""
-    return "\n".join(
-        f"- {s['title']} ({s['url']}) credibility={s['credibility']}"
-        for s in ctx.deps.sources
-    )
-```
-
-### Editor Agent
-
-Reviews and validates generated content for quality, accuracy, and citation integrity.
-
-```python
-editor_agent = Agent(
-    'anthropic:claude-sonnet-4-5',
-    deps_type=ArticleDeps,
-    output_type=EditorReviewOutput,
-    instructions=(
-        'You are an editorial reviewer for a corporate intelligence publication. '
-        'Check articles for: accuracy against source analysis, sensationalism, '
-        'citation completeness, tone consistency, and structural quality. '
-        'Return structured review with approve/revise decision.'
-    ),
-)
-
-class EditorReviewOutput(BaseModel):
-    approved: bool = Field(description="True if article meets editorial standards")
-    issues: list[str] = Field(description="Specific issues found")
-    suggestions: list[str] = Field(description="Improvement suggestions")
-    citation_check: bool = Field(
-        description="True if all claims are backed by citations"
-    )
-```
-
-## LangGraph State
-
-```python
-from typing import TypedDict, Annotated
-from langgraph.graph.message import add_messages
-from langchain_core.messages import BaseMessage
-
-class ArticleState(TypedDict):
-    # Input
-    signal_id: str
-    analysis: dict
-    sources: list[dict]
-    # Generation outputs
-    headline: str
-    summary: str
-    body: str
-    # Citation tracking
-    citations: Annotated[list[Citation], lambda a, b: a + b]
-    # Editorial review
-    editor_issues: list[str]
-    revision_count: int
-    approved: bool
-    # Control
-    error: str | None
-    messages: Annotated[list[BaseMessage], add_messages]
-```
-
-## Graph Nodes
-
-Each node calls the appropriate PydanticAI agent with the correct `output_type`.
-
-```python
-async def generate_headline(state: ArticleState) -> dict:
-    deps = ArticleDeps(
-        db_session=get_db(),
-        analysis=state["analysis"],
-        sources=state["sources"],
-    )
-    result = await writer_agent.run(
-        "Generate a compelling but accurate headline for this analysis.",
-        deps=deps,
-        output_type=HeadlineOutput,
-    )
-    return {"headline": result.output.headline}
-
-async def generate_summary(state: ArticleState) -> dict:
-    deps = ArticleDeps(
-        db_session=get_db(),
-        analysis=state["analysis"],
-        sources=state["sources"],
-    )
-    result = await writer_agent.run(
-        f"Write a 2-3 sentence lead paragraph.\nHeadline: {state['headline']}",
-        deps=deps,
-        output_type=SummaryOutput,
-    )
-    return {
-        "summary": result.output.summary,
-    }
-
-async def generate_body(state: ArticleState) -> dict:
-    deps = ArticleDeps(
-        db_session=get_db(),
-        analysis=state["analysis"],
-        sources=state["sources"],
-    )
-    result = await writer_agent.run(
-        f"Write the full article body.\n"
-        f"Headline: {state['headline']}\n"
-        f"Summary: {state['summary']}\n"
-        f"Include inline citations to sources.",
-        deps=deps,
-        output_type=ArticleBodyOutput,
-    )
-    return {
-        "body": result.output.body,
-        "citations": result.output.citations,
-        "key_takeaways": result.output.key_takeaways,
-    }
-```
-
-## Editorial Review with Interrupt
-
-The editor agent reviews the full article. If issues are found, the graph loops back for revision. An `interrupt()` pauses before publish for human analyst approval.
-
-```python
-from langgraph.types import interrupt, Command
-
-MAX_REVISIONS = 2
-
-async def edit_review(state: ArticleState) -> dict:
-    deps = ArticleDeps(
-        db_session=get_db(),
-        analysis=state["analysis"],
-        sources=state["sources"],
-    )
-    review = await editor_agent.run(
-        f"Review this article for publication:\n"
-        f"Headline: {state['headline']}\n"
-        f"Summary: {state['summary']}\n"
-        f"Body: {state['body']}\n"
-        f"Citations: {state['citations']}",
-        deps=deps,
-    )
-    revision_count = state.get("revision_count", 0) + 1
-
-    if review.output.approved or revision_count >= MAX_REVISIONS:
-        # Pause for human analyst review before publishing
-        decision = interrupt({
-            "signal_id": state["signal_id"],
-            "headline": state["headline"],
-            "summary": state["summary"],
-            "citations_count": len(state["citations"]),
-            "editor_issues": review.output.issues,
-            "action": "approve or request changes",
-        })
-        return {
-            "approved": decision == "approve",
-            "editor_issues": review.output.issues,
-            "revision_count": revision_count,
-        }
-
-    return {
-        "approved": False,
-        "editor_issues": review.output.issues,
-        "revision_count": revision_count,
-    }
-
-async def publish(state: ArticleState) -> dict:
-    await save_article(
-        signal_id=state["signal_id"],
-        headline=state["headline"],
-        summary=state["summary"],
-        body=state["body"],
-        citations=state["citations"],
-    )
-    return {}
-
-async def revise(state: ArticleState) -> dict:
-    # Re-run body generation with editor feedback
-    deps = ArticleDeps(
-        db_session=get_db(),
-        analysis=state["analysis"],
-        sources=state["sources"],
-    )
-    issues = "\n".join(state.get("editor_issues", []))
-    result = await writer_agent.run(
-        f"Revise the article body. Issues to fix:\n{issues}\n"
-        f"Current body:\n{state['body']}",
-        deps=deps,
-        output_type=ArticleBodyOutput,
-    )
-    return {
-        "body": result.output.body,
-        "citations": result.output.citations,
-    }
-```
-
-## Graph Compilation
-
-```python
-from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-
-def route_after_review(state: ArticleState) -> str:
-    if state.get("error"):
-        return "failed"
-    if state.get("approved"):
-        return "publish"
-    if state.get("revision_count", 0) >= MAX_REVISIONS:
-        return "publish"  # force publish after max revisions
-    return "revise"
-
-async def build_article_graph():
-    graph = StateGraph(ArticleState)
-
-    graph.add_node("generate_headline", generate_headline)
-    graph.add_node("generate_summary", generate_summary)
-    graph.add_node("generate_body", generate_body)
-    graph.add_node("edit_review", edit_review)
-    graph.add_node("revise", revise)
-    graph.add_node("publish", publish)
-    graph.add_node("failed", dead_letter_node)
-
-    graph.add_edge(START, "generate_headline")
-    graph.add_edge("generate_headline", "generate_summary")
-    graph.add_edge("generate_summary", "generate_body")
-    graph.add_edge("generate_body", "edit_review")
-    graph.add_conditional_edges(
-        "edit_review",
-        route_after_review,
+    // Step 1: Generate headline
+    const headlineResult = await provider.completeStructured(
+      [
         {
-            "publish": "publish",
-            "revise": "revise",
-            "failed": "failed",
+          role: "system",
+          content: `You are a corporate intelligence journalist. Write accurate, engaging headlines. Tone: analytical, not sensational. Match confidence level to tone.`,
         },
-    )
-    graph.add_edge("revise", "edit_review")
-    graph.add_edge("publish", END)
-    graph.add_edge("failed", END)
-
-    checkpointer = await AsyncPostgresSaver.from_conn_string(
-        settings.database_url
-    )
-    return graph.compile(checkpointer=checkpointer)
-```
-
-## Invocation
-
-```python
-async def generate_article(signal_id: str, analysis: dict, sources: list[dict]):
-    app = await build_article_graph()
-    config = {
-        "configurable": {"thread_id": f"article-{signal_id}"}
-    }
-    result = await app.ainvoke(
         {
-            "signal_id": signal_id,
-            "analysis": analysis,
-            "sources": sources,
-            "citations": [],
-            "revision_count": 0,
-            "approved": False,
+          role: "user",
+          content: `Analysis summary: ${input.analysis.summary}\nConfidence: ${input.analysis.confidence}`,
         },
-        config=config,
-    )
-    return result
+      ],
+      HeadlineSchema,
+    );
 
-# Resume after interrupt (analyst approves)
-async def approve_article(signal_id: str):
-    app = await build_article_graph()
-    config = {
-        "configurable": {"thread_id": f"article-{signal_id}"}
-    }
-    result = await app.ainvoke(
-        Command(resume="approve"),
-        config=config,
-    )
-    return result
+    // Step 2: Generate lead paragraph
+    const summaryResult = await provider.completeStructured(
+      [
+        {
+          role: "system",
+          content: `Write a 2-3 sentence lead paragraph for a corporate intelligence article.`,
+        },
+        {
+          role: "user",
+          content: `Headline: ${headlineResult.headline}\nKey insight: ${input.analysis.summary}`,
+        },
+      ],
+      SummarySchema,
+    );
+
+    // Step 3: Generate body with citations
+    const sourceList = input.sources
+      .map((s) => `- ${s.title} (${s.url}) credibility=${s.credibility}`)
+      .join("\n");
+
+    const bodyResult = await provider.completeStructured(
+      [
+        {
+          role: "system",
+          content: `Write the full article body in markdown. Include inline citations to sources. Use journalistic tone. Structure: context, key findings, implications.`,
+        },
+        {
+          role: "user",
+          content: `Headline: ${headlineResult.headline}\nSummary: ${summaryResult.summary}\nFacts: ${input.analysis.facts.map((f) => f.text).join("; ")}\nThemes: ${input.analysis.themes.map((t) => t.label).join(", ")}\nAvailable sources:\n${sourceList}`,
+        },
+      ],
+      ArticleBodySchema,
+    );
+
+    const article: GeneratedArticle = {
+      headline: headlineResult.headline,
+      summary: summaryResult.summary,
+      body: bodyResult.body,
+      citations: bodyResult.citations.map((c) => ({
+        sourceUrl: c.source_url,
+        sourceTitle: c.source_title,
+        quotedText: c.quoted_text,
+      })),
+      keyTakeaways: bodyResult.key_takeaways,
+    };
+
+    log.info("article_generation.complete");
+    return article;
+  } catch (error) {
+    log.error("article_generation.failed", { error: String(error) });
+    throw error;
+  }
+}
 ```
 
 ## Citation Tracking
 
-Citations flow through state via the `Annotated` append reducer. Every node that produces citations appends to the list. The editor agent validates citation completeness.
+Citations link every factual claim back to a source. The LLM is given available sources and instructed to cite them inline.
 
-```python
-# Citations accumulate through the graph:
-# generate_body → [{"source_url": "...", "quoted_text": "..."}]
-# revise → appends revised citations
-# edit_review → validates all citations match sources
-# publish → saves final citation list with article
-
-# In the editor agent, citation_check validates:
-# 1. Every factual claim has a matching citation
-# 2. Quoted text matches the source
-# 3. Source URLs are valid
-# 4. Credibility ratings are appropriate
+```typescript
+// Citations are validated by the Zod schema:
+// - source_url must be a valid URL
+// - quoted_text must be non-empty
+// - Every factual claim in the body should have a matching citation
 ```
 
 ## Headline Patterns
@@ -424,103 +190,60 @@ Citations flow through state via the `Annotated` append reducer. Every node that
 ### Mistake 1: Monolithic Generation
 
 **Bad:**
-```python
-article = await llm.complete(f"Write full article: {analysis}")
+```typescript
+const article = await provider.complete(messages); // One giant prompt
 ```
 
 **Good:**
-```python
-# LangGraph pipeline with structured steps
-app = await build_article_graph()
-result = await app.ainvoke(input_data, config=config)
+```typescript
+// Structured pipeline with focused prompts per step
+const headline = await provider.completeStructured(headlineMessages, HeadlineSchema);
+const summary = await provider.completeStructured(summaryMessages, SummarySchema);
+const body = await provider.completeStructured(bodyMessages, ArticleBodySchema);
 ```
 
-**Why:** Structured generation produces consistent output; monolithic prompts are unpredictable and unreviewable.
+**Why:** Structured generation produces consistent output; monolithic prompts are unpredictable.
 
-### Mistake 2: No Editorial Review
+### Mistake 2: No Citation Tracking
 
 **Bad:**
-```python
-# Publish directly after generation
-graph.add_edge("generate_body", "publish")
+```typescript
+return { body: articleText }; // Claims are unverifiable
 ```
 
 **Good:**
-```python
-# Editor agent + human interrupt before publish
-graph.add_edge("generate_body", "edit_review")
-graph.add_conditional_edges("edit_review", route_after_review, ...)
-```
-
-**Why:** Without review, sensational or inaccurate articles reach users. Editor agent catches issues; human interrupt ensures accountability.
-
-### Mistake 3: No Checkpointing
-
-**Bad:**
-```python
-app = graph.compile()  # No crash recovery
-```
-
-**Good:**
-```python
-app = graph.compile(checkpointer=checkpointer)
-```
-
-**Why:** Article generation involves multiple LLM calls. Without checkpointing, a crash loses all progress. With checkpointing, resume from the last completed node.
-
-### Mistake 4: Unbounded Revision Loop
-
-**Bad:**
-```python
-# Can loop forever between edit_review and revise
-graph.add_edge("revise", "edit_review")
-```
-
-**Good:**
-```python
-# Max revision guard in router
-def route_after_review(state):
-    if state["revision_count"] >= MAX_REVISIONS:
-        return "publish"  # force publish
-    return "revise"
-```
-
-**Why:** Editor and writer agents can disagree indefinitely. Max revisions prevent infinite loops.
-
-### Mistake 5: Missing Citations
-
-**Bad:**
-```python
-# No citation tracking — claims are unverifiable
-return {"body": article_text}
-```
-
-**Good:**
-```python
-# Citations tracked through state
-return {"body": result.output.body, "citations": result.output.citations}
+```typescript
+return { body: bodyResult.body, citations: bodyResult.citations };
 ```
 
 **Why:** Without citations, readers cannot verify claims. Citation tracking ensures every factual statement links back to a source.
+
+### Mistake 3: Sensational Tone
+
+**Bad:**
+```typescript
+// System prompt: "Write an exciting, attention-grabbing article!"
+```
+
+**Good:**
+```typescript
+// System prompt: "Write accurate, engaging headlines. Tone: analytical, not sensational."
+```
+
+**Why:** Corporate intelligence requires trust. Sensationalism erodes credibility.
 
 ## Quick Reference
 
 | Pattern | Code |
 |---------|------|
-| **Writer agent** | `Agent('openai:gpt-4o', deps_type=ArticleDeps, output_type=...)` |
-| **Editor agent** | `Agent('anthropic:claude-sonnet-4-5', output_type=EditorReviewOutput)` |
-| **Per-step output_type** | `writer_agent.run(prompt, output_type=HeadlineOutput)` |
-| **Graph flow** | `headline → summary → body → edit_review → publish` |
-| **Human interrupt** | `decision = interrupt({...})` before publish |
-| **Revision loop** | `edit_review → revise → edit_review` with `MAX_REVISIONS` guard |
-| **Citation tracking** | `Annotated[list[Citation], lambda a, b: a + b]` in state |
-| **Checkpointing** | `graph.compile(checkpointer=AsyncPostgresSaver.from_conn_string(url))` |
-| **Resume after interrupt** | `app.ainvoke(Command(resume="approve"), config=config)` |
-| **Crash recovery** | `await app.ainvoke(None, config=config)` resumes from last checkpoint |
+| **Article generation** | `generateArticle({ signalId, analysis, sources })` |
+| **Headline schema** | `z.object({ headline, headline_type })` |
+| **Body schema** | `z.object({ body, citations, key_takeaways })` |
+| **Citation schema** | `z.object({ source_url, source_title, quoted_text })` |
+| **Implementation** | `src/lib/ai/article-generator.ts` |
 
 ## Related Skills
 
-- **pydanticai-agents** — Agent definition, `output_type`, dependency injection, tools
-- **langgraph-orchestration** — State machines, conditional routing, checkpointing, interrupts
 - **signal-analysis** — Upstream analysis that feeds into article generation
-- **data-modeling** — Pydantic model design for `output_type` models
+- **llm-abstraction** — LLM provider abstraction with structured outputs
+- **data-modeling** — Zod schema design for article output

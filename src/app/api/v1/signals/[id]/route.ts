@@ -1,26 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { AgentPersona } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json(
-        { error: "unauthorized", message: "Authentication required" },
-        { status: 401 }
-      );
-    }
+  const requestId = crypto.randomUUID();
+  const log = logger.child({ requestId, route: "GET /api/v1/signals/[id]" });
 
+  try {
     const { id } = await params;
+    const { searchParams } = new URL(request.url);
+    const agentPersona = searchParams.get("agentPersona") as AgentPersona | null;
+
+    log.info("api.request.start", { method: "GET", path: `/api/v1/signals/${id}` });
+
     const signal = await prisma.signal.findUnique({
-      where: { id },
+      where: { id, status: "ANALYZED" },
       include: {
         company: true,
-        analysis: true,
+        analyses: agentPersona
+          ? { where: { agentPersona } }
+          : true,
       },
     });
 
@@ -31,50 +34,16 @@ export async function GET(
       );
     }
 
+    log.info("api.request.success", {
+      signalId: id,
+      analysesCount: signal.analyses.length,
+    });
+
     return NextResponse.json(signal);
   } catch (error) {
-    console.error("Error fetching signal:", error);
+    log.error("api.request.error", { error: String(error) });
     return NextResponse.json(
       { error: "internal_error", message: "Failed to fetch signal" },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json(
-        { error: "unauthorized", message: "Authentication required" },
-        { status: 401 }
-      );
-    }
-
-    const { id } = await params;
-    const signal = await prisma.signal.findUnique({
-      where: { id },
-    });
-
-    if (!signal) {
-      return NextResponse.json(
-        { error: "not_found", message: "Signal not found" },
-        { status: 404 }
-      );
-    }
-
-    await prisma.signal.delete({
-      where: { id },
-    });
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Error deleting signal:", error);
-    return NextResponse.json(
-      { error: "internal_error", message: "Failed to delete signal" },
       { status: 500 }
     );
   }

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Concept 1a: "The Redacted" - Asymmetric gaps -->
+  <!-- Horizontal bars with gaps forming a "T" - asymmetric version -->
+  
+  <!-- Top bar -->
+  <rect x="8" y="12" width="48" height="6" fill="currentColor"/>
+  
+  <!-- Middle bar with offset gap forming T's vertical -->
+  <rect x="8" y="26" width="16" height="6" fill="currentColor"/>
+  <rect x="32" y="26" width="24" height="6" fill="currentColor"/>
+  
+  <!-- Bottom bar -->
+  <rect x="8" y="40" width="48" height="6" fill="currentColor"/>
+  
+  <!-- The negative space creates an off-center vertical line -->
+</svg>

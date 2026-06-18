@@ -1,12 +1,12 @@
 ---
-description: API design conventions for FastAPI backend endpoints
+description: API design conventions for Next.js Route Handlers
 globs:
 alwaysApply: true
 ---
 
 # API Design
 
-Standardize REST API design for the FastAPI backend serving the Next.js frontend.
+Standardize REST API design for Next.js Route Handlers.
 
 ## REST Conventions
 
@@ -19,11 +19,11 @@ Standardize REST API design for the FastAPI backend serving the Next.js frontend
 ### HTTP Methods
 | Method | Usage | Example |
 |--------|-------|---------|
-| `GET` | Retrieve resource(s) | `GET /signals/{id}` |
-| `POST` | Create resource | `POST /signals` |
-| `PUT` | Full update | `PUT /signals/{id}` |
-| `PATCH` | Partial update | `PATCH /signals/{id}` |
-| `DELETE` | Remove resource | `DELETE /signals/{id}` |
+| `GET` | Retrieve resource(s) | `GET /api/v1/signals/{id}` |
+| `POST` | Create resource | `POST /api/v1/signals` |
+| `PUT` | Full update | `PUT /api/v1/signals/{id}` |
+| `PATCH` | Partial update | `PATCH /api/v1/signals/{id}` |
+| `DELETE` | Remove resource | `DELETE /api/v1/signals/{id}` |
 
 ### Status Codes
 | Code | Meaning | When |
@@ -41,62 +41,72 @@ Standardize REST API design for the FastAPI backend serving the Next.js frontend
 
 ## Request/Response Schemas
 
-### Use Pydantic Models
+### Use Zod Schemas
 Define explicit schemas for all endpoints:
 
-```python
-from pydantic import BaseModel, Field
-from uuid import UUID
-from datetime import datetime
+```typescript
+import { z } from 'zod';
 
-class SignalCreate(BaseModel):
-    source_url: str = Field(..., description="URL where signal was found")
-    company_id: UUID
+export const SignalCreateSchema = z.object({
+  sourceUrl: z.string().url(),
+  companyId: z.string().uuid(),
+});
 
-class SignalResponse(BaseModel):
-    id: UUID
-    source_url: str
-    company_id: UUID
-    created_at: datetime
-    confidence: float
-
-    model_config = {"from_attributes": True}
+export const SignalResponseSchema = z.object({
+  id: z.string().uuid(),
+  sourceUrl: z.string().url(),
+  companyId: z.string().uuid(),
+  createdAt: z.string().datetime(),
+  confidence: z.number().min(0).max(1),
+});
 ```
 
-### Separate Input/Output Models
-- `*Create` — for POST requests
-- `*Update` — for PATCH requests (all fields optional)
-- `*Response` — for API responses (includes id, timestamps)
+### Separate Input/Output Schemas
+- `*CreateSchema` — for POST requests
+- `*UpdateSchema` — for PATCH requests (all fields optional)
+- `*ResponseSchema` — for API responses (includes id, timestamps)
 
 ## Error Response Format
 
 Standardize error responses:
 
-```python
-class ErrorResponse(BaseModel):
-    error: str          # Machine-readable error code
-    message: str        # Human-readable description
-    details: dict | None = None  # Optional validation errors
+```typescript
+interface ErrorResponse {
+  error: string;          // Machine-readable error code
+  message: string;        // Human-readable description
+  details?: Record<string, string[]>;  // Optional validation errors
+}
 
-# Example 422 response
+// Example 422 response
 {
-    "error": "validation_error",
-    "message": "Invalid input data",
-    "details": {
-        "source_url": ["Invalid URL format"]
-    }
+  "error": "validation_error",
+  "message": "Invalid input data",
+  "details": {
+    "sourceUrl": ["Invalid URL format"]
+  }
 }
 ```
 
-Raise HTTP exceptions with detail:
+Throw errors with context:
 
-```python
-from fastapi import HTTPException
+```typescript
+import { NextResponse } from 'next/server';
 
-raise HTTPException(
-    status_code=404,
-    detail={"error": "not_found", "message": f"Signal {signal_id} not found"}
-)
+export async function GET(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  const signal = await getSignal(params.id);
+  
+  if (!signal) {
+    return NextResponse.json(
+      { error: 'not_found', message: `Signal ${params.id} not found` },
+      { status: 404 }
+    );
+  }
+  
+  return NextResponse.json(signal);
+}
 ```
 
 ## Pagination & Filtering
@@ -104,51 +114,76 @@ raise HTTPException(
 ### Pagination
 Use cursor-based pagination for large datasets:
 
-```python
-class PaginatedResponse(BaseModel):
-    items: list[SignalResponse]
-    next_cursor: str | None
-    has_more: bool
+```typescript
+interface PaginatedResponse<T> {
+  items: T[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
 
-# Endpoint
-@app.get("/signals")
-async def list_signals(
-    cursor: str | None = None,
-    limit: int = Field(default=20, ge=1, le=100),
-) -> PaginatedResponse:
-    ...
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const cursor = searchParams.get('cursor');
+  const limit = Math.min(Number(searchParams.get('limit')) || 20, 100);
+  
+  const result = await listSignals({ cursor, limit });
+  return NextResponse.json(result);
+}
 ```
 
 ### Filtering & Sorting
 Use query parameters:
 
-```python
-@app.get("/signals")
-async def list_signals(
-    company_id: UUID | None = None,
-    signal_type: SignalType | None = None,
-    sort_by: Literal["created_at", "confidence"] = "created_at",
-    sort_order: Literal["asc", "desc"] = "desc",
-) -> list[SignalResponse]:
-    ...
+```typescript
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const companyId = searchParams.get('companyId');
+  const signalType = searchParams.get('signalType');
+  const sortBy = searchParams.get('sortBy') || 'createdAt';
+  const sortOrder = searchParams.get('sortOrder') || 'desc';
+  
+  const signals = await listSignals({ companyId, signalType, sortBy, sortOrder });
+  return NextResponse.json(signals);
+}
 ```
 
 ## Authentication & Authorization
 
-### API Key Auth (for external clients)
-```python
-from fastapi import Depends, HTTPException, status
-from fastapi.security import APIKeyHeader
+### Session Auth
+Use NextAuth v5 for session-based authentication:
 
-api_key_header = APIKeyHeader(name="X-API-Key")
+```typescript
+import { auth } from '@/lib/auth';
 
-async def verify_api_key(api_key: str = Depends(api_key_header)):
-    if api_key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Invalid API key")
+export async function GET(req: Request) {
+  const session = await auth();
+  
+  if (!session) {
+    return NextResponse.json(
+      { error: 'unauthorized', message: 'Authentication required' },
+      { status: 401 }
+    );
+  }
+  
+  // ... business logic
+}
 ```
 
-### Session Auth (for frontend)
-Use httpOnly cookies for session tokens. Never store tokens in localStorage.
+### API Key Auth (for external clients)
+```typescript
+export async function GET(req: Request) {
+  const apiKey = req.headers.get('X-API-Key');
+  
+  if (apiKey !== process.env.API_KEY) {
+    return NextResponse.json(
+      { error: 'unauthorized', message: 'Invalid API key' },
+      { status: 401 }
+    );
+  }
+  
+  // ... business logic
+}
+```
 
 ## API Versioning
 
@@ -156,39 +191,23 @@ Use httpOnly cookies for session tokens. Never store tokens in localStorage.
 - When breaking changes are needed, create `/api/v2/`
 - Deprecate old versions with sunset headers
 
-```python
-app.include_router(signals_router, prefix="/api/v1")
-```
-
-## CORS Configuration
-
-Allow frontend origin only:
-
-```python
-from fastapi.middleware.cors import CORSMiddleware
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[settings.frontend_url],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["*"],
-)
-```
-
 ## Documentation
 
-- All endpoints must have `summary` and `description`
-- Use `response_model` to document response schema
+- All endpoints must have JSDoc comments
+- Document request/response schemas
 - Add examples for complex request/response bodies
 
-```python
-@app.post(
-    "/signals",
-    response_model=SignalResponse,
-    summary="Create a new signal",
-    description="Scrape and analyze a new signal from the given URL",
-)
-async def create_signal(signal: SignalCreate):
-    ...
+```typescript
+/**
+ * Create a new signal
+ * 
+ * Scrapes and analyzes a new signal from the given URL
+ */
+export async function POST(req: Request) {
+  const body = await req.json();
+  const parsed = SignalCreateSchema.parse(body);
+  
+  const signal = await createSignal(parsed);
+  return NextResponse.json(signal, { status: 201 });
+}
 ```

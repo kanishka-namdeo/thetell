@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Concept 19: "Folio" - Newspaper Page Layout -->
+  <!-- Abstract newspaper page with columns, rules, and folio marks -->
+  <!-- Suggests: editorial authority, information architecture -->
+  
+  <!-- Page border -->
+  <rect x="8" y="6" width="48" height="52" fill="none" stroke="currentColor" stroke-width="2"/>
+  
+  <!-- Masthead bar -->
+  <rect x="10" y="8" width="44" height="6" fill="currentColor"/>
+  
+  <!-- Column rules (vertical dividers) -->
+  <rect x="24" y="18" width="1.5" height="36" fill="currentColor" opacity="0.5"/>
+  <rect x="39" y="18" width="1.5" height="36" fill="currentColor" opacity="0.5"/>
+  
+  <!-- Horizontal rule -->
+  <rect x="10" y="16" width="44" height="1.5" fill="currentColor"/>
+  
+  <!-- Content blocks (text approximated as bars) -->
+  <!-- Column 1 -->
+  <rect x="11" y="20" width="11" height="2" fill="currentColor" opacity="0.3"/>
+  <rect x="11" y="24" width="11" height="2" fill="currentColor" opacity="0.3"/>
+  <rect x="11" y="28" width="11" height="2" fill="currentColor" opacity="0.3"/>
+  <rect x="11" y="32" width="8" height="2" fill="currentColor" opacity="0.3"/>
+  
+  <!-- Column 2 -->
+  <rect x="27" y="20" width="10" height="2" fill="currentColor" opacity="0.3"/>
+  <rect x="27" y="24" width="10" height="2" fill="currentColor" opacity="0.3"/>
+  <rect x="27" y="28" width="10" height="2" fill="currentColor" opacity="0.3"/>
+  
+  <!-- Column 3 -->
+  <rect x="42" y="20" width="10" height="2" fill="currentColor" opacity="0.3"/>
+  <rect x="42" y="24" width="10" height="2" fill="currentColor" opacity="0.3"/>
+  
+  <!-- Folio mark (page number bottom right) -->
+  <rect x="46" y="52" width="6" height="3" fill="currentColor"/>
+</svg>

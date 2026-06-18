@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Concept 5: "Seismograph" - Symbolic Icon -->
+  <!-- Rhythmic vertical lines suggesting signal detection -->
+  <!-- Abstract representation of pattern recognition -->
+  
+  <!-- Vertical bars with varying heights to suggest signal activity -->
+  <rect x="10" y="28" width="3" height="8" fill="currentColor"/>
+  <rect x="15" y="24" width="3" height="16" fill="currentColor"/>
+  <rect x="20" y="20" width="3" height="24" fill="currentColor"/>
+  <rect x="25" y="16" width="3" height="32" fill="currentColor"/>
+  <rect x="30" y="12" width="3" height="40" fill="currentColor"/>
+  <rect x="35" y="16" width="3" height="32" fill="currentColor"/>
+  <rect x="40" y="20" width="3" height="24" fill="currentColor"/>
+  <rect x="45" y="24" width="3" height="16" fill="currentColor"/>
+  <rect x="50" y="28" width="3" height="8" fill="currentColor"/>
+  
+  <!-- Baseline -->
+  <rect x="8" y="56" width="48" height="2" fill="currentColor"/>
+</svg>
