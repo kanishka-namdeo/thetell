@@ -1,0 +1,41 @@
+---
+description: Codebase navigation — read the map before exploring. Apply when agent needs to find files, understand architecture, or locate features.
+alwaysApply: true
+---
+# Codebase Navigation
+
+**Decision priority**: Map → Grep/Glob → Read files. Never skip a level.
+
+## Step 1: Read the Module Map
+
+The `AGENTS.md` file contains a **Module Map** section with:
+- Signal pipeline data flow (ingestion → analysis → article gen → background jobs)
+- Key entry points (public feed, dashboard, API routes)
+- Data layer (Prisma schema, DB access)
+- Cross-cutting concerns (auth, middleware, AI provider, confidence)
+- All 22 scrapers listed by category
+- NLP layer components
+
+This map answers 80% of "where is X?" questions without any file exploration.
+
+## Step 2: Read features-built.md for Feature Status
+
+`docs/features-built.md` tracks every feature with:
+- Purpose (why it exists)
+- Description (what it does)
+- Location (file path)
+- Status (Built / Stub / Removed)
+
+Use this to answer "is X feature built?" or "where is X implemented?"
+
+## Step 3: Fall Back to Grep/Glob/Read
+
+If the map and features doc don't answer the question:
+- Grep/Glob for literal text patterns (find all TODOs, error messages)
+- Read files for implementation details (not structure)
+- Dispatch explore subagents for areas not covered by the map
+
+## Related Rules
+
+- **`agentic-reasoning-guardrails.mdc`** — Its decision tree includes batching and parallelism rules. Follow both.
+- **`subagent-orchestration.mdc`** — When to dispatch explore subagents for areas the map doesn't cover.

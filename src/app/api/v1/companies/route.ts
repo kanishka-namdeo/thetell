@@ -1,6 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { logger } from "@/lib/logger";
+import { inngest } from "@/lib/inngest/client";
+import { enrichCompany } from "@/lib/enrichment";
+import { requireAdmin } from "@/lib/auth-guard";
+import { z } from "zod";
+
+const CompanyCreateSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  slug: z.string().min(1, "Slug is required").regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug must be lowercase alphanumeric with hyphens"),
+  ticker: z.string().optional(),
+  description: z.string().optional(),
+  websiteUrl: z.string().url("Invalid website URL").optional(),
+  industry: z.string().optional(),
+  sector: z.string().optional(),
+});
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,7 +28,8 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get("limit") || "20");
+    const rawLimit = parseInt(searchParams.get("limit") || "20");
+    const limit = Number.isNaN(rawLimit) ? 20 : Math.min(Math.max(rawLimit, 1), 100);
     const cursor = searchParams.get("cursor");
 
     const companies = await prisma.company.findMany({
@@ -37,7 +53,7 @@ export async function GET(request: NextRequest) {
       hasMore,
     });
   } catch (error) {
-    console.error("Error fetching companies:", error);
+    logger.error("Error fetching companies", { error: String(error) });
     return NextResponse.json(
       { error: "internal_error", message: "Failed to fetch companies" },
       { status: 500 }
@@ -55,22 +71,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
-    const { name, slug, ticker, description, websiteUrl } = body;
+    if (!requireAdmin(session)) {
+      return NextResponse.json(
+        { error: "forbidden", message: "Admin access required" },
+        { status: 403 }
+      );
+    }
 
-    if (!name || !slug) {
+    const body = await request.json();
+    const parseResult = CompanyCreateSchema.safeParse(body);
+
+    if (!parseResult.success) {
+      const details: Record<string, string[]> = {};
+      for (const issue of parseResult.error.issues) {
+        const key = issue.path.join(".");
+        if (!details[key]) details[key] = [];
+        details[key].push(issue.message);
+      }
       return NextResponse.json(
         {
           error: "validation_error",
-          message: "Name and slug are required",
-          details: {
-            name: !name ? ["Required"] : undefined,
-            slug: !slug ? ["Required"] : undefined,
-          },
+          message: "Invalid request body",
+          details,
         },
         { status: 400 }
       );
     }
+
+    const { name, slug, ticker, description, websiteUrl, industry, sector } = parseResult.data;
 
     const existingCompany = await prisma.company.findUnique({
       where: { slug },
@@ -90,12 +118,35 @@ export async function POST(request: NextRequest) {
         ticker,
         description,
         websiteUrl,
+        industry,
+        sector,
       },
+    });
+
+    // Fire-and-forget: run enrichment directly in the background
+    enrichCompany(company.id).then((result) => {
+      logger.info("enrichment.auto_complete", {
+        companyId: company.id,
+        status: result.status,
+        feedsFound: result.feeds.length,
+        socialsFound: result.socials.length,
+        blogsFound: result.blogs.length,
+      });
+    }).catch((err) => {
+      logger.error("enrichment.auto_failed", { error: String(err), companyId: company.id });
+    });
+
+    // Fire-and-forget: trigger subreddit discovery via Inngest
+    inngest.send({
+      name: "company.subreddits.discover",
+      data: { companyId: company.id },
+    }).catch((err) => {
+      logger.error("Failed to trigger subreddit discovery", { error: String(err), companyId: company.id });
     });
 
     return NextResponse.json(company, { status: 201 });
   } catch (error) {
-    console.error("Error creating company:", error);
+    logger.error("Error creating company", { error: String(error) });
     return NextResponse.json(
       { error: "internal_error", message: "Failed to create company" },
       { status: 500 }

@@ -37,6 +37,14 @@ const NITTER_STATUS_URL = "https://status.d4.d3r1.net/api/v1/instances";
 export class SocialScraper extends BaseScraper {
   private dynamicNitterInstances: string[] | null = null;
 
+  constructor() {
+    super(1.0, 30000, 3, 86400, true);
+  }
+
+  override get scraperName(): string {
+    return "social-scraper";
+  }
+
   /**
    * Scrape a social media post from a URL.
    * Supports X/Twitter (via Nitter), Reddit, Hacker News, and Mastodon.
@@ -574,11 +582,13 @@ export class SocialScraper extends BaseScraper {
       const item = JSON.parse(text) as { kids?: number[] };
       if (!item.kids || item.kids.length === 0) return [];
 
-      const commentPromises = item.kids.slice(0, maxComments).map(async (kidId) => {
+      // Fetch comments sequentially to avoid unbounded concurrency
+      const comments: string[] = [];
+      for (const kidId of item.kids.slice(0, maxComments)) {
         try {
           const commentUrl = `${HN_API_BASE}/item/${kidId}.json`;
           const commentText = await this.fetch(commentUrl);
-          if (commentText === null) return null;
+          if (commentText === null) continue;
 
           const comment = JSON.parse(commentText) as {
             by?: string;
@@ -586,18 +596,17 @@ export class SocialScraper extends BaseScraper {
             deleted?: boolean;
           };
 
-          if (!comment || comment.deleted || !comment.text || !comment.by) return null;
+          if (!comment || comment.deleted || !comment.text || !comment.by) continue;
 
           // Strip HTML tags from comment text
           const plainText = cheerio.load(comment.text).text().trim();
-          return `${comment.by}: ${plainText.slice(0, 500)}`;
+          comments.push(`${comment.by}: ${plainText.slice(0, 500)}`);
         } catch {
-          return null;
+          continue;
         }
-      });
+      }
 
-      const comments = await Promise.all(commentPromises);
-      return comments.filter((c): c is string => c !== null);
+      return comments;
     } catch (error) {
       logger.debug("Failed to fetch HN comments", { storyId, error: String(error) });
       return [];
@@ -816,6 +825,8 @@ export class SocialScraper extends BaseScraper {
       });
 
       clearTimeout(timeoutId);
+      // Consume body to release connection
+      await response.body?.cancel();
       return response.ok;
     } catch {
       return false;

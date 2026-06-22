@@ -6,6 +6,7 @@
 
 import * as cheerio from "cheerio";
 import { logger } from "@/lib/logger";
+import { prisma } from "@/lib/db";
 import { BaseScraper } from "./base-scraper";
 import { normalizeUrl, computeContentHash } from "./url-normalizer";
 
@@ -26,6 +27,7 @@ export interface RedditFinancialSignal {
     upvoteRatio: number;
     comments: number;
   };
+  author: string | null;
   metadata: Record<string, string | number | boolean>;
   contentHash: string;
 }
@@ -39,9 +41,11 @@ export class RedditFinancialScraper extends BaseScraper {
   private readonly redditBase = "https://www.reddit.com";
 
   constructor() {
-    // Reddit rate limit: 60 requests/minute for OAuth, 10/minute for web
-    // Use conservative rate: 1 request/second
-    super(1.0, 30000, 3, 3600); // 1 hour cache
+    super(1.0, 30000, 3, 3600, true);
+  }
+
+  override get scraperName(): string {
+    return "reddit-financial-scraper";
   }
 
   /**
@@ -74,6 +78,54 @@ export class RedditFinancialScraper extends BaseScraper {
 
       logger.info("Reddit financial scrape completed", {
         subredditsScraped: subreddits.length,
+        signalCount: signals.length,
+      });
+    } catch (error) {
+      logger.error("Reddit financial scrape failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    return signals;
+  }
+
+  /**
+   * Scrape subreddits for specific companies by combining defaults, tracked subreddits from DB,
+   * and ticker-based subreddits.
+   */
+  async scrapeForCompanies(
+    companies: Array<{ id: string; ticker?: string | null }>
+  ): Promise<RedditFinancialSignal[]> {
+    const companyIds = companies.map((c) => c.id);
+    logger.info("Starting Reddit scrape for companies", { companyIds });
+
+    const trackedSubs = await prisma.trackedSubreddit.findMany({
+      where: { companyId: { in: companyIds }, isActive: true },
+      select: { subreddit: true },
+    });
+
+    const trackedNames = [...new Set(trackedSubs.map((s) => s.subreddit))];
+
+    const allSubreddits = [
+      ...new Set([
+        ...DEFAULT_SUBREDDITS,
+        ...trackedNames,
+        ...companies
+          .filter((c) => c.ticker)
+          .map((c) => c.ticker!.toLowerCase()),
+      ]),
+    ];
+
+    const signals: RedditFinancialSignal[] = [];
+
+    try {
+      for (const subreddit of allSubreddits) {
+        const posts = await this.scrapeSubreddit(subreddit);
+        if (posts) signals.push(...posts);
+      }
+
+      logger.info("Reddit financial scrape completed", {
+        subredditsScraped: allSubreddits.length,
         signalCount: signals.length,
       });
     } catch (error) {
@@ -129,6 +181,7 @@ export class RedditFinancialScraper extends BaseScraper {
       const content = entry.find("content").first().text();
       const published = entry.find("published").first().text();
       const id = entry.find("id").first().text();
+      const author = entry.find("author name").first().text().trim() || entry.find("dc|creator").first().text().trim() || null;
 
       if (!title || !link) return;
 
@@ -160,6 +213,7 @@ export class RedditFinancialScraper extends BaseScraper {
           upvoteRatio,
           comments,
         },
+        author,
         metadata: {
           subreddit,
           postId: id,

@@ -9,10 +9,12 @@ const globalForPrisma = globalThis as unknown as {
 
 function createPrismaClient() {
   const connectionString = process.env.DATABASE_URL!;
-  const pool = new pg.Pool({ connectionString });
-  const adapter = new PrismaPg(pool);
   
+  // Reuse existing pool if it exists (prevents pool leak on hot-reload)
+  const pool = globalForPrisma.pool ?? new pg.Pool({ connectionString });
   globalForPrisma.pool = pool;
+  
+  const adapter = new PrismaPg(pool);
   
   return new PrismaClient({
     adapter,

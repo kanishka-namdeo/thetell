@@ -49,6 +49,10 @@ export class CertTransparencyScraper extends BaseScraper {
     super(1.0, 30000, 3, 3600); // 1 hour cache
   }
 
+  override get scraperName(): string {
+    return "cert-transparency-scraper";
+  }
+
   /**
    * Scrape certificate transparency logs for a domain.
    * @param domain - Company domain (e.g., "example.com")

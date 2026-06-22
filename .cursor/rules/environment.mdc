@@ -38,7 +38,81 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 # Inngest (optional, for production)
 INNGEST_SIGNING_KEY=
+
+# Admin Configuration (optional, for API key authentication)
+ADMIN_API_KEY=your-secure-admin-api-key-here
 ```
+
+## Test Users (Seeded in Local Database)
+
+The local development database is seeded with test users. **Use these credentials for both manual testing and automated tests against the local DB.**
+
+| User | Email | Password | Role |
+|------|-------|----------|------|
+| Admin | `admin@thetell.com` | `password123` | `ADMIN` |
+| Analyst | `analyst@thetell.com` | `password123` | `USER` |
+
+**These are local dev/test credentials.** The local database runs in Docker (see Docker Compose section). There is no production deployment yet.
+
+### Admin Setup Script
+Use the setup script to create or update admin users:
+
+```bash
+# Create admin with default credentials
+pnpm tsx scripts/setup-admin.ts
+
+# Create admin with custom credentials
+pnpm tsx scripts/setup-admin.ts --email admin@example.com --password securepass123
+
+# Reset to default credentials
+pnpm tsx scripts/setup-admin.ts --reset
+
+# Show help
+pnpm tsx scripts/setup-admin.ts --help
+```
+
+### Admin Access
+Admin users have access to:
+- User management (`/dashboard/admin/users`)
+- System health monitoring (`/dashboard/admin/system`)
+- Content moderation (`/dashboard/admin/moderation`)
+- System configuration (`/dashboard/admin/settings`)
+- Audit logs (`/dashboard/admin/audit`)
+
+Admin routes are protected by:
+- Middleware role checks in `src/middleware.ts`
+- `isAdmin()` helper in `src/lib/auth-guard.ts`
+- Server-side `auth()` checks in admin pages
+
+### Admin Setup Script
+Use the setup script to create or update admin users:
+
+```bash
+# Create admin with default credentials
+pnpm tsx scripts/setup-admin.ts
+
+# Create admin with custom credentials
+pnpm tsx scripts/setup-admin.ts --email admin@example.com --password securepass123
+
+# Reset to default credentials
+pnpm tsx scripts/setup-admin.ts --reset
+
+# Show help
+pnpm tsx scripts/setup-admin.ts --help
+```
+
+### Admin Access
+Admin users have access to:
+- User management (`/dashboard/admin/users`)
+- System health monitoring (`/dashboard/admin/system`)
+- Content moderation (`/dashboard/admin/moderation`)
+- System configuration (`/dashboard/admin/settings`)
+- Audit logs (`/dashboard/admin/audit`)
+
+Admin routes are protected by:
+- Middleware role checks in `src/middleware.ts`
+- `isAdmin()` helper in `src/lib/auth-guard.ts`
+- Server-side `auth()` checks in admin pages
 
 ### Naming Convention
 - `NEXT_PUBLIC_` prefix for client-side vars, no prefix for server-side

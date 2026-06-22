@@ -3,7 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import type { Role } from "@prisma/client";
 
 /**
- * Edge-compatible auth configuration for middleware.
+ * Edge-compatible auth configuration for proxy.
  * Does NOT import Prisma (which requires Node.js runtime).
  * Uses JWT session strategy only.
  */

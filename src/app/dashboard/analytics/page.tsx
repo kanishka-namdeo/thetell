@@ -36,6 +36,20 @@ export default async function AnalyticsPage() {
       NEUTRAL: allAnalyses.filter((a) => a.sentiment === "NEUTRAL").length,
     };
 
+    // Per-agent metrics
+    const analystAnalyses = allAnalyses.filter((a) => a.agentPersona === "ANALYST");
+    const gossipAnalyses = allAnalyses.filter((a) => a.agentPersona === "GOSSIP_GIRL");
+
+    const analystAvgConfidence =
+      analystAnalyses.length > 0
+        ? analystAnalyses.reduce((sum, a) => sum + a.confidence, 0) / analystAnalyses.length
+        : 0;
+
+    const gossipAvgConfidence =
+      gossipAnalyses.length > 0
+        ? gossipAnalyses.reduce((sum, a) => sum + a.confidence, 0) / gossipAnalyses.length
+        : 0;
+
     const mostRecentSignal = signals.sort(
       (a, b) => new Date(b.scrapedAt).getTime() - new Date(a.scrapedAt).getTime()
     )[0];
@@ -48,6 +62,10 @@ export default async function AnalyticsPage() {
       articleCount: company.articles.length,
       avgConfidence,
       sentimentCounts,
+      analystCount: analystAnalyses.length,
+      gossipCount: gossipAnalyses.length,
+      analystAvgConfidence: analystAvgConfidence,
+      gossipAvgConfidence: gossipAvgConfidence,
       mostRecentSignalDate: mostRecentSignal?.scrapedAt,
     };
   });
@@ -55,7 +73,7 @@ export default async function AnalyticsPage() {
   return (
     <div className="p-4 lg:p-6 space-y-6">
       <div className="border-b-2 border-foreground pb-4">
-        <p className="text-[10px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
+        <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
           Analytics
         </p>
         <h1 className="text-3xl font-serif font-bold">Company Comparison</h1>
@@ -75,6 +93,8 @@ export default async function AnalyticsPage() {
                 <TableHead className="font-sans text-xs uppercase tracking-wider">Company</TableHead>
                 <TableHead className="font-sans text-xs uppercase tracking-wider text-right">Signals</TableHead>
                 <TableHead className="font-sans text-xs uppercase tracking-wider text-right">Articles</TableHead>
+                <TableHead className="font-sans text-xs uppercase tracking-wider text-right">Analyst</TableHead>
+                <TableHead className="font-sans text-xs uppercase tracking-wider text-right">Gossip Girl</TableHead>
                 <TableHead className="font-sans text-xs uppercase tracking-wider text-right">Avg Confidence</TableHead>
                 <TableHead className="font-sans text-xs uppercase tracking-wider text-right">Positive</TableHead>
                 <TableHead className="font-sans text-xs uppercase tracking-wider text-right">Negative</TableHead>
@@ -88,7 +108,7 @@ export default async function AnalyticsPage() {
                   <TableCell className="font-serif font-medium">
                     {company.name}
                     {company.ticker && (
-                      <Badge variant="outline" className="ml-2 text-[9px]">
+                      <Badge variant="outline" className="ml-2 text-[11px]">
                         {company.ticker}
                       </Badge>
                     )}
@@ -96,12 +116,24 @@ export default async function AnalyticsPage() {
                   <TableCell className="text-right font-mono">{company.signalCount}</TableCell>
                   <TableCell className="text-right font-mono">{company.articleCount}</TableCell>
                   <TableCell className="text-right font-mono">
+                    <div>{company.analystCount}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {Math.round(company.analystAvgConfidence * 100)}%
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    <div>{company.gossipCount}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {Math.round(company.gossipAvgConfidence * 100)}%
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
                     {Math.round(company.avgConfidence * 100)}%
                   </TableCell>
-                  <TableCell className="text-right font-mono text-green-600">
+                  <TableCell className="text-right font-mono text-success">
                     {company.sentimentCounts.POSITIVE}
                   </TableCell>
-                  <TableCell className="text-right font-mono text-red-600">
+                  <TableCell className="text-right font-mono text-destructive">
                     {company.sentimentCounts.NEGATIVE}
                   </TableCell>
                   <TableCell className="text-right font-mono text-neutral-600">

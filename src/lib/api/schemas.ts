@@ -42,6 +42,10 @@ export interface SignalWithRelations {
   status: string;
   createdAt: string;
   updatedAt: string;
+  scraperName: string | null;
+  verified: boolean;
+  feedLabel: string | null;
+  dataOrigin: "SCRAPED" | "BOOTSTRAP" | "SEED" | "MANUAL";
   company: {
     id: string;
     name: string;
@@ -54,6 +58,7 @@ export interface SignalWithRelations {
 export interface AnalysisData {
   id: string;
   signalId: string;
+  agentPersona?: string;
   summary: string;
   keyFacts: KeyFact[];
   sentiment: "POSITIVE" | "NEGATIVE" | "NEUTRAL";

@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { SourceType, Sentiment, AgentPersona } from "@prisma/client";
+import { SourceType, Sentiment, AgentPersona, Prisma } from "@prisma/client";
 import { inngest } from "@/lib/inngest/client";
 import { analyzeSignalWithAgent } from "@/lib/ai/agent/pipeline";
 import { ANALYST_CONFIG, GOSSIP_GIRL_CONFIG } from "@/lib/ai/agent/personas";
 import { generateArticleWithAgent } from "@/lib/ai/agent/article-generator";
 import type { CrossRefAnalysis } from "@/lib/ai/agent/pipeline";
+import { extractSentimentLabel } from "@/lib/ai/agent/types";
 import { NewsScraper } from "@/lib/scraping/news-scraper";
 import { BlogScraper } from "@/lib/scraping/blog-scraper";
 import { SocialScraper } from "@/lib/scraping/social-scraper";
@@ -18,6 +19,10 @@ import { getCompanyByFeedUrl } from "@/lib/scraping/feed-registry";
 import { normalizeUrl, computeContentHash } from "@/lib/scraping/url-normalizer";
 import { logger } from "@/lib/logger";
 import { z } from "zod";
+import { detectLanguage, LANGUAGE_CONFIDENCE_THRESHOLD } from "@/lib/nlp";
+import { assessContentQuality } from "@/lib/nlp";
+import { generateEmbedding } from "@/lib/nlp/embedding-generator";
+import { storeSignalEmbedding, findNearDuplicate } from "@/lib/nlp/embedding-store";
 
 const SignalCreateSchema = z.object({
   sourceUrl: z.string().url("Invalid source URL"),
@@ -28,6 +33,9 @@ const SignalCreateSchema = z.object({
   title: z.string().optional(),
   rawContent: z.string().optional(),
   publishedAt: z.string().optional(),
+  engagement: z.record(z.string(), z.unknown()).optional(),
+  author: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -35,13 +43,20 @@ export async function GET(request: NextRequest) {
   const log = logger.child({ requestId, route: "GET /api/v1/signals" });
 
   try {
+    const session = await auth();
+    const isAuthenticated = !!session?.user;
+    const maxLimit = isAuthenticated ? 100 : 20;
+
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get("limit") || "20");
+    const rawLimit = parseInt(searchParams.get("limit") || "20");
+    const limit = Number.isNaN(rawLimit) ? 20 : Math.min(Math.max(rawLimit, 1), maxLimit);
     const cursor = searchParams.get("cursor");
     const companyId = searchParams.get("companyId");
     const sourceType = searchParams.get("sourceType") as SourceType | null;
     const sentiment = searchParams.get("sentiment") as Sentiment | null;
     const agentPersona = searchParams.get("agentPersona") as AgentPersona | null;
+    const includeInferences = searchParams.get("includeInferences") === "true";
+    const includeCorrelations = searchParams.get("includeCorrelations") === "true";
 
     log.info("api.request.start", { method: "GET", path: "/api/v1/signals" });
 
@@ -64,13 +79,68 @@ export async function GET(request: NextRequest) {
         analyses: agentPersona
           ? { where: { agentPersona } }
           : true,
+        ...(includeInferences || includeCorrelations
+          ? { themes: { select: { id: true, label: true } } }
+          : {}),
       },
       orderBy: { scrapedAt: "desc" },
     });
 
     const hasMore = signals.length > limit;
-    const items = hasMore ? signals.slice(0, limit) : signals;
+    let items = hasMore ? signals.slice(0, limit) : signals;
     const nextCursor = hasMore ? items[items.length - 1].id : null;
+
+    if (includeInferences) {
+      const companyIds = [...new Set(items.map((s) => s.companyId))];
+      const inferences = await prisma.inference.findMany({
+        where: { companyId: { in: companyIds } },
+        select: {
+          id: true,
+          title: true,
+          confidence: true,
+          status: true,
+          companyId: true,
+          createdAt: true,
+        },
+        orderBy: { confidence: "desc" },
+      });
+      const inferenceMap = new Map<string, typeof inferences>();
+      for (const inf of inferences) {
+        const existing = inferenceMap.get(inf.companyId) ?? [];
+        existing.push(inf);
+        inferenceMap.set(inf.companyId, existing);
+      }
+      items = items.map((s) => ({
+        ...s,
+        inferences: inferenceMap.get(s.companyId) ?? [],
+      }));
+    }
+
+    if (includeCorrelations) {
+      const signalIds = items.map((s) => s.id);
+      const themeLinks = await prisma.signalTheme.findMany({
+        where: { signals: { some: { id: { in: signalIds } } } },
+        select: {
+          id: true,
+          label: true,
+          signals: {
+            where: { id: { in: signalIds }, status: "ANALYZED" },
+            select: { id: true },
+          },
+        },
+      });
+      const correlationCounts = new Map<string, number>();
+      for (const theme of themeLinks) {
+        const themeSignalCount = theme.signals.length;
+        for (const sig of theme.signals) {
+          correlationCounts.set(sig.id, (correlationCounts.get(sig.id) ?? 0) + themeSignalCount - 1);
+        }
+      }
+      items = items.map((s) => ({
+        ...s,
+        correlationCount: correlationCounts.get(s.id) ?? 0,
+      }));
+    }
 
     log.info("api.request.success", { count: items.length, hasMore });
 
@@ -120,6 +190,7 @@ export async function POST(request: NextRequest) {
 
     const { sourceUrl, sourceType, companyId } = parseResult.data;
     let { title, rawContent, publishedAt } = parseResult.data;
+    const { engagement, author, metadata } = parseResult.data;
 
     // Task 3: Wire scraper - auto-populate from URL if content not provided
     if (!rawContent && sourceUrl) {
@@ -195,6 +266,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Semantic near-duplicate detection via embeddings
+    let embedding: number[] | null = null;
+    try {
+      embedding = await generateEmbedding(rawContent);
+      const nearDuplicateId = await findNearDuplicate(embedding);
+      if (nearDuplicateId) {
+        logger.info("Near-duplicate signal detected (semantic), returning existing", {
+          nearDuplicateId,
+          newUrl: sourceUrl,
+        });
+
+        const nearDuplicate = await prisma.signal.findUnique({
+          where: { id: nearDuplicateId },
+          include: { company: true, analyses: true },
+        });
+
+        return NextResponse.json(
+          { ...nearDuplicate, deduplicated: true, reason: "SEMANTIC_DUPLICATE" },
+          { status: 200 }
+        );
+      }
+    } catch (embedError) {
+      logger.warn("Embedding generation failed, proceeding without semantic dedup", {
+        url: sourceUrl,
+        error: String(embedError),
+      });
+    }
+
     const signal = await prisma.signal.create({
       data: {
         sourceUrl,
@@ -205,8 +304,113 @@ export async function POST(request: NextRequest) {
         publishedAt: publishedAt ? new Date(publishedAt) : null,
         companyId,
         status: "PENDING",
+        engagement: (engagement as Prisma.InputJsonValue) ?? undefined,
+        author: author ?? undefined,
+        metadata: (metadata as Prisma.InputJsonValue) ?? undefined,
+        scraperName: null,
+        verified: true,
+        scrapeAttempts: null,
+        rawContentHash: null,
+        dataOrigin: "MANUAL",
       },
     });
+
+    // Store embedding for the new signal
+    if (embedding) {
+      try {
+        await storeSignalEmbedding(signal.id, embedding);
+      } catch (storeError) {
+        logger.warn("Failed to store signal embedding", {
+          signalId: signal.id,
+          error: String(storeError),
+        });
+      }
+    }
+
+    // Task 3.2: Detect language before analysis
+    try {
+      const languageResult = await detectLanguage(rawContent);
+      logger.info("api.signal.language_detected", {
+        signalId: signal.id,
+        language: languageResult.language,
+        confidence: languageResult.confidence,
+      });
+
+      if (
+        languageResult.language !== "en" ||
+        languageResult.confidence < LANGUAGE_CONFIDENCE_THRESHOLD
+      ) {
+        logger.info("api.signal.non_english_skipped", {
+          signalId: signal.id,
+          language: languageResult.language,
+          confidence: languageResult.confidence,
+        });
+
+        await prisma.signal.update({
+          where: { id: signal.id },
+          data: { status: "NON_ENGLISH" },
+        });
+
+        return NextResponse.json(
+          {
+            ...signal,
+            status: "NON_ENGLISH",
+            skipped: true,
+            reason: "NON_ENGLISH",
+            language: languageResult.language,
+          },
+          { status: 200 }
+        );
+      }
+    } catch (err) {
+      logger.warn("api.signal.language_detection_failed", {
+        signalId: signal.id,
+        error: String(err),
+        fallback: "continuing with analysis",
+      });
+    }
+
+    // Task 3.4: Assess content quality before analysis
+    try {
+      const qualityResult = await assessContentQuality(rawContent, company.name);
+      logger.info("api.signal.quality_assessed", {
+        signalId: signal.id,
+        score: qualityResult.score,
+        pass: qualityResult.pass,
+        reasons: qualityResult.reasons,
+      });
+
+      if (!qualityResult.pass) {
+        logger.info("api.signal.low_quality_skipped", {
+          signalId: signal.id,
+          score: qualityResult.score,
+          reasons: qualityResult.reasons,
+        });
+
+        await prisma.signal.update({
+          where: { id: signal.id },
+          data: { status: "LOW_QUALITY" },
+        });
+
+        return NextResponse.json(
+          {
+            ...signal,
+            status: "LOW_QUALITY",
+            skipped: true,
+            reason: "LOW_QUALITY",
+            qualityScore: qualityResult.score,
+            reasons: qualityResult.reasons,
+          },
+          { status: 200 }
+        );
+      }
+    } catch (err) {
+      logger.warn("api.signal.quality_assessment_failed", {
+        signalId: signal.id,
+        error: String(err),
+        fallback: "continuing with analysis",
+      });
+    }
 
     // Task 2: Replace Inngest with synchronous analysis
     const useInngest = !!process.env.INNGEST_SIGNING_KEY;
@@ -249,6 +453,9 @@ export async function POST(request: NextRequest) {
         // Run Analyst agent pipeline
         const analystAnalysis = await analyzeSignalWithAgent(signalInput, ANALYST_CONFIG);
 
+        // Extract simple sentiment label for DB enum field
+        const analystSentimentLabel = extractSentimentLabel(analystAnalysis);
+
         // Create Analyst analysis record
         await prisma.analysis.create({
           data: {
@@ -257,7 +464,8 @@ export async function POST(request: NextRequest) {
             agentPersona: "ANALYST",
             summary: analystAnalysis.summary,
             keyFacts: analystAnalysis.keyFacts,
-            sentiment: analystAnalysis.sentiment,
+            sentiment: analystSentimentLabel,
+            sentimentData: analystAnalysis.sentiment,
             strategicThemes: analystAnalysis.strategicThemes,
             confidence: analystAnalysis.confidence,
             modelUsed: analystAnalysis.modelUsed,
@@ -272,7 +480,7 @@ export async function POST(request: NextRequest) {
             agentPersona: analystAnalysis.agentPersona,
             summary: analystAnalysis.summary,
             keyFacts: analystAnalysis.keyFacts.map((f) => ({ text: f.text })),
-            sentiment: analystAnalysis.sentiment,
+            sentiment: analystSentimentLabel,
             strategicThemes: analystAnalysis.strategicThemes.map((t) => ({
               label: t.label,
             })),
@@ -285,6 +493,9 @@ export async function POST(request: NextRequest) {
           crossRefAnalyses
         );
 
+        // Extract simple sentiment label for DB enum field
+        const gossipSentimentLabel = extractSentimentLabel(gossipGirlAnalysis);
+
         // Create Gossip Girl analysis record
         await prisma.analysis.create({
           data: {
@@ -293,7 +504,8 @@ export async function POST(request: NextRequest) {
             agentPersona: "GOSSIP_GIRL",
             summary: gossipGirlAnalysis.summary,
             keyFacts: gossipGirlAnalysis.keyFacts,
-            sentiment: gossipGirlAnalysis.sentiment,
+            sentiment: gossipSentimentLabel,
+            sentimentData: gossipGirlAnalysis.sentiment,
             strategicThemes: gossipGirlAnalysis.strategicThemes,
             confidence: gossipGirlAnalysis.confidence,
             modelUsed: gossipGirlAnalysis.modelUsed,
@@ -302,102 +514,155 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        await prisma.signal.update({
+        const updatedSignal = await prisma.signal.update({
           where: { id: signal.id },
           data: { status: "ANALYZED" },
         });
 
+        Object.assign(signal, updatedSignal);
+
+        // Generate debate between agents
+        try {
+          const { generateDebate } = await import("@/lib/ai/agent/debate");
+          const debate = await generateDebate(analystAnalysis, gossipGirlAnalysis);
+          
+          await prisma.agentDebate.create({
+            data: {
+              signalId: signal.id,
+              analystPosition: debate.analystPosition,
+              gossipGirlPosition: debate.gossipGirlPosition,
+              pointsOfAgreement: debate.pointsOfAgreement,
+              pointsOfContention: debate.pointsOfContention,
+              synthesis: debate.synthesis,
+            },
+          });
+        } catch (debateErr) {
+          logger.error("Debate generation failed", { error: String(debateErr) });
+        }
+
         // Generate articles for both agents
         try {
-          // Generate Analyst article with cross-reference to Gossip Girl
-          const analystArticleInput = {
-            companyId: signal.companyId,
-            companyName: company.name,
-            analyses: [
-              {
-                summary: analystAnalysis.summary,
-                keyFacts: analystAnalysis.keyFacts.map((f) => ({ text: f.text })),
-                sentiment: analystAnalysis.sentiment,
-                strategicThemes: analystAnalysis.strategicThemes.map((t) => ({
-                  label: t.label,
-                })),
-              },
-            ],
-          };
-
-          const crossRefForAnalystArticle = [
-            {
-              summary: gossipGirlAnalysis.summary,
-              agentPersona: gossipGirlAnalysis.agentPersona,
-              keyFacts: gossipGirlAnalysis.keyFacts.map((f) => f.text),
-            },
-          ];
-
-          const analystArticleResult = await generateArticleWithAgent(
-            analystArticleInput,
-            ANALYST_CONFIG,
-            crossRefForAnalystArticle
-          );
-
-          await prisma.article.create({
-            data: {
-              title: analystArticleResult.title,
-              slug: analystArticleResult.slug,
-              summary: analystArticleResult.summary,
-              body: analystArticleResult.body,
+          // Check if Analyst article already exists for this signal
+          const existingAnalystArticles = await prisma.article.findMany({
+            where: {
               companyId: signal.companyId,
               agentPersona: "ANALYST",
-              analysisIds: [analystAnalysis.id],
-              status: "PUBLISHED",
-              authorId: session.user.id,
-              publishedAt: new Date(),
             },
           });
+          const existingAnalystArticle = existingAnalystArticles.find((a) => {
+            const ids = (a.analysisIds as string[]) ?? [];
+            return ids.includes(analystAnalysis.id);
+          });
 
-          // Generate Gossip Girl article with cross-reference to Analyst
-          const gossipGirlArticleInput = {
-            companyId: signal.companyId,
-            companyName: company.name,
-            analyses: [
+          if (!existingAnalystArticle) {
+            // Generate Analyst article with cross-reference to Gossip Girl
+            const analystArticleInput = {
+              companyId: signal.companyId,
+              companyName: company.name,
+              analyses: [
+                {
+                  summary: analystAnalysis.summary,
+                  keyFacts: analystAnalysis.keyFacts.map((f) => ({ text: f.text })),
+                  sentiment: analystSentimentLabel,
+                  strategicThemes: analystAnalysis.strategicThemes.map((t) => ({
+                    label: t.label,
+                  })),
+                },
+              ],
+            };
+
+            const crossRefForAnalystArticle = [
               {
                 summary: gossipGirlAnalysis.summary,
-                keyFacts: gossipGirlAnalysis.keyFacts.map((f) => ({ text: f.text })),
-                sentiment: gossipGirlAnalysis.sentiment,
-                strategicThemes: gossipGirlAnalysis.strategicThemes.map((t) => ({
-                  label: t.label,
-                })),
+                agentPersona: gossipGirlAnalysis.agentPersona,
+                keyFacts: gossipGirlAnalysis.keyFacts.map((f) => f.text),
               },
-            ],
-          };
+            ];
 
-          const crossRefForArticle = [
-            {
-              summary: analystAnalysis.summary,
-              agentPersona: analystAnalysis.agentPersona,
-              keyFacts: analystAnalysis.keyFacts.map((f) => f.text),
-            },
-          ];
+            const analystArticleResult = await generateArticleWithAgent(
+              analystArticleInput,
+              ANALYST_CONFIG,
+              crossRefForAnalystArticle
+            );
 
-          const gossipGirlArticleResult = await generateArticleWithAgent(
-            gossipGirlArticleInput,
-            GOSSIP_GIRL_CONFIG,
-            crossRefForArticle
-          );
+            await prisma.article.create({
+              data: {
+                title: analystArticleResult.title,
+                slug: analystArticleResult.slug,
+                summary: analystArticleResult.summary,
+                body: analystArticleResult.body,
+                companyId: signal.companyId,
+                agentPersona: "ANALYST",
+                analysisIds: [analystAnalysis.id],
+                status: "PUBLISHED",
+                authorId: session.user.id,
+                publishedAt: new Date(),
+              },
+            });
+          } else {
+            logger.info("Analyst article already exists for signal", { signalId: signal.id });
+          }
 
-          await prisma.article.create({
-            data: {
-              title: gossipGirlArticleResult.title,
-              slug: gossipGirlArticleResult.slug,
-              summary: gossipGirlArticleResult.summary,
-              body: gossipGirlArticleResult.body,
+          // Check if Gossip Girl article already exists for this signal
+          const existingGossipArticles = await prisma.article.findMany({
+            where: {
               companyId: signal.companyId,
               agentPersona: "GOSSIP_GIRL",
-              analysisIds: [gossipGirlAnalysis.id],
-              status: "PUBLISHED",
-              authorId: session.user.id,
-              publishedAt: new Date(),
             },
           });
+          const existingGossipArticle = existingGossipArticles.find((a) => {
+            const ids = (a.analysisIds as string[]) ?? [];
+            return ids.includes(gossipGirlAnalysis.id);
+          });
+
+          if (!existingGossipArticle) {
+            // Generate Gossip Girl article with cross-reference to Analyst
+            const gossipGirlArticleInput = {
+              companyId: signal.companyId,
+              companyName: company.name,
+              analyses: [
+                {
+                  summary: gossipGirlAnalysis.summary,
+                  keyFacts: gossipGirlAnalysis.keyFacts.map((f) => ({ text: f.text })),
+                  sentiment: gossipSentimentLabel,
+                  strategicThemes: gossipGirlAnalysis.strategicThemes.map((t) => ({
+                    label: t.label,
+                  })),
+                },
+              ],
+            };
+
+            const crossRefForArticle = [
+              {
+                summary: analystAnalysis.summary,
+                agentPersona: analystAnalysis.agentPersona,
+                keyFacts: analystAnalysis.keyFacts.map((f) => f.text),
+              },
+            ];
+
+            const gossipGirlArticleResult = await generateArticleWithAgent(
+              gossipGirlArticleInput,
+              GOSSIP_GIRL_CONFIG,
+              crossRefForArticle
+            );
+
+            await prisma.article.create({
+              data: {
+                title: gossipGirlArticleResult.title,
+                slug: gossipGirlArticleResult.slug,
+                summary: gossipGirlArticleResult.summary,
+                body: gossipGirlArticleResult.body,
+                companyId: signal.companyId,
+                agentPersona: "GOSSIP_GIRL",
+                analysisIds: [gossipGirlAnalysis.id],
+                status: "PUBLISHED",
+                authorId: session.user.id,
+                publishedAt: new Date(),
+              },
+            });
+          } else {
+            logger.info("Gossip Girl article already exists for signal", { signalId: signal.id });
+          }
         } catch (articleErr) {
           logger.error("Article generation failed", { error: String(articleErr) });
         }

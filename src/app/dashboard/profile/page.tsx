@@ -33,7 +33,7 @@ export default async function ProfilePage() {
     <div className="p-4 lg:p-6 space-y-6">
       {/* Page Header */}
       <div className="border-b-2 border-foreground pb-4">
-        <p className="text-[10px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
+        <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
           Account
         </p>
         <h1 className="text-3xl font-serif font-bold">Profile</h1>

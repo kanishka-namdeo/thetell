@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { Sentiment } from "@prisma/client";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,7 +15,8 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get("limit") || "20");
+    const rawLimit = parseInt(searchParams.get("limit") || "20");
+    const limit = Number.isNaN(rawLimit) ? 20 : Math.min(Math.max(rawLimit, 1), 100);
     const cursor = searchParams.get("cursor");
     const companyId = searchParams.get("companyId");
     const sentiment = searchParams.get("sentiment") as Sentiment | null;
@@ -58,7 +60,7 @@ export async function GET(request: NextRequest) {
       hasMore,
     });
   } catch (error) {
-    console.error("Error fetching analyses:", error);
+    logger.error("Error fetching analyses", { error: String(error) });
     return NextResponse.json(
       { error: "internal_error", message: "Failed to fetch analyses" },
       { status: 500 }

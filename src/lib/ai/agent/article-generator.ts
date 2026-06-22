@@ -35,6 +35,18 @@ export interface AgentArticleInput {
     sentiment: string;
     strategicThemes: Array<{ label: string }>;
   }>;
+  agentPersona?: AgentPersona;
+  sourceType?: string;
+  engagement?: {
+    score?: number;
+    comments?: number;
+    [key: string]: unknown;
+  } | null;
+  metadata?: {
+    platform?: string;
+    subreddit?: string;
+    [key: string]: unknown;
+  } | null;
 }
 
 export interface AgentArticleResult {
@@ -48,6 +60,45 @@ export interface AgentCrossRef {
   summary: string;
   agentPersona: string;
   keyFacts: string[];
+}
+
+/**
+ * Build social signal context string for article generation prompts.
+ * Returns an empty string when the signal is not social or has no engagement data.
+ */
+export function buildSocialContext(
+  sourceType: string | undefined,
+  engagement: AgentArticleInput["engagement"],
+  metadata: AgentArticleInput["metadata"]
+): string {
+  if (sourceType !== "SOCIAL" || !engagement) {
+    return "";
+  }
+
+  const parts: string[] = [];
+
+  if (metadata?.subreddit) {
+    parts.push(`a reddit post from r/${metadata.subreddit}`);
+  } else if (metadata?.platform) {
+    parts.push(`a post on ${metadata.platform}`);
+  } else {
+    parts.push("a social media post");
+  }
+
+  const metrics: string[] = [];
+  if (typeof engagement.score === "number") {
+    metrics.push(`${engagement.score.toLocaleString()} upvotes`);
+  }
+  if (typeof engagement.comments === "number") {
+    metrics.push(`${engagement.comments.toLocaleString()} comments`);
+  }
+
+  if (metrics.length > 0) {
+    parts.push(`with ${metrics.join(" and ")}`);
+  }
+
+  const description = parts.join(" ");
+  return `Social Signal Context: This article is based on ${description}. High engagement indicates strong community sentiment. Consider this viral signal in the narrative.`;
 }
 
 /**
@@ -87,17 +138,18 @@ export async function generateArticleWithAgent(
     );
     const uniqueThemes = [...new Set(allThemes)];
 
-    const crossRefForPrompts = crossRefAnalyses?.map((a) => ({
-      summary: a.summary,
-      agentPersona: a.agentPersona,
-    }));
+    const socialContext = buildSocialContext(
+      input.sourceType,
+      input.engagement,
+      input.metadata
+    );
 
     const headlineMessages = buildAgentArticleHeadlinePrompt(
       input.companyName,
       summaries,
       uniqueThemes,
       agentConfig,
-      crossRefForPrompts
+      socialContext
     );
     const headlineResult = await provider.completeStructured(
       headlineMessages,
@@ -115,7 +167,7 @@ export async function generateArticleWithAgent(
       summaries,
       uniqueThemes,
       agentConfig,
-      crossRefForPrompts
+      socialContext
     );
     const summaryResult = await provider.completeStructured(
       summaryMessages,
@@ -137,7 +189,7 @@ export async function generateArticleWithAgent(
       summaryResult.summary,
       analysesForBody,
       agentConfig,
-      crossRefAnalyses
+      socialContext
     );
     const bodyResult = await provider.completeStructured(
       bodyMessages,
@@ -147,7 +199,11 @@ export async function generateArticleWithAgent(
 
     log.debug("agent.article_generation.body_complete");
 
-    const slug = createSlug(headlineResult.headline);
+    const sanitizedHeadline = sanitizeArticleOutput(headlineResult.headline);
+    const sanitizedSummary = sanitizeArticleOutput(summaryResult.summary);
+    const sanitizedBody = sanitizeArticleOutput(bodyResult.body);
+
+    const slug = createSlug(sanitizedHeadline);
     const latencyMs = Date.now() - startTime;
 
     log.info("agent.article_generation.complete", {
@@ -156,15 +212,19 @@ export async function generateArticleWithAgent(
     });
 
     return {
-      title: headlineResult.headline,
+      title: sanitizedHeadline,
       slug,
-      summary: summaryResult.summary,
-      body: bodyResult.body,
+      summary: sanitizedSummary,
+      body: sanitizedBody,
     };
   } catch (error) {
     log.error("agent.article_generation.error", { error: String(error) });
     throw error;
   }
+}
+
+function sanitizeArticleOutput(text: string): string {
+  return text.replace(/[^\x00-\x7F]/g, "");
 }
 
 function createSlug(headline: string): string {

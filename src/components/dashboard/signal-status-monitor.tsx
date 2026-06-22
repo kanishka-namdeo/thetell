@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,10 +31,19 @@ export function SignalStatusMonitor({
   const [reanalyzing, setReanalyzing] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const pollStatus = useCallback(async () => {
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
     try {
-      const res = await fetch(`/api/v1/signals/${signalId}`);
+      const res = await fetch(`/api/v1/signals/${signalId}`, { signal: controller.signal });
       if (!res.ok) return;
 
       const data = await res.json();
@@ -59,7 +68,8 @@ export function SignalStatusMonitor({
       if (data.status === "ANALYZED" || data.status === "FAILED") {
         setPolling(false);
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
       // Silently continue polling
     }
   }, [signalId]);
@@ -78,7 +88,10 @@ export function SignalStatusMonitor({
       await pollStatus();
     }, POLL_INTERVAL_MS);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      controllerRef.current?.abort();
+    };
   }, [polling, pollStatus]);
 
   async function handleReanalyze() {
@@ -95,13 +108,15 @@ export function SignalStatusMonitor({
         throw new Error(data.message || `HTTP ${res.status}`);
       }
 
+      if (!mountedRef.current) return;
       setStatus("ANALYZING");
       setAnalysis(null);
       setPolling(true);
     } catch (err) {
+      if (!mountedRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to re-analyze");
     } finally {
-      setReanalyzing(false);
+      if (mountedRef.current) setReanalyzing(false);
     }
   }
 
@@ -125,12 +140,14 @@ export function SignalStatusMonitor({
       }
 
       const article = await res.json();
+      if (!mountedRef.current) return;
       router.push(`/dashboard/articles/${article.id}`);
       router.refresh();
     } catch (err) {
+      if (!mountedRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to generate article");
     } finally {
-      setGenerating(false);
+      if (mountedRef.current) setGenerating(false);
     }
   }
 
@@ -165,7 +182,7 @@ export function SignalStatusMonitor({
       {analysis && status === "ANALYZED" && (
         <div>
           <div className="flex items-center justify-between mb-4">
-            <p className="text-[10px] uppercase tracking-widest font-sans text-muted-foreground">
+            <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground">
               AI Analysis
             </p>
             <div className="flex items-center gap-2">

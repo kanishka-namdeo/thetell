@@ -55,7 +55,7 @@ export default function SettingsPage() {
     <div className="p-4 lg:p-6 space-y-6">
       {/* Page Header */}
       <div className="border-b-2 border-foreground pb-4">
-        <p className="text-[10px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
+        <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
           Preferences
         </p>
         <h1 className="text-3xl font-serif font-bold">Settings</h1>
@@ -147,7 +147,7 @@ export default function SettingsPage() {
           {isSaving ? "Saving..." : "Save Settings"}
         </Button>
         {message && (
-          <p className="text-sm text-green-600">{message}</p>
+          <p className="text-sm text-success">{message}</p>
         )}
       </div>
     </div>

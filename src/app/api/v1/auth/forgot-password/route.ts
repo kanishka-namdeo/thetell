@@ -37,12 +37,11 @@ export async function POST(req: Request) {
         },
       });
 
-      const resetLink = `http://localhost:3000/reset-password?token=${token}`;
-      console.log(`\n=== PASSWORD RESET LINK ===`);
-      console.log(`Email: ${email}`);
-      console.log(`Reset Link: ${resetLink}`);
-      console.log(`Expires: ${expires.toISOString()}`);
-      console.log(`==========================\n`);
+      // In production, send email with reset link
+      // For development, log the token (never log full link in production)
+      if (process.env.NODE_ENV === "development") {
+        console.log(`[Password Reset] Token generated for ${email}`);
+      }
     }
 
     return NextResponse.json({

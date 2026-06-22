@@ -40,6 +40,12 @@ prisma/migrations/
 # cursor plans
 .cursor/plans/
 
+# module map hash (regenerated on commit)
+.cursor/.module-map-hash.json
+
 # temporary output files
 *.output.txt
 typecheck-output.txt
+
+# opencode config (contains hardcoded API key)
+opencode.json

@@ -4,7 +4,6 @@ import { cn } from "@/lib/utils";
 type ConsensusLevel = "strong-agreement" | "mixed-signals" | "divergent-views";
 
 type ThemeEntry = string | { label: string } | Record<string, unknown> | unknown;
-type JsonArray = ThemeEntry[] | null;
 
 interface ConsensusBadgeProps {
   consensus: ConsensusLevel;

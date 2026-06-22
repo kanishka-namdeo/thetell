@@ -3,21 +3,40 @@ import { AgentPersona } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { requireAdmin } from "@/lib/auth-guard";
+import { z } from "zod";
+
+const ArticleCreateSchema = z.object({
+  title: z.string().min(1, "Title is required"),
+  slug: z.string().min(1, "Slug is required").regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug must be lowercase alphanumeric with hyphens"),
+  summary: z.string().min(1, "Summary is required"),
+  body: z.string().min(1, "Body is required"),
+  companyId: z.string().min(1, "Company ID is required"),
+  agentPersona: z.enum(["ANALYST", "GOSSIP_GIRL"], { error: "Invalid agent persona" }),
+  analysisIds: z.array(z.string()).optional(),
+  status: z.enum(["DRAFT", "PUBLISHED", "PENDING_REVIEW"]).optional(),
+});
 
 export async function GET(request: NextRequest) {
   const requestId = crypto.randomUUID();
   const log = logger.child({ requestId, route: "GET /api/v1/articles" });
 
   try {
+    const session = await auth();
+    const isAuthenticated = !!session?.user;
+    const maxLimit = isAuthenticated ? 100 : 20;
+
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get("limit") || "20");
+    const rawLimit = parseInt(searchParams.get("limit") || "20");
+    const limit = Number.isNaN(rawLimit) ? 20 : Math.min(Math.max(rawLimit, 1), maxLimit);
     const cursor = searchParams.get("cursor");
     const companyId = searchParams.get("companyId");
     const agentPersona = searchParams.get("agentPersona") as AgentPersona | null;
+    const status = searchParams.get("status") || "PUBLISHED";
 
     log.info("api.request.start", { method: "GET", path: "/api/v1/articles" });
 
-    const where: Record<string, unknown> = { status: "PUBLISHED" };
+    const where: Record<string, unknown> = { status };
     if (companyId) where.companyId = companyId;
     if (agentPersona) where.agentPersona = agentPersona;
 
@@ -31,7 +50,6 @@ export async function GET(request: NextRequest) {
           select: {
             id: true,
             name: true,
-            email: true,
           },
         },
       },
@@ -68,39 +86,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!requireAdmin(session)) {
+      return NextResponse.json(
+        { error: "forbidden", message: "Admin access required" },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
-    const { title, slug, summary, body: articleBody, companyId, agentPersona, analysisIds, status } = body;
+    const parseResult = ArticleCreateSchema.safeParse(body);
 
-    if (!title || !slug || !summary || !articleBody || !companyId || !agentPersona) {
+    if (!parseResult.success) {
+      const details: Record<string, string[]> = {};
+      for (const issue of parseResult.error.issues) {
+        const key = issue.path.join(".");
+        if (!details[key]) details[key] = [];
+        details[key].push(issue.message);
+      }
       return NextResponse.json(
         {
           error: "validation_error",
-          message: "Missing required fields",
-          details: {
-            title: !title ? ["Required"] : undefined,
-            slug: !slug ? ["Required"] : undefined,
-            summary: !summary ? ["Required"] : undefined,
-            body: !articleBody ? ["Required"] : undefined,
-            companyId: !companyId ? ["Required"] : undefined,
-            agentPersona: !agentPersona ? ["Required"] : undefined,
-          },
+          message: "Invalid request body",
+          details,
         },
         { status: 400 }
       );
     }
 
-    if (!["ANALYST", "GOSSIP_GIRL"].includes(agentPersona)) {
-      return NextResponse.json(
-        {
-          error: "validation_error",
-          message: "Invalid agent persona",
-          details: {
-            agentPersona: ["Must be ANALYST or GOSSIP_GIRL"],
-          },
-        },
-        { status: 400 }
-      );
-    }
+    const { title, slug, summary, body: articleBody, companyId, agentPersona, analysisIds, status } = parseResult.data;
 
     const company = await prisma.company.findUnique({
       where: { id: companyId },

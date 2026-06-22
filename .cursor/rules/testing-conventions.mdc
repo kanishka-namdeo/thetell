@@ -78,24 +78,12 @@ describe('validateEmail', () => {
 
 ## Testing Route Handlers
 
-**Mock `NextResponse` and dependencies; test the function directly**:
+**Test the handler directly with real database**:
 
 ```typescript
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { POST } from './route';
 import { prisma } from '@/lib/prisma';
-
-vi.mock('@/lib/prisma', () => ({
-  prisma: {
-    user: {
-      findUnique: vi.fn(),
-      create: vi.fn(),
-    },
-    workspace: {
-      create: vi.fn(),
-    },
-  },
-}));
 
 describe('POST /api/auth/register', () => {
   it('returns 400 when email is missing', async () => {
@@ -106,23 +94,29 @@ describe('POST /api/auth/register', () => {
     expect(res.status).toBe(400);
     expect(body.error).toContain('required');
   });
+
+  it('creates user with valid data', async () => {
+    const req = { json: () => Promise.resolve({ email: 'newuser@test.com', password: 'password123' }) } as Request;
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(body.user.email).toBe('newuser@test.com');
+    
+    // Clean up test data
+    await prisma.user.delete({ where: { email: 'newuser@test.com' } });
+  });
 });
 ```
 
 ## Testing Server Actions
 
-**Test the business logic in isolation** — do not test the Next.js runtime:
+**Test the business logic with real database**:
 
 ```typescript
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { createItem } from '@/app/actions/create-item';
 import { prisma } from '@/lib/prisma';
-
-vi.mock('@/lib/prisma', () => ({
-  prisma: { item: { create: vi.fn() } },
-}));
-
-vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 
 describe('createItem', () => {
   it('creates item with valid data', async () => {
@@ -131,6 +125,9 @@ describe('createItem', () => {
 
     const result = await createItem(formData);
     expect(result).toEqual({ success: true });
+    
+    // Clean up test data
+    await prisma.item.delete({ where: { name: 'Test Item' } });
   });
 });
 ```
@@ -175,21 +172,46 @@ test('dashboard loads user data', async ({ page }) => {
 
 ## Mocking Strategies
 
-**Mock external dependencies, not your own code**:
+**Use the local database and real credentials for testing.** Only mock external services (LLM APIs, HTTP scraping).
+
+**Mock external services, not your own code or database**:
 
 ```typescript
-// GOOD — mock prisma (external DB client)
-vi.mock('@/lib/prisma', () => ({
-  prisma: { user: { findUnique: vi.fn().mockResolvedValue(null) } },
+// GOOD — mock LLM provider (external API)
+vi.mock('@/lib/ai/provider', () => ({
+  getProvider: () => ({
+    completeStructured: vi.fn().mockResolvedValue({ /* mock response */ }),
+  }),
 }));
 
-// GOOD — mock next-auth
-vi.mock('next-auth', () => ({
-  auth: vi.fn().mockResolvedValue({ user: { id: '1' } }),
+// GOOD — mock HTTP requests for scraping (external service)
+vi.mock('node-fetch', () => ({
+  default: vi.fn().mockResolvedValue({ /* mock response */ }),
 }));
 
-// BAD — mock your own validators (test them directly instead)
-// vi.mock('@/lib/validators');
+// BAD — do NOT mock the database
+// vi.mock('@/lib/db', () => ({ prisma: { /* ... */ } }));
+
+// BAD — do NOT mock authentication with fake users
+// vi.mock('next-auth', () => ({
+//   auth: vi.fn().mockResolvedValue({ user: { email: 'test@example.com' } }),
+// }));
+```
+
+**Use real test credentials from seeded database:**
+
+```typescript
+// GOOD - use real admin credentials for testing
+const adminCredentials = {
+  email: 'admin@thetell.com',
+  password: 'password123',
+};
+
+// GOOD - use real analyst credentials for testing
+const analystCredentials = {
+  email: 'analyst@thetell.com',
+  password: 'password123',
+};
 ```
 
 **Reset mocks between tests**:

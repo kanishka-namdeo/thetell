@@ -1,27 +1,53 @@
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { notFound } from "next/navigation";
-import { Card, CardContent } from "@/components/ui/card";
+import { notFound, redirect } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SignalTable } from "@/components/dashboard/signal-table";
 import { ArticleCard } from "@/components/dashboard/article-card";
 import { WatchlistButton } from "@/components/dashboard/watchlist-button";
+import { DeleteCompanyButton } from "@/components/dashboard/delete-company-button";
+import { TrackedSubredditsSection } from "./tracked-subreddits-section";
+import { enrichCompany } from "@/lib/enrichment";
 import Link from "next/link";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft, ExternalLink, RefreshCw } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 interface CompanyDetailPageProps {
-  params: { id: string };
+  params: Promise<{ id: string }>;
+}
+
+async function reEnrichAction(formData: FormData) {
+  "use server";
+
+  const session = await auth();
+  if (!session?.user) {
+    throw new Error("Unauthorized");
+  }
+
+  const companyId = formData.get("companyId");
+  if (typeof companyId !== "string" || !companyId) {
+    throw new Error("Missing companyId");
+  }
+
+  try {
+    await enrichCompany(companyId);
+  } catch (error) {
+    console.error("Re-enrichment failed:", error);
+  }
+
+  redirect(`/dashboard/companies/${companyId}`);
 }
 
 export default async function CompanyDetailPage({ params }: CompanyDetailPageProps) {
   const session = await auth();
-  
+  const { id } = await params;
+
   const company = await prisma.company.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       signals: {
         take: 10,
@@ -41,6 +67,17 @@ export default async function CompanyDetailPage({ params }: CompanyDetailPagePro
           },
         },
       },
+      trackedSubreddits: {
+        orderBy: { discoveredAt: "desc" },
+      },
+      dataSources: {
+        where: { isActive: true },
+        orderBy: { createdAt: "desc" },
+      },
+      enrichmentLogs: {
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      },
       _count: {
         select: { signals: true, articles: true },
       },
@@ -50,6 +87,11 @@ export default async function CompanyDetailPage({ params }: CompanyDetailPagePro
   if (!company) {
     notFound();
   }
+
+  const feeds = company.dataSources.filter(ds =>
+    ds.sourceType === "RSS" || ds.sourceType === "BLOG" || ds.sourceType === "NEWS"
+  );
+  const socials = company.dataSources.filter(ds => ds.sourceType === "SOCIAL");
 
   const isWatched = session?.user?.id
     ? await prisma.watchedCompany.findUnique({
@@ -90,7 +132,6 @@ export default async function CompanyDetailPage({ params }: CompanyDetailPagePro
               <WatchlistButton
                 companyId={company.id}
                 isWatched={isWatched}
-                onToggle={() => {}}
               />
             )}
             {company.websiteUrl && (
@@ -105,6 +146,10 @@ export default async function CompanyDetailPage({ params }: CompanyDetailPagePro
                 </Button>
               </a>
             )}
+            <DeleteCompanyButton
+              companyId={company.id}
+              companyName={company.name}
+            />
           </div>
         </div>
         {company.description && (
@@ -127,6 +172,103 @@ export default async function CompanyDetailPage({ params }: CompanyDetailPagePro
           </div>
         </div>
       </div>
+
+      {/* Tracked Subreddits */}
+      <TrackedSubredditsSection
+        subreddits={company.trackedSubreddits}
+        companyId={company.id}
+        isAdmin={session?.user?.role === "ADMIN"}
+      />
+
+      {/* Data Sources */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle>Data Sources</CardTitle>
+            <CardDescription>
+              Automatically discovered feeds, social profiles, and metadata
+            </CardDescription>
+          </div>
+          <form action={reEnrichAction}>
+            <input type="hidden" name="companyId" value={company.id} />
+            <Button type="submit" size="sm" variant="outline">
+              <RefreshCw className="h-3 w-3 mr-1" />
+              Re-enrich
+            </Button>
+          </form>
+        </CardHeader>
+        <CardContent>
+          {company.dataSources.length === 0 && (
+            <div className="text-sm text-muted-foreground">
+              No data sources discovered yet. Enrichment runs automatically after company creation.
+            </div>
+          )}
+
+          {company.dataSources.length > 0 && (
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-sm font-medium mb-2">RSS Feeds & Blogs</h4>
+                <div className="space-y-1">
+                  {feeds.length > 0 ? (
+                    feeds.map(source => (
+                      <div key={source.id} className="flex items-center justify-between text-sm">
+                        <span className="truncate mr-2">{source.label || source.url}</span>
+                        <Badge variant="outline">{source.sourceType}</Badge>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No feeds discovered yet.</p>
+                  )}
+                </div>
+              </div>
+
+              {socials.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-medium mb-2">Social Profiles</h4>
+                  <div className="space-y-1">
+                    {socials.map(source => (
+                      <div key={source.id} className="flex items-center justify-between text-sm">
+                        <span className="truncate mr-2">{source.url}</span>
+                        <Badge variant="outline">{source.sourceType}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {company.ticker && (
+                <div>
+                  <h4 className="text-sm font-medium mb-2">Stock Ticker</h4>
+                  <Badge>{company.ticker}</Badge>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Enrichment History */}
+      {company.enrichmentLogs.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Enrichment History</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {company.enrichmentLogs.slice(0, 5).map(log => (
+                <div key={log.id} className="flex items-center justify-between text-sm">
+                  <span>{new Date(log.createdAt).toLocaleDateString()}</span>
+                  <Badge variant={log.status === "success" ? "default" : log.status === "partial" ? "secondary" : "destructive"}>
+                    {log.status}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Separator />
 
       {/* Recent Signals */}
       <div>

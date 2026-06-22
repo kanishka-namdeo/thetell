@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useCompanies } from "@/hooks/use-companies";
 import { ArticleCard } from "@/components/dashboard/article-card";
@@ -39,17 +39,19 @@ interface PaginatedArticlesResponse {
 export default function ArticlesPage() {
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [agentPersona, setAgentPersona] = useState<string | null>(null);
 
   const { data: companies } = useCompanies({ limit: 50 });
 
-  const fetchArticles = async (cursor?: string) => {
+  const fetchArticles = async (cursor?: string, signal?: AbortSignal) => {
     const params = new URLSearchParams();
     params.set("limit", "20");
     if (cursor) params.set("cursor", cursor);
     if (companyId) params.set("companyId", companyId);
     if (status) params.set("status", status);
+    if (agentPersona) params.set("agentPersona", agentPersona);
 
-    const res = await fetch(`/api/v1/articles?${params.toString()}`);
+    const res = await fetch(`/api/v1/articles?${params.toString()}`, { signal });
     if (!res.ok) throw new Error("Failed to fetch articles");
     return res.json();
   };
@@ -59,13 +61,13 @@ export default function ArticlesPage() {
     loading,
     hasMore,
     loadMore,
-  } = useArticleFetcher(fetchArticles, [companyId, status]);
+  } = useArticleFetcher(fetchArticles, [companyId, status, agentPersona]);
 
   if (loading && articles.length === 0) {
     return (
       <div className="p-4 lg:p-6 space-y-6">
         <div className="border-b-2 border-foreground pb-4">
-          <p className="text-[10px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
+          <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
             Intelligence Reports
           </p>
           <h1 className="text-3xl font-serif font-bold">Articles</h1>
@@ -83,7 +85,7 @@ export default function ArticlesPage() {
     <div className="p-4 lg:p-6 space-y-6">
       {/* Page Header */}
       <div className="border-b-2 border-foreground pb-4">
-        <p className="text-[10px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
+        <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
           Intelligence Reports
         </p>
         <h1 className="text-3xl font-serif font-bold">Articles</h1>
@@ -118,13 +120,23 @@ export default function ArticlesPage() {
           </SelectContent>
         </Select>
 
-        {(companyId || status) && (
+        <Select value={agentPersona || ""} onValueChange={(v) => setAgentPersona(v || null)}>
+          <SelectTrigger>Agent</SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">All Agents</SelectItem>
+            <SelectItem value="ANALYST">The Analyst</SelectItem>
+            <SelectItem value="GOSSIP_GIRL">Gossip Girl</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {(companyId || status || agentPersona) && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
               setCompanyId(null);
               setStatus(null);
+              setAgentPersona(null);
             }}
           >
             Clear
@@ -187,60 +199,71 @@ export default function ArticlesPage() {
   );
 }
 
-function useArticleFetcher(fetcher: (cursor?: string) => Promise<PaginatedArticlesResponse>, deps: unknown[]) {
+function useArticleFetcher(fetcher: (cursor?: string, signal?: AbortSignal) => Promise<PaginatedArticlesResponse>, deps: unknown[]) {
   const [data, setData] = useState<ArticleData[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-
-  const loadData = async (cursor?: string) => {
-    try {
-      setLoading(true);
-      const result = await fetcher(cursor);
-      if (cursor) {
-        setData((prev) => [...prev, ...result.items]);
-      } else {
-        setData(result.items);
-      }
-      setHasMore(result.hasMore);
-      setNextCursor(result.nextCursor);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const cancelledRef = useRef(false);
+  const loadMoreControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    
+    cancelledRef.current = false;
+    const controller = new AbortController();
+
     const fetchInitial = async () => {
       try {
         setLoading(true);
-        const result = await fetcher();
-        if (!cancelled) {
+        const result = await fetcher(undefined, controller.signal);
+        if (!cancelledRef.current) {
           setData(result.items);
           setHasMore(result.hasMore);
           setNextCursor(result.nextCursor);
         }
       } catch (err) {
-        if (!cancelled) console.error(err);
+        if (err instanceof Error && err.name === "AbortError") return;
+        if (!cancelledRef.current) console.error(err);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelledRef.current) setLoading(false);
       }
     };
 
     fetchInitial();
-    
+
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
+      controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
+  useEffect(() => {
+    return () => {
+      loadMoreControllerRef.current?.abort();
+    };
+  }, []);
+
   const loadMore = () => {
     if (hasMore && nextCursor) {
-      loadData(nextCursor);
+      loadMoreControllerRef.current?.abort();
+      const controller = new AbortController();
+      loadMoreControllerRef.current = controller;
+      setLoading(true);
+      fetcher(nextCursor, controller.signal)
+        .then((result) => {
+          if (!cancelledRef.current) {
+            setData((prev) => [...prev, ...result.items]);
+            setHasMore(result.hasMore);
+            setNextCursor(result.nextCursor);
+          }
+        })
+        .catch((err) => {
+          if (err instanceof Error && err.name === "AbortError") return;
+          if (!cancelledRef.current) console.error(err);
+        })
+        .finally(() => {
+          if (!cancelledRef.current) setLoading(false);
+        });
     }
   };
 

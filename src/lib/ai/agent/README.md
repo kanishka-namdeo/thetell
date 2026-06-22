@@ -41,7 +41,7 @@ interface AgentConfig {
 
 ### AgentAnalysis Output
 
-The analysis pipeline returns an `AgentAnalysis` object:
+The analysis pipeline returns an `AgentAnalysis` object with **union types** that vary by agent persona:
 
 ```typescript
 interface AgentAnalysis {
@@ -49,18 +49,9 @@ interface AgentAnalysis {
   signalId: string;
   agentPersona: AgentPersona;
   summary: string;
-  keyFacts: Array<{
-    text: string;
-    category: string;
-    confidence: number;
-    sourceSentence?: string;
-  }>;
-  sentiment: "POSITIVE" | "NEGATIVE" | "NEUTRAL";
-  strategicThemes: Array<{
-    label: string;
-    evidence: string[];
-    correlationHints?: string[];
-  }>;
+  keyFacts: AnalystFact[] | GossipFact[];
+  sentiment: AnalystSentiment | GossipSentiment;
+  strategicThemes: AnalystTheme[] | GossipTheme[];
   confidence: number;
   crossReferences: Array<{
     analysisId: string;
@@ -68,8 +59,98 @@ interface AgentAnalysis {
     connection: string;
   }> | null;
   modelUsed: string;
-  analyzedAt: Date;
+  analyzedAt: Date | string;
 }
+```
+
+#### Analyst Output Shape
+
+The Analyst produces data-driven, category-based analysis:
+
+```typescript
+// Analyst facts
+interface AnalystFact {
+  text: string;
+  category: "financial" | "strategic" | "operational" | "personnel" | "market";
+  source_sentence: string;
+  confidence: number; // 0.0-1.0
+}
+
+// Analyst sentiment
+interface AnalystSentiment {
+  sentiment: "POSITIVE" | "NEGATIVE" | "NEUTRAL";
+  confidence: number; // 0.0-1.0
+  key_phrases: string[];
+}
+
+// Analyst themes
+interface AnalystTheme {
+  label: string;
+  evidence: string[];
+  correlation_hints: string[];
+}
+```
+
+#### Gossip Girl Output Shape
+
+Gossip Girl produces narrative-driven, tell-based analysis:
+
+```typescript
+// Gossip Girl facts
+interface GossipFact {
+  text: string;
+  tell_type: "power-move" | "behavioral-tell" | "hidden-agenda" | "narrative-shift" | "insider-signal";
+  tell_strength: number; // 0.0-1.0
+  subtext: string;
+  source_sentence: string;
+}
+
+// Gossip Girl sentiment
+interface GossipSentiment {
+  surface_reading: "bullish-spin" | "bearish-subtext" | "neutral-surface" | "mixed-signals";
+  tell_strength: number; // 0.0-1.0
+  key_phrases: string[];
+}
+
+// Gossip Girl themes
+interface GossipTheme {
+  label: string;
+  evidence: string[];
+  narrative_hook: string;
+}
+```
+
+#### Type Guards for Union Handling
+
+When consuming `AgentAnalysis` in UI components, use type guards to safely handle the union types:
+
+```typescript
+// Type guards for facts
+function isAnalystFact(fact: unknown): fact is AnalystFact {
+  return fact !== null && typeof fact === "object" && "category" in fact;
+}
+
+function isGossipFact(fact: unknown): fact is GossipFact {
+  return fact !== null && typeof fact === "object" && "tell_type" in fact;
+}
+
+// Type guards for themes
+function isAnalystTheme(theme: unknown): theme is AnalystTheme {
+  return theme !== null && typeof theme === "object" && "correlation_hints" in theme;
+}
+
+function isGossipTheme(theme: unknown): theme is GossipTheme {
+  return theme !== null && typeof theme === "object" && "narrative_hook" in theme;
+}
+
+// Usage in components
+{analysis.keyFacts.map((fact) => (
+  isAnalystFact(fact) ? (
+    <div>Category: {fact.category}</div>
+  ) : isGossipFact(fact) ? (
+    <div>Tell: {fact.tell_type} - {fact.subtext}</div>
+  ) : null
+))}
 ```
 
 ## Usage
@@ -335,10 +416,22 @@ const analysis = await analyzeSignalWithAgent(signal, ANALYST_CONFIG);
 expect(analysis.summary).toBe("Test summary");
 ```
 
+## Debate Generation (Planned)
+
+The debate feature will allow agents to engage in structured dialogue about signals, with each agent presenting their perspective and responding to the other's analysis.
+
+**Current Status**: UI placeholders exist in signal detail pages (`signal-detail-content.tsx` and dashboard `signals/[id]/page.tsx`), but the underlying debate generation logic is not yet implemented.
+
+**Planned Architecture**:
+- `AgentDebate` model to store debate threads between agents
+- `generateDebate()` function to orchestrate multi-turn agent dialogue
+- Each debate round will include agent responses, counterpoints, and synthesis
+
+This feature builds on the existing cross-referencing capability, where agents can already reference each other's analyses.
+
 ## Future Extensions
 
 - **Additional personas**: Industry-specific analysts, contrarian voices, technical experts
-- **Agent collaboration**: Agents that debate or refine each other's analyses
 - **Dynamic voice tuning**: Adjust voice parameters based on signal type or user preferences
 - **Multi-language support**: Agents that analyze in different languages
 - **Custom personas**: User-defined agent configurations

@@ -64,7 +64,7 @@ export default async function DashboardPage() {
     <div className="p-4 lg:p-6 space-y-6">
       {/* Page Header */}
       <div className="border-b-2 border-foreground pb-4">
-        <p className="text-[10px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
+        <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
           Dashboard
         </p>
         <h1 className="text-3xl font-serif font-bold">Overview</h1>
@@ -79,25 +79,25 @@ export default async function DashboardPage() {
           title="Total Signals"
           value={signalCount}
           description="Public signals tracked"
-          icon={BarChart3}
+          icon="BarChart3"
         />
         <StatCard
           title="Companies"
           value={companyCount}
           description="Organizations monitored"
-          icon={Building2}
+          icon="Building2"
         />
         <StatCard
           title="Articles"
           value={articleCount}
           description="Intelligence reports"
-          icon={FileText}
+          icon="FileText"
         />
         <StatCard
           title="Avg Confidence"
           value={`${Math.round((avgConfidence._avg.confidence || 0) * 100)}%`}
           description="Analysis reliability"
-          icon={TrendingUp}
+          icon="TrendingUp"
         />
       </div>
 
@@ -150,13 +150,16 @@ export default async function DashboardPage() {
                   {insight.signal.title}
                 </Link>
                 <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="outline" className="text-[9px]">
+                  <Badge variant="outline" className="text-[11px]">
                     {insight.signal.company.name}
                   </Badge>
-                  <ConfidenceBadge confidence={insight.confidence} className="text-[9px]" />
+                  <ConfidenceBadge confidence={insight.confidence} className="text-[11px]" />
                   <SentimentIndicator
                     sentiment={insight.sentiment as "POSITIVE" | "NEGATIVE" | "NEUTRAL"}
-                    className="text-[9px]"
+                    strength={
+                      (insight.sentimentData as { strength?: "STRONGLY" | "MILDY" } | null)?.strength
+                    }
+                    className="text-[11px]"
                   />
                 </div>
               </div>
@@ -195,10 +198,10 @@ export default async function DashboardPage() {
                     {signal.title}
                   </Link>
                   <div className="flex items-center gap-2 mt-1">
-                    <Badge variant="outline" className="text-[9px]">
+                    <Badge variant="outline" className="text-[11px]">
                       {signal.company.name}
                     </Badge>
-                    <span className="text-[10px] font-mono text-muted-foreground">
+                    <span className="text-[11px] font-mono text-muted-foreground">
                       {new Date(signal.scrapedAt).toLocaleDateString("en-US", {
                         month: "short",
                         day: "numeric",
@@ -207,7 +210,7 @@ export default async function DashboardPage() {
                     {signal.analyses[0] && (
                       <ConfidenceBadge
                         confidence={signal.analyses[0].confidence}
-                        className="text-[9px]"
+                        className="text-[11px]"
                       />
                     )}
                   </div>
@@ -240,17 +243,17 @@ export default async function DashboardPage() {
                     {article.title}
                   </Link>
                   <div className="flex items-center gap-2 mt-1">
-                    <Badge variant="outline" className="text-[9px]">
+                    <Badge variant="outline" className="text-[11px]">
                       {article.company.name}
                     </Badge>
                     <Badge
                       variant={article.status === "PUBLISHED" ? "default" : "outline"}
-                      className="text-[9px]"
+                      className="text-[11px]"
                     >
                       {article.status}
                     </Badge>
                     {article.publishedAt && (
-                      <span className="text-[10px] font-mono text-muted-foreground">
+                      <span className="text-[11px] font-mono text-muted-foreground">
                         {new Date(article.publishedAt).toLocaleDateString("en-US", {
                           month: "short",
                           day: "numeric",

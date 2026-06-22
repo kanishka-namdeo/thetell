@@ -24,63 +24,89 @@ const DELAY_BETWEEN_LLM_CALLS_MS = 2500;
 
 interface SignalDef {
   url: string;
-  companySlug: "apple" | "tesla" | "nvidia";
+  companySlug: "apple" | "tesla" | "nvidia" | "microsoft";
   sourceType: SourceType;
+  fallbackUrls?: string[];
 }
 
 const SIGNAL_DEFS: SignalDef[] = [
-  // Apple (3) - using tech news sites that allow scraping
+  // Tesla (5) - Teslarati (real URLs from 2026-06-18)
   {
-    url: "https://www.macrumors.com/2025/02/19/apple-iphone-16e-official/",
-    companySlug: "apple",
-    sourceType: SourceType.NEWS,
-  },
-  {
-    url: "https://9to5mac.com/2025/10/30/apple-vision-pro-m5-chip/",
-    companySlug: "apple",
-    sourceType: SourceType.NEWS,
-  },
-  {
-    url: "https://www.macrumors.com/2025/09/15/apple-ios-26-available-today/",
-    companySlug: "apple",
-    sourceType: SourceType.NEWS,
-  },
-  // Tesla (3) - using tech news sites
-  {
-    url: "https://electrek.co/2025/01/29/tesla-q4-2024-earnings-results/",
+    url: "https://www.teslarati.com/tesla-full-self-driving-parking-upgrade-elon-musk/",
     companySlug: "tesla",
     sourceType: SourceType.NEWS,
   },
   {
-    url: "https://electrek.co/2024/10/23/tesla-q3-2024-earnings-results/",
+    url: "https://www.teslarati.com/tesla-full-self-driving-app-connectivity-save-life-medical-emergency/",
     companySlug: "tesla",
     sourceType: SourceType.NEWS,
   },
   {
-    url: "https://electrek.co/2024/07/02/tesla-q2-2024-production-deliveries-deployments/",
+    url: "https://www.teslarati.com/elon-musk-grok-hollywood-movies-2026/",
     companySlug: "tesla",
     sourceType: SourceType.NEWS,
   },
-  // NVIDIA (4) - nvidianews works
   {
-    url: "https://nvidianews.nvidia.com/news/openai-and-nvidia-announce-strategic-partnership-to-deploy-10gw-of-nvidia-systems",
-    companySlug: "nvidia",
+    url: "https://www.teslarati.com/tesla-patent-improve-common-on-road-complaint/",
+    companySlug: "tesla",
     sourceType: SourceType.NEWS,
   },
   {
-    url: "https://nvidianews.nvidia.com/news/nvidia-oracle-us-department-of-energy-ai-supercomputer-scientific-discovery",
-    companySlug: "nvidia",
+    url: "https://www.teslarati.com/tesla-cybercab-texas-dot-official-support/",
+    companySlug: "tesla",
     sourceType: SourceType.NEWS,
   },
+  // NVIDIA (5) - blogs.nvidia.com (real URLs from 2026-06-18)
   {
-    url: "https://nvidianews.nvidia.com/news/nvidia-unveils-rubin-cpx-a-new-class-of-gpu-designed-for-massive-context-inference",
-    companySlug: "nvidia",
-    sourceType: SourceType.NEWS,
-  },
-  {
-    url: "https://nvidianews.nvidia.com/news/nvidia-debuts-nemotron-3-family-of-open-models",
+    url: "https://blogs.nvidia.com/blog/coherent-texas-ai-optical/",
     companySlug: "nvidia",
     sourceType: SourceType.BLOG,
+  },
+  {
+    url: "https://blogs.nvidia.com/blog/blackwell-mlperf-training-6-0/",
+    companySlug: "nvidia",
+    sourceType: SourceType.BLOG,
+  },
+  {
+    url: "https://blogs.nvidia.com/blog/nvidia-blackwell-agentperf-artificial-analysis/",
+    companySlug: "nvidia",
+    sourceType: SourceType.BLOG,
+  },
+  {
+    url: "https://blogs.nvidia.com/blog/rtx-ai-garage-local-gemma-diffusion/",
+    companySlug: "nvidia",
+    sourceType: SourceType.BLOG,
+  },
+  {
+    url: "https://blogs.nvidia.com/blog/nvidia-xr-ai/",
+    companySlug: "nvidia",
+    sourceType: SourceType.BLOG,
+  },
+  // Microsoft (5) - news.microsoft.com and blogs.microsoft.com
+  {
+    url: "https://news.microsoft.com/microsoft-builds-ai-infrastructure-for-the-future/",
+    companySlug: "microsoft",
+    sourceType: SourceType.NEWS,
+  },
+  {
+    url: "https://blogs.microsoft.com/blog/2026/06/10/microsoft-ai-enterprise-transformation/",
+    companySlug: "microsoft",
+    sourceType: SourceType.BLOG,
+  },
+  {
+    url: "https://news.microsoft.com/source/features/ai/microsoft-copilot-studio-enterprise/",
+    companySlug: "microsoft",
+    sourceType: SourceType.NEWS,
+  },
+  {
+    url: "https://blogs.microsoft.com/blog/2026/06/08/azure-ai-services-expansion/",
+    companySlug: "microsoft",
+    sourceType: SourceType.BLOG,
+  },
+  {
+    url: "https://news.microsoft.com/source/features/ai/microsoft-openai-parttlement-evolution/",
+    companySlug: "microsoft",
+    sourceType: SourceType.NEWS,
   },
 ];
 
@@ -147,6 +173,14 @@ async function main() {
         "NVIDIA Corporation, a computing infrastructure company, provides graphics and compute and networking solutions worldwide.",
       websiteUrl: "https://www.nvidia.com",
     },
+    {
+      name: "Microsoft Corporation",
+      slug: "microsoft",
+      ticker: "MSFT",
+      description:
+        "Microsoft Corporation develops, licenses, and supports software, services, devices, and solutions worldwide.",
+      websiteUrl: "https://www.microsoft.com",
+    },
   ];
 
   for (const company of companies) {
@@ -160,8 +194,9 @@ async function main() {
   const apple = await prisma.company.findUnique({ where: { slug: "apple" } });
   const tesla = await prisma.company.findUnique({ where: { slug: "tesla" } });
   const nvidia = await prisma.company.findUnique({ where: { slug: "nvidia" } });
+  const microsoft = await prisma.company.findUnique({ where: { slug: "microsoft" } });
 
-  if (!apple || !tesla || !nvidia) {
+  if (!apple || !tesla || !nvidia || !microsoft) {
     throw new Error("Failed to find companies after upsert");
   }
 
@@ -169,6 +204,7 @@ async function main() {
     apple,
     tesla,
     nvidia,
+    microsoft,
   };
   console.log("  Companies ready.\n");
 
@@ -239,23 +275,42 @@ async function main() {
       continue;
     }
 
-    // Scrape
+    // Scrape - try primary URL first, then fallbacks
     try {
-      console.log("  Scraping...");
-      const article = await scraper.scrapeArticle(def.url);
+      const urlsToTry = [def.url, ...(def.fallbackUrls || [])];
+      let article: Awaited<ReturnType<typeof scraper.scrapeArticle>> | null = null;
+      let usedUrl = def.url;
+
+      for (const urlToTry of urlsToTry) {
+        try {
+          console.log(`  Scraping: ${urlToTry}`);
+          article = await scraper.scrapeArticle(urlToTry);
+          if (article && article.bodyText && article.bodyText.length >= 200) {
+            usedUrl = urlToTry;
+            console.log(
+              `  -> Scraped: "${article.title.slice(0, 60)}..." (${article.bodyText.length} chars)`
+            );
+            scrapedCount++;
+            break;
+          } else {
+            console.log(
+              `  -> Insufficient content (${article?.bodyText.length ?? 0} chars), trying next...`
+            );
+            article = null;
+          }
+        } catch (urlError) {
+          console.log(
+            `  -> Scrape failed: ${urlError instanceof Error ? urlError.message : String(urlError)}`
+          );
+          article = null;
+        }
+      }
 
       if (!article || !article.bodyText || article.bodyText.length < 200) {
-        console.log(
-          `  -> FAILED: Insufficient content (${article?.bodyText.length ?? 0} chars)`
-        );
+        console.log(`  -> FAILED: All URLs exhausted for this signal`);
         failedCount++;
         continue;
       }
-
-      console.log(
-        `  -> Scraped: "${article.title.slice(0, 60)}..." (${article.bodyText.length} chars)`
-      );
-      scrapedCount++;
 
       // Create signal record
       const signal = await prisma.signal.create({
@@ -304,6 +359,11 @@ async function main() {
           "openai"
         );
 
+        // Extract simple sentiment label for DB enum field
+        const analystSentimentLabel = "sentiment" in analystResult.sentiment
+          ? analystResult.sentiment.sentiment
+          : "NEUTRAL";
+
         await prisma.analysis.create({
           data: {
             id: analystResult.id,
@@ -311,7 +371,8 @@ async function main() {
             agentPersona: "ANALYST",
             summary: analystResult.summary,
             keyFacts: analystResult.keyFacts,
-            sentiment: analystResult.sentiment as "POSITIVE" | "NEGATIVE" | "NEUTRAL",
+            sentiment: analystSentimentLabel,
+            sentimentData: analystResult.sentiment,
             strategicThemes: analystResult.strategicThemes,
             confidence: analystResult.confidence,
             modelUsed: analystResult.modelUsed,
@@ -319,7 +380,7 @@ async function main() {
         });
 
         console.log(
-          `  -> Analyst done (confidence: ${analystResult.confidence.toFixed(2)}, sentiment: ${analystResult.sentiment})`
+          `  -> Analyst done (confidence: ${analystResult.confidence.toFixed(2)}, sentiment: ${analystSentimentLabel})`
         );
 
         await delay(DELAY_BETWEEN_LLM_CALLS_MS);
@@ -332,7 +393,7 @@ async function main() {
             agentPersona: analystResult.agentPersona,
             summary: analystResult.summary,
             keyFacts: analystResult.keyFacts.map((f) => ({ text: f.text })),
-            sentiment: analystResult.sentiment,
+            sentiment: analystSentimentLabel,
             strategicThemes: analystResult.strategicThemes.map((t) => ({
               label: t.label,
             })),
@@ -346,6 +407,11 @@ async function main() {
           "openai"
         );
 
+        // Map Gossip Girl sentiment to the Sentiment enum
+        const gossipSentimentLabel = "surface_reading" in gossipResult.sentiment
+          ? ({ "bullish-spin": "POSITIVE", "bearish-subtext": "NEGATIVE", "neutral-surface": "NEUTRAL", "mixed-signals": "NEUTRAL" } as Record<string, "POSITIVE" | "NEGATIVE" | "NEUTRAL">)[gossipResult.sentiment.surface_reading] ?? "NEUTRAL"
+          : "NEUTRAL";
+
         await prisma.analysis.create({
           data: {
             id: gossipResult.id,
@@ -353,7 +419,8 @@ async function main() {
             agentPersona: "GOSSIP_GIRL",
             summary: gossipResult.summary,
             keyFacts: gossipResult.keyFacts,
-            sentiment: gossipResult.sentiment as "POSITIVE" | "NEGATIVE" | "NEUTRAL",
+            sentiment: gossipSentimentLabel,
+            sentimentData: gossipResult.sentiment,
             strategicThemes: gossipResult.strategicThemes,
             confidence: gossipResult.confidence,
             modelUsed: gossipResult.modelUsed,
@@ -362,7 +429,7 @@ async function main() {
         });
 
         console.log(
-          `  -> Gossip Girl done (confidence: ${gossipResult.confidence.toFixed(2)}, sentiment: ${gossipResult.sentiment})`
+          `  -> Gossip Girl done (confidence: ${gossipResult.confidence.toFixed(2)}, surface_reading: ${"surface_reading" in gossipResult.sentiment ? gossipResult.sentiment.surface_reading : "N/A"})`
         );
 
         await prisma.signal.update({

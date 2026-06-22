@@ -17,6 +17,14 @@ export interface ArticleData {
 }
 
 export class NewsScraper extends BaseScraper {
+  constructor() {
+    super(1.0, 30000, 3, 86400, true);
+  }
+
+  override get scraperName(): string {
+    return "news-scraper";
+  }
+
   /**
    * Scrape and parse a news article from a URL.
    * Returns ArticleData or null if scraping failed.

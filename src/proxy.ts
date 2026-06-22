@@ -23,6 +23,7 @@ const PUBLIC_API_GET_PATTERNS = [
   /^\/api\/v1\/signals\/[^/]+\/?$/,
   /^\/api\/v1\/articles\/?$/,
   /^\/api\/v1\/articles\/[^/]+\/?$/,
+  /^\/api\/v1\/public\/search\/?$/,
 ];
 
 const PUBLIC_API_PREFIXES = [
@@ -75,7 +76,7 @@ function isBlockedBot(req: NextRequest): boolean {
   return BLOCKED_USER_AGENTS.some((bot) => ua.includes(bot));
 }
 
-export default authEdge((req) => {
+const authHandler = authEdge((req) => {
   const { pathname } = req.nextUrl;
 
   // Public routes — always allow
@@ -127,7 +128,7 @@ export default authEdge((req) => {
         {
           status: 429,
           headers: {
-            "Retry-After": String(Math.ceil(result.resetAt / 1000)),
+            "Retry-After": String(Math.max(1, Math.ceil((result.resetAt - Date.now()) / 1000))),
             "X-RateLimit-Limit": String(result.limit),
             "X-RateLimit-Remaining": "0",
             "X-RateLimit-Reset": String(Math.ceil(result.resetAt / 1000)),
@@ -158,7 +159,7 @@ export default authEdge((req) => {
         {
           status: 429,
           headers: {
-            "Retry-After": String(Math.ceil(result.resetAt / 1000)),
+            "Retry-After": String(Math.max(1, Math.ceil((result.resetAt - Date.now()) / 1000))),
             "X-RateLimit-Limit": String(result.limit),
             "X-RateLimit-Remaining": "0",
             "X-RateLimit-Reset": String(Math.ceil(result.resetAt / 1000)),
@@ -182,9 +183,9 @@ export default authEdge((req) => {
   // Admin route protection — pages
   if (ADMIN_PAGE_PATTERN.test(pathname)) {
     if (!req.auth) {
-      const url = new URL("/sign-in", req.url);
-      url.searchParams.set("callbackUrl", pathname);
-      return NextResponse.redirect(url);
+    const url = new URL("/sign-in", req.url);
+    url.searchParams.set("callbackUrl", pathname);
+    return NextResponse.redirect(url);
     }
     const role = (req.auth.user as { role?: string } | undefined)?.role;
     if (role !== "ADMIN") {
@@ -233,6 +234,10 @@ export default authEdge((req) => {
   // Allow the request to proceed
   return NextResponse.next();
 });
+
+export function proxy(request: NextRequest, event: any) {
+  return authHandler(request, event);
+}
 
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],

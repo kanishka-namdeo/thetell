@@ -62,6 +62,10 @@ export class CourtListenerScraper extends BaseScraper {
     this.apiKey = process.env.COURT_LISTENER_API_KEY ?? null;
   }
 
+  override get scraperName(): string {
+    return "courtlistener-scraper";
+  }
+
   /**
    * Whether the scraper is configured with an API key.
    */

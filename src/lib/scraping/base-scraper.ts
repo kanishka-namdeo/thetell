@@ -2,6 +2,7 @@
  * Base scraper with rate limiting, retry, and polite scraping patterns.
  */
 
+import { createHash } from "crypto";
 import robotsParser from "robots-parser";
 import { logger } from "@/lib/logger";
 import { TTLCache } from "./cache";
@@ -10,6 +11,8 @@ const DEFAULT_RATE_LIMIT = 1.0; // requests per second
 const DEFAULT_TIMEOUT = 30000; // 30 seconds
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_CACHE_TTL = 86400; // 24 hours
+const MAX_RESPONSE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_ROBOTS_CACHE_SIZE = 1000; // Prevent unbounded growth
 
 export class RateLimiter {
   private minInterval: number; // milliseconds
@@ -54,29 +57,132 @@ export class BaseScraper {
   protected timeout: number;
   protected maxRetries: number;
   protected cache: TTLCache<string>;
+  protected skipRobots: boolean;
   private robotsCache = new Map<string, ReturnType<typeof robotsParser>>();
+
+  // Provenance tracking: updated on each successful fetch()
+  protected lastFetchAttempts: number = 0;
+  protected lastFetchHash: string | null = null;
 
   constructor(
     rateLimit?: number,
     timeout?: number,
     maxRetries: number = DEFAULT_MAX_RETRIES,
     cacheTtl: number = DEFAULT_CACHE_TTL,
+    skipRobots: boolean = false,
   ) {
     this.rateLimiter = new RateLimiter(rateLimit ?? DEFAULT_RATE_LIMIT);
     this.timeout = timeout ?? DEFAULT_TIMEOUT;
     this.maxRetries = maxRetries;
     this.cache = new TTLCache<string>(cacheTtl);
+    this.skipRobots = skipRobots;
+  }
+
+  /**
+   * Each scraper subclass must override this with its identifier.
+   */
+  get scraperName(): string {
+    return "unknown-scraper";
+  }
+
+  /**
+   * Returns provenance info from the most recent successful fetch().
+   */
+  getProvenance(): { scrapeAttempts: number; rawContentHash: string | null } {
+    return {
+      scrapeAttempts: this.lastFetchAttempts,
+      rawContentHash: this.lastFetchHash,
+    };
+  }
+
+  /**
+   * Validate URL protocol and hostname to prevent SSRF attacks.
+   * Only HTTP and HTTPS are allowed. Blocks private/internal IPs.
+   */
+  protected validateUrl(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return false;
+      }
+      const hostname = parsed.hostname;
+      // Block localhost and loopback
+      if (["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname)) {
+        return false;
+      }
+      // Block private IP ranges (RFC 1918) and link-local
+      if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.)/.test(hostname)) {
+        return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Read response body with size limit to prevent memory exhaustion.
+   * Throws if response exceeds MAX_RESPONSE_SIZE.
+   */
+  protected async readBodyWithLimit(response: Response): Promise<string> {
+    const contentLength = response.headers.get("content-length");
+    if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_SIZE) {
+      await response.body?.cancel();
+      throw new Error(`Response too large: ${contentLength} bytes exceeds ${MAX_RESPONSE_SIZE} limit`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      return await response.text();
+    }
+
+    const chunks: Uint8Array[] = [];
+    let totalSize = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      totalSize += value.length;
+      if (totalSize > MAX_RESPONSE_SIZE) {
+        await reader.cancel();
+        throw new Error(`Response exceeded ${MAX_RESPONSE_SIZE} byte limit`);
+      }
+
+      chunks.push(value);
+    }
+
+    const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    return new TextDecoder().decode(result);
   }
 
   /**
    * Check robots.txt to determine if scraping is allowed.
    */
   protected async canScrape(url: string): Promise<boolean> {
+    if (!this.validateUrl(url)) {
+      logger.warn("Invalid URL protocol", { url });
+      return false;
+    }
+
     const parsed = new URL(url);
     const baseUrl = `${parsed.protocol}//${parsed.host}`;
     const robotsUrl = `${baseUrl}/robots.txt`;
 
     if (!this.robotsCache.has(baseUrl)) {
+      // Evict oldest entries if cache is full
+      if (this.robotsCache.size >= MAX_ROBOTS_CACHE_SIZE) {
+        const firstKey = this.robotsCache.keys().next().value;
+        if (firstKey) this.robotsCache.delete(firstKey);
+      }
+
       try {
         const response = await fetch(robotsUrl, {
           headers: { "User-Agent": BaseScraper.USER_AGENT },
@@ -84,10 +190,12 @@ export class BaseScraper {
         });
 
         if (response.ok) {
-          const text = await response.text();
+          const text = await this.readBodyWithLimit(response);
           const robots = robotsParser(robotsUrl, text);
           this.robotsCache.set(baseUrl, robots);
         } else {
+          // Consume body to release connection
+          await response.body?.cancel();
           // If robots.txt is unavailable, assume allowed
           return true;
         }
@@ -104,15 +212,23 @@ export class BaseScraper {
   /**
    * Fetch a URL with rate limiting, caching, retry, and robots.txt compliance.
    * Returns the response text, or null if the request failed after retries.
+   * Updates lastFetchAttempts and lastFetchHash on success.
    */
   async fetch(url: string): Promise<string | null> {
+    if (!this.validateUrl(url)) {
+      logger.warn("Invalid URL protocol", { url });
+      return null;
+    }
+
     const cached = await this.cache.get(url);
     if (cached !== null) {
       logger.debug("Cache hit", { url });
+      this.lastFetchAttempts = 1;
+      this.lastFetchHash = createHash("sha256").update(cached).digest("hex");
       return cached;
     }
 
-    if (!(await this.canScrape(url))) {
+    if (!this.skipRobots && !(await this.canScrape(url))) {
       logger.info("Blocked by robots.txt", { url });
       return null;
     }
@@ -130,8 +246,10 @@ export class BaseScraper {
         });
 
         if (response.ok) {
-          const text = await response.text();
+          const text = await this.readBodyWithLimit(response);
           await this.cache.set(url, text);
+          this.lastFetchAttempts = attempt;
+          this.lastFetchHash = createHash("sha256").update(text).digest("hex");
           logger.info("Successfully fetched", { url, attempt });
           return text;
         }
@@ -147,10 +265,15 @@ export class BaseScraper {
             attempt,
           });
 
+          // Consume body to release connection
+          await response.body?.cancel();
+
           await new Promise((r) => setTimeout(r, waitTime));
           continue;
         }
 
+        // Consume body to release connection before throwing
+        await response.body?.cancel();
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       } catch (error) {
         lastError = error as Error;

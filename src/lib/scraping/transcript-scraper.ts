@@ -80,6 +80,10 @@ const ANALYST_INDICATORS = [
 ];
 
 export class TranscriptScraper extends BaseScraper {
+  override get scraperName(): string {
+    return "transcript-scraper";
+  }
+
   /**
    * Scrape an earnings call transcript from a URL.
    * Returns TranscriptData or null if scraping failed.

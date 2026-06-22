@@ -216,6 +216,7 @@ Agents diagnose third-party API errors (OAuth providers, cloud services, platfor
 ```
 Need information?
   ├─ Can I get it from files already in context? -> Don't call a tool
+  ├─ Is this answered by the Module Map or features-built.md? -> Read AGENTS.md or docs/features-built.md
   ├─ Do I need to read multiple files? -> Read ALL of them in parallel
   ├─ Do I need to search for something? -> Run ALL search patterns in parallel
   └─ Do I need to run a command? -> Chain independent commands together
@@ -226,6 +227,8 @@ Before ending turn:
   ├─ Have I been in "reading/checking" mode for more than 3 turns?
   └─ Is there anything I can batch that I'm doing sequentially?
 ```
+
+**See `codebase-navigation.mdc`** for the full navigation decision tree.
 
 ---
 

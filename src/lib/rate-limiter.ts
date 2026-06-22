@@ -1,4 +1,4 @@
-// In-memory sliding window rate limiter
+// In-memory fixed-window rate limiter
 // For production with multiple instances, replace with Redis-backed version
 
 interface RateLimitEntry {
@@ -7,14 +7,17 @@ interface RateLimitEntry {
 }
 
 const store = new Map<string, RateLimitEntry>();
+let lastCleanup = Date.now();
 
-// Periodic cleanup every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of store) {
-    if (now > entry.resetAt) store.delete(key);
+// Lazy cleanup: purge expired entries every ~5 minutes during checkRateLimit calls
+function cleanup(now: number) {
+  if (now - lastCleanup < 5 * 60 * 1000) return;
+  lastCleanup = now;
+  for (const key of store.keys()) {
+    const entry = store.get(key);
+    if (entry && now > entry.resetAt) store.delete(key);
   }
-}, 5 * 60 * 1000);
+}
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -29,6 +32,7 @@ export function checkRateLimit(
   windowSeconds: number
 ): RateLimitResult {
   const now = Date.now();
+  cleanup(now);
   const entry = store.get(key);
 
   if (!entry || now > entry.resetAt) {

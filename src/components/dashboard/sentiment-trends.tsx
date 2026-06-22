@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { ChartCard } from "@/components/charts/chart-card";
 
@@ -16,36 +16,46 @@ interface SentimentTrendsProps {
   days?: number;
 }
 
+const subscribe = () => () => {};
+function getClientSnapshot() { return true; }
+function getServerSnapshot() { return false; }
+
 export function SentimentTrends({ companyId, days = 30 }: SentimentTrendsProps) {
   const [data, setData] = useState<SentimentTrendData[]>([]);
   const [loading, setLoading] = useState(true);
+  const mounted = useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
 
   useEffect(() => {
+    const controller = new AbortController();
     const fetchTrends = async () => {
       try {
         const params = new URLSearchParams({ days: days.toString() });
         if (companyId) params.append("companyId", companyId);
 
-        const res = await fetch(`/api/v1/analytics/overview?${params}`);
+        const res = await fetch(`/api/v1/analytics/overview?${params}`, {
+          signal: controller.signal,
+        });
         if (!res.ok) throw new Error("Failed to fetch");
 
         const json = await res.json();
         setData(json.sentimentTrends || []);
       } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
         console.error("Error fetching sentiment trends:", error);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
 
     fetchTrends();
+    return () => controller.abort();
   }, [companyId, days]);
 
-  if (loading) {
+  if (!mounted || loading) {
     return (
       <ChartCard title="Sentiment Trends" description="Signal sentiment over time">
         <div className="h-[300px] flex items-center justify-center text-muted-foreground text-sm">
-          Loading...
+          {loading ? "Loading..." : null}
         </div>
       </ChartCard>
     );
@@ -84,7 +94,7 @@ export function SentimentTrends({ companyId, days = 30 }: SentimentTrendsProps) 
             <Line
               type="monotone"
               dataKey="positive"
-              stroke="#10b981"
+              stroke="var(--chart-success)"
               strokeWidth={2}
               dot={false}
               name="Positive"
@@ -92,7 +102,7 @@ export function SentimentTrends({ companyId, days = 30 }: SentimentTrendsProps) 
             <Line
               type="monotone"
               dataKey="negative"
-              stroke="#ef4444"
+              stroke="var(--chart-destructive)"
               strokeWidth={2}
               dot={false}
               name="Negative"
@@ -100,7 +110,7 @@ export function SentimentTrends({ companyId, days = 30 }: SentimentTrendsProps) 
             <Line
               type="monotone"
               dataKey="neutral"
-              stroke="#737373"
+              stroke="var(--neutral-500)"
               strokeWidth={2}
               dot={false}
               name="Neutral"

@@ -71,6 +71,10 @@ export class SamScraper extends BaseScraper {
     this.apiKey = process.env.SAM_API_KEY ?? null;
   }
 
+  override get scraperName(): string {
+    return "sam-scraper";
+  }
+
   /**
    * Whether the scraper is configured with an API key.
    */

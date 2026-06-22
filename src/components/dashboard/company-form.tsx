@@ -7,6 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Loader2, Plus } from "lucide-react";
 
 interface CompanyFormProps {
@@ -16,6 +23,8 @@ interface CompanyFormProps {
     ticker?: string;
     description?: string;
     websiteUrl?: string;
+    industry?: string;
+    sector?: string;
   };
   mode: "create" | "edit";
 }
@@ -24,12 +33,15 @@ export function CompanyForm({ initialData, mode }: CompanyFormProps) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
 
   const [name, setName] = useState(initialData?.name || "");
   const [slug, setSlug] = useState(initialData?.slug || "");
   const [ticker, setTicker] = useState(initialData?.ticker || "");
   const [description, setDescription] = useState(initialData?.description || "");
   const [websiteUrl, setWebsiteUrl] = useState(initialData?.websiteUrl || "");
+  const [industry, setIndustry] = useState(initialData?.industry || "");
+  const [sector, setSector] = useState(initialData?.sector || "");
 
   function generateSlug(name: string) {
     return name
@@ -40,9 +52,14 @@ export function CompanyForm({ initialData, mode }: CompanyFormProps) {
 
   function handleNameChange(value: string) {
     setName(value);
-    if (mode === "create" && !slug) {
+    if (mode === "create" && !slugManuallyEdited) {
       setSlug(generateSlug(value));
     }
+  }
+
+  function handleSlugChange(value: string) {
+    setSlug(value);
+    setSlugManuallyEdited(true);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -60,16 +77,17 @@ export function CompanyForm({ initialData, mode }: CompanyFormProps) {
       const endpoint = mode === "create" ? "/api/v1/companies" : "/api/v1/companies";
       const method = mode === "create" ? "POST" : "PATCH";
 
+      const payload: Record<string, string> = { name, slug };
+      if (ticker) payload.ticker = ticker;
+      if (description) payload.description = description;
+      if (websiteUrl) payload.websiteUrl = websiteUrl;
+      if (industry) payload.industry = industry;
+      if (sector) payload.sector = sector;
+
       const res = await fetch(endpoint, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          slug,
-          ticker: ticker || null,
-          description: description || null,
-          websiteUrl: websiteUrl || null,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -117,7 +135,7 @@ export function CompanyForm({ initialData, mode }: CompanyFormProps) {
               id="slug"
               placeholder="acme-corporation"
               value={slug}
-              onChange={(e) => setSlug(e.target.value)}
+              onChange={(e) => handleSlugChange(e.target.value)}
               required
             />
             <p className="text-xs text-muted-foreground font-body">
@@ -163,6 +181,41 @@ export function CompanyForm({ initialData, mode }: CompanyFormProps) {
               value={websiteUrl}
               onChange={(e) => setWebsiteUrl(e.target.value)}
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="industry">Industry (optional)</Label>
+            <Input
+              id="industry"
+              placeholder="Biotechnology, Fintech, E-commerce..."
+              value={industry}
+              onChange={(e) => setIndustry(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="sector">Sector (optional)</Label>
+            <Select
+              value={sector}
+              onValueChange={(value) => setSector(value || "")}
+            >
+              <SelectTrigger id="sector">
+                <SelectValue placeholder="Select a sector" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Technology">Technology</SelectItem>
+                <SelectItem value="Healthcare">Healthcare</SelectItem>
+                <SelectItem value="Finance">Finance</SelectItem>
+                <SelectItem value="Consumer">Consumer</SelectItem>
+                <SelectItem value="Energy">Energy</SelectItem>
+                <SelectItem value="Industrial">Industrial</SelectItem>
+                <SelectItem value="Materials">Materials</SelectItem>
+                <SelectItem value="Utilities">Utilities</SelectItem>
+                <SelectItem value="Real Estate">Real Estate</SelectItem>
+                <SelectItem value="Communication Services">Communication Services</SelectItem>
+                <SelectItem value="Other">Other</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>

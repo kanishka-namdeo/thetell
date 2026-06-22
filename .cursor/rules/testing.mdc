@@ -47,6 +47,52 @@ src/
 - Run in CI on every PR
 - Keep minimal — only critical user flows
 
+## Test Environment
+
+**Use the local development database for testing.** The database runs in Docker and contains seeded test data.
+
+### Test Credentials
+Use the seeded test users from the local database:
+
+| User | Email | Password | Role |
+|------|-------|----------|------|
+| Admin | `admin@thetell.com` | `password123` | `ADMIN` |
+| Analyst | `analyst@thetell.com` | `password123` | `USER` |
+
+### Database Connection
+Tests connect to the local PostgreSQL database via `DATABASE_URL` from `.env.local`. Ensure Docker is running:
+
+```bash
+# Start database
+docker-compose up -d db
+
+# Run migrations
+pnpm prisma migrate deploy
+
+# Seed test data
+pnpm prisma db seed
+```
+
+### Mocking External Services Only
+Mock external services (LLM APIs, HTTP requests) but use the real database:
+
+```typescript
+// GOOD - mock LLM provider
+vi.mock('@/lib/ai/provider', () => ({
+  getProvider: () => ({
+    completeStructured: vi.fn().mockResolvedValue({ /* ... */ }),
+  }),
+}));
+
+// GOOD - mock HTTP requests for scraping
+vi.mock('node-fetch', () => ({
+  default: vi.fn().mockResolvedValue({ /* ... */ }),
+}));
+
+// BAD - do NOT mock the database
+// vi.mock('@/lib/db', () => ({ prisma: { /* ... */ } }));
+```
+
 ## Mocking Strategies
 
 ### Scraping Tests
@@ -92,35 +138,39 @@ describe('LLM parsing', () => {
 ```
 
 ### Database Tests
-Use test database or mock Prisma client:
+**Use the real local database for testing.** The database contains seeded test data and runs in Docker.
 
 ```typescript
-import { PrismaClient } from '@prisma/client';
-import { mockDeep, DeepMockProxy } from 'jest-mock-extended';
-
-vi.mock('@prisma/client', () => ({
-  PrismaClient: vi.fn(),
-}));
+import { describe, it, expect } from 'vitest';
+import { prisma } from '@/lib/db';
 
 describe('Database operations', () => {
-  let prisma: DeepMockProxy<PrismaClient>;
-
-  beforeEach(() => {
-    prisma = mockDeep<PrismaClient>();
-  });
-
   it('creates signal with correct data', async () => {
-    prisma.signal.create.mockResolvedValue({
-      id: '123',
-      sourceUrl: 'https://example.com',
-      // ... other fields
+    const result = await prisma.signal.create({
+      data: {
+        id: 'test-signal-123',
+        sourceUrl: 'https://example.com/test',
+        sourceType: 'NEWS',
+        title: 'Test Signal',
+        rawContent: 'Test content',
+        companyId: 'company-id-from-seed',
+        status: 'PENDING',
+      },
     });
 
-    const result = await createSignal({ sourceUrl: 'https://example.com' });
-    expect(result.sourceUrl).toBe('https://example.com');
+    expect(result.sourceUrl).toBe('https://example.com/test');
+    
+    // Clean up test data
+    await prisma.signal.delete({ where: { id: 'test-signal-123' } });
   });
 });
 ```
+
+**Test data management:**
+- Use seeded data when possible (companies, users already exist)
+- Create test-specific records with unique IDs
+- Clean up test data after tests complete
+- Never modify seeded data in tests
 
 ## Test Data Management
 

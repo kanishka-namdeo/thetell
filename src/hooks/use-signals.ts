@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { SignalWithRelations, PaginatedApiResponse } from "@/lib/api/schemas";
 
 interface UseSignalsOptions {
@@ -7,6 +7,8 @@ interface UseSignalsOptions {
   sourceType?: string | null;
   status?: string | null;
   sentiment?: string | null;
+  includeInferences?: boolean;
+  includeCorrelations?: boolean;
 }
 
 export function useSignals(options: UseSignalsOptions = {}) {
@@ -15,8 +17,9 @@ export function useSignals(options: UseSignalsOptions = {}) {
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const loadMoreControllerRef = useRef<AbortController | null>(null);
 
-  const fetchSignals = useCallback(async (cursor?: string) => {
+  const fetchSignals = useCallback(async (cursor?: string, signal?: AbortSignal) => {
     try {
       setLoading(true);
       setError(null);
@@ -28,8 +31,10 @@ export function useSignals(options: UseSignalsOptions = {}) {
       if (options.sourceType) params.set("sourceType", options.sourceType);
       if (options.status) params.set("status", options.status);
       if (options.sentiment) params.set("sentiment", options.sentiment);
+      if (options.includeInferences) params.set("includeInferences", "true");
+      if (options.includeCorrelations) params.set("includeCorrelations", "true");
 
-      const res = await fetch(`/api/v1/signals?${params.toString()}`);
+      const res = await fetch(`/api/v1/signals?${params.toString()}`, { signal });
       if (!res.ok) throw new Error("Failed to fetch signals");
 
       const json: PaginatedApiResponse<SignalWithRelations> = await res.json();
@@ -43,20 +48,67 @@ export function useSignals(options: UseSignalsOptions = {}) {
       setHasMore(json.hasMore);
       setNextCursor(json.nextCursor);
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
     }
-  }, [options.limit, options.companyId, options.sourceType, options.status, options.sentiment]);
+  }, [options.limit, options.companyId, options.sourceType, options.status, options.sentiment, options.includeInferences, options.includeCorrelations]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetch, setState is after await
-    void fetchSignals();
-  }, [fetchSignals]);
+    const controller = new AbortController();
+
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const params = new URLSearchParams();
+        params.set("limit", String(options.limit || 20));
+        if (options.companyId) params.set("companyId", options.companyId);
+        if (options.sourceType) params.set("sourceType", options.sourceType);
+        if (options.status) params.set("status", options.status);
+        if (options.sentiment) params.set("sentiment", options.sentiment);
+        if (options.includeInferences) params.set("includeInferences", "true");
+        if (options.includeCorrelations) params.set("includeCorrelations", "true");
+
+        const res = await fetch(`/api/v1/signals?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error("Failed to fetch signals");
+
+        const json: PaginatedApiResponse<SignalWithRelations> = await res.json();
+
+        setData(json.items);
+        setHasMore(json.hasMore);
+        setNextCursor(json.nextCursor);
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setError(err instanceof Error ? err.message : "Unknown error");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+
+    return () => {
+      controller.abort();
+    };
+  }, [options.limit, options.companyId, options.sourceType, options.status, options.sentiment, options.includeInferences, options.includeCorrelations]);
+
+  useEffect(() => {
+    return () => {
+      loadMoreControllerRef.current?.abort();
+    };
+  }, []);
 
   const loadMore = useCallback(() => {
     if (hasMore && nextCursor) {
-      fetchSignals(nextCursor);
+      loadMoreControllerRef.current?.abort();
+      const controller = new AbortController();
+      loadMoreControllerRef.current = controller;
+      fetchSignals(nextCursor, controller.signal);
     }
   }, [hasMore, nextCursor, fetchSignals]);
 

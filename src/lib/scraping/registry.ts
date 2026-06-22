@@ -21,6 +21,15 @@ import { SocialScraper } from "./social-scraper";
 import { JobPostingScraper } from "./job-scraper";
 import { TranscriptScraper } from "./transcript-scraper";
 import { NewsScraper } from "./news-scraper";
+import { LobbyingScraper } from "./lobbying-scraper";
+import { SupplierEarningScraper } from "./supplier-earning-scraper";
+import { ExecutiveAppearanceScraper } from "./exec-appearance-scraper";
+import { AppStoreTracker } from "./appstore-tracker";
+import { DomainTracker } from "./domain-tracker";
+import { ConferenceAgendaScraper } from "./conference-agenda-scraper";
+import { AppStoreScraper } from "./app-store-scraper";
+import { ConferenceScraper } from "./conference-scraper";
+import { WebSearchScraper } from "./web-search-scraper";
 
 export interface ScraperConfig {
   enabled: boolean;
@@ -162,6 +171,64 @@ export function getAllScrapers() {
       enabled: true,
       config: {},
     },
+
+    // Lobbying disclosure scraper (no API key required)
+    {
+      scraper: new LobbyingScraper(),
+      enabled: true,
+      config: {},
+    },
+    // Supplier earnings scraper (no API key required)
+    {
+      scraper: new SupplierEarningScraper(),
+      enabled: true,
+      config: {},
+    },
+    // Executive appearance scraper (no API key required)
+    {
+      scraper: new ExecutiveAppearanceScraper(),
+      enabled: true,
+      config: {},
+    },
+    // App Store tracker (no API key required)
+    {
+      scraper: new AppStoreTracker(),
+      enabled: true,
+      config: {},
+    },
+    // Domain registration tracker (no API key required)
+    {
+      scraper: new DomainTracker(),
+      enabled: true,
+      config: {},
+    },
+    // Conference agenda scraper (no API key required)
+    {
+      scraper: new ConferenceAgendaScraper(),
+      enabled: true,
+      config: {},
+    },
+    // App Store RSS scraper (no API key required)
+    {
+      scraper: new AppStoreScraper(),
+      enabled: true,
+      config: {},
+    },
+    // Conference agenda scraper v2 (no API key required)
+    {
+      scraper: new ConferenceScraper(),
+      enabled: true,
+      config: {},
+    },
+    // Web search scraper (Brave Search API primary, DuckDuckGo fallback)
+    // Always enabled: uses DuckDuckGo if Brave key not configured
+    {
+      scraper: new WebSearchScraper(),
+      enabled: true,
+      config: {
+        braveApiKey: process.env.BRAVE_API_KEY,
+      },
+    },
   ];
 }
 
@@ -181,5 +248,6 @@ export function getApiKeyRequiredScrapers() {
     { name: "CourtListener", envVar: "COURT_LISTENER_API_KEY", configured: !!process.env.COURT_LISTENER_API_KEY },
     { name: "SAM.gov", envVar: "SAM_API_KEY", configured: !!process.env.SAM_API_KEY },
     { name: "Congress.gov", envVar: "CONGRESS_API_KEY", configured: !!process.env.CONGRESS_API_KEY },
+    { name: "Brave Search", envVar: "BRAVE_API_KEY", configured: !!process.env.BRAVE_API_KEY, note: "Optional - falls back to DuckDuckGo" },
   ];
 }

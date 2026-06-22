@@ -13,21 +13,28 @@ enum Role {
   ADMIN
 }
 
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
 model User {
-  id            String    @id @default(cuid())
+  id            String      @id @default(cuid())
   name          String?
-  email         String?   @unique
+  email         String?     @unique
   emailVerified DateTime?
   image         String?
   passwordHash  String?
-  role          Role      @default(USER)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  role          Role        @default(USER)
+  status        UserStatus  @default(ACTIVE)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   accounts Account[]
   sessions Session[]
   articles Article[]
   watchedCompanies WatchedCompany[]
+  auditLogs AuditLog[]
 }
 
 model Account {
@@ -87,6 +94,36 @@ enum SourceType {
   PODCAST
   CONFERENCE
   PRESS_RELEASE
+  LOBBYING
+}
+
+enum ThemeStatus {
+  EMERGING
+  ACCELERATING
+  PEAKED
+  FADING
+  RESOLVED
+}
+
+enum InferenceStatus {
+  EMERGING
+  DEVELOPING
+  CONFIRMED
+  REFUTED
+  RESOLVED
+}
+
+enum HypothesisStatus {
+  ACTIVE
+  ARCHIVED
+  CONFIRMED
+  REFUTED
+}
+
+enum DebateStatus {
+  ACTIVE
+  RESOLVED
+  STALE
 }
 
 enum SignalStatus {
@@ -94,6 +131,9 @@ enum SignalStatus {
   ANALYZING
   ANALYZED
   FAILED
+  LOW_QUALITY
+  NON_ENGLISH
+  REJECTED
 }
 
 enum Sentiment {
@@ -105,11 +145,19 @@ enum Sentiment {
 enum ArticleStatus {
   DRAFT
   PUBLISHED
+  PENDING_REVIEW
 }
 
 enum AgentPersona {
   ANALYST
   GOSSIP_GIRL
+}
+
+enum DataOrigin {
+  SCRAPED
+  BOOTSTRAP
+  SEED
+  MANUAL
 }
 
 model Company {
@@ -119,14 +167,41 @@ model Company {
   ticker      String?
   description String?  @db.Text
   websiteUrl  String?
+  industry    String?
+  sector      String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  signals    Signal[]
-  articles   Article[]
-  watchedBy  WatchedCompany[]
+  signals           Signal[]
+  articles          Article[]
+  watchedBy         WatchedCompany[]
+  pipelineRuns      PipelineRun[]
+  inferences        Inference[]
+  signalThemes      SignalTheme[]
+  hypotheses        CompanyHypothesis[]
+  trackedSubreddits TrackedSubreddit[]
+  dataSources       CompanyDataSource[]
+  enrichmentLogs    CompanyEnrichmentLog[]
 
   @@index([slug])
+}
+
+model CompanyHypothesis {
+  id          String             @id @default(cuid())
+  companyId   String
+  title       String
+  description String             @db.Text
+  status      HypothesisStatus   @default(ACTIVE)
+  confidence  Float              @default(0.5)
+  evidence    Json               @default("[]")
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([status])
+  @@index([confidence])
 }
 
 model Signal {
@@ -138,19 +213,35 @@ model Signal {
   contentHash   String?      @unique
   publishedAt   DateTime?
   scrapedAt     DateTime     @default(now())
+  
+  // Provenance fields
+  scraperName       String?
+  verified          Boolean     @default(false)
+  scrapeAttempts    Int?
+  rawContentHash    String?
+  feedLabel         String?
+  dataOrigin        DataOrigin  @default(SCRAPED)
+  
   companyId     String
   status        SignalStatus @default(PENDING)
+  embedding     Json?
+  engagement    Json?
+  author        String?
+  metadata      Json?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   analyses  Analysis[]
+  debates   AgentDebate[]
+  themes    SignalTheme[]
 
   @@index([companyId])
   @@index([sourceType])
   @@index([status])
   @@index([scrapedAt])
   @@index([contentHash])
+  @@index([sourceUrl])
 }
 
 model Analysis {
@@ -160,6 +251,7 @@ model Analysis {
   summary           String       @db.Text
   keyFacts          Json
   sentiment         Sentiment
+  sentimentData     Json?
   strategicThemes   Json
   confidence        Float
   modelUsed         String
@@ -174,6 +266,114 @@ model Analysis {
   @@index([agentPersona])
 }
 
+model AgentDebate {
+  id                  String   @id @default(cuid())
+  signalId            String
+  analystPosition     Json
+  gossipGirlPosition  Json
+  pointsOfAgreement   Json
+  pointsOfContention  Json
+  synthesis           String   @db.Text
+  generatedAt         DateTime @default(now())
+
+  signal Signal @relation(fields: [signalId], references: [id], onDelete: Cascade)
+
+  @@index([signalId])
+  @@index([generatedAt])
+}
+
+// ─── Cross-Signal Correlation ──────────────────────────────────────────────
+
+model SignalTheme {
+  id          String      @id @default(cuid())
+  companyId   String
+  label       String
+  description String?     @db.Text
+  status      ThemeStatus @default(EMERGING)
+  momentum    Float       @default(0)
+  firstSeen   DateTime    @default(now())
+  lastUpdated DateTime    @updatedAt
+
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  signals    Signal[]
+  inferences Inference[]
+
+  @@index([companyId])
+  @@index([status])
+  @@index([momentum])
+}
+
+model Inference {
+  id                       String           @id @default(cuid())
+  companyId                String
+  themeId                  String?
+  title                    String
+  hypothesis               String           @db.Text
+  confidence               Float
+  supportingSignalIds      Json             @default("[]")
+  contradictingSignalIds   Json             @default("[]")
+  sourceTypesInvolved      Json             @default("[]")
+  status                   InferenceStatus  @default(EMERGING)
+  predictedOutcome         String?          @db.Text
+  resolvedAt               DateTime?
+  wasCorrect               Boolean?
+  agentAnalyses            Json?
+  debateId                 String?
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  theme    SignalTheme?  @relation(fields: [themeId], references: [id], onDelete: SetNull)
+  articles Article[]
+  calibrations InferenceCalibration[]
+  debate   CrossSignalDebate? @relation("InferenceDebate")
+
+  @@index([companyId])
+  @@index([status])
+  @@index([confidence])
+}
+
+model InferenceCalibration {
+  id                String    @id @default(cuid())
+  inferenceId       String
+  prediction        String    @db.Text
+  predictedAt       DateTime  @default(now())
+  resolvedAt        DateTime?
+  wasCorrect        Boolean?
+  sourceReliability Float     @default(0.5)
+  notes             String?   @db.Text
+
+  inference Inference @relation(fields: [inferenceId], references: [id], onDelete: Cascade)
+
+  @@index([inferenceId])
+  @@index([predictedAt])
+}
+
+model CrossSignalDebate {
+  id                  String         @id @default(cuid())
+  inferenceId         String         @unique
+  debateTranscript    String         @db.Text
+  consensusReached    Boolean        @default(false)
+  finalConfidence     Float?
+  status              DebateStatus   @default(ACTIVE)
+  analystClaim        String         @default("") @db.Text
+  analystEvidence     Json           @default("[]")
+  analystConfidence   Float          @default(0.5)
+  gossipClaim         String         @default("") @db.Text
+  gossipEvidence      Json           @default("[]")
+  gossipTellStrength  Float          @default(0.5)
+  agreements          Json           @default("[]")
+  contentions         Json           @default("[]")
+  synthesisText       String         @default("") @db.Text
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  inference Inference @relation("InferenceDebate", fields: [inferenceId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([createdAt])
+}
+
 model Article {
   id            String        @id @default(cuid())
   title         String
@@ -183,14 +383,16 @@ model Article {
   companyId     String
   agentPersona  AgentPersona
   analysisIds   Json          @default("[]")
+  inferenceId   String?
   publishedAt   DateTime?
   status        ArticleStatus @default(DRAFT)
   authorId      String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  author  User?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  company   Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  author    User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  inference Inference?   @relation(fields: [inferenceId], references: [id], onDelete: SetNull)
 
   @@index([slug])
   @@index([companyId])
@@ -222,4 +424,197 @@ model ScrapeCache {
   createdAt DateTime @default(now())
 
   @@index([expiresAt])
+}
+
+// ─── Admin & Audit ──────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String
+  action     String
+  resource   String
+  resourceId String?
+  details    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@index([resource])
+}
+
+// ─── System Configuration ────────────────────────────────────────────────────
+
+model SystemConfig {
+  id                              String   @id @default(cuid())
+  discoverySchedule               String   @default("0 */6 * * *")
+  discoveryEnabled                Boolean  @default(true)
+  defaultAiProvider               String   @default("openai")
+  analystModel                    String   @default("gpt-4")
+  gossipGirlModel                 String   @default("gpt-4")
+  minConfidenceForPublication     Float    @default(0.7)
+  minQualityScore                 Float    @default(0.6)
+  semanticDeduplication           Boolean  @default(true)
+  languageDetection               Boolean  @default(true)
+  qualityGate                     Boolean  @default(true)
+  requestsPerMinute               Int      @default(60)
+  burstLimit                      Int      @default(100)
+  emailConfigured                 Boolean  @default(false)
+  emailFrom                       String?
+  emailSmtpHost                   String?
+  emailSmtpPort                   Int?
+  correlationWindowSize           Int      @default(30)
+  minSignalsForCorrelation        Int      @default(3)
+  correlationConfidenceThreshold  Float    @default(0.6)
+  updatedAt                       DateTime @updatedAt
+
+  @@index([id])
+}
+
+model ModerationSettings {
+  id                              String   @id @default(cuid())
+  enabled                         Boolean  @default(false)
+  autoApproveConfidenceThreshold  Float?
+  autoApproveSources              Json?
+  notificationEmail               String?
+  notifyOnNewContent              Boolean  @default(false)
+  updatedAt                       DateTime @updatedAt
+
+  @@index([enabled])
+}
+
+// ─── Background Jobs ─────────────────────────────────────────────────────────
+
+model Job {
+  id          String    @id @default(cuid())
+  type        String
+  status      String    // "pending", "running", "completed", "failed"
+  input       Json?
+  output      Json?
+  error       String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  duration    Float?    // seconds
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+}
+
+// ─── Data Collection Pipelines ──────────────────────────────────────────────
+
+model PipelineRun {
+  id                String     @id @default(cuid())
+  companyId         String
+  scraperName       String
+  sourceType        SourceType
+  status            String     // "pending", "running", "completed", "failed", "skipped"
+  signalsCreated    Int        @default(0)
+  duplicatesSkipped Int        @default(0)
+  error             String?    @db.Text
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime   @default(now())
+
+  company           Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  logs              PipelineLog[]
+
+  @@index([companyId])
+  @@index([scraperName])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PipelineLog {
+  id        String   @id @default(cuid())
+  runId     String
+  level     String   @default("info")
+  message   String
+  details   Json?
+  createdAt DateTime @default(now())
+
+  run       PipelineRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([createdAt])
+}
+
+model TrackedSubreddit {
+  id              String    @id @default(cuid())
+  companyId       String
+  subreddit       String
+  reason          String?   @db.Text
+  subscriberCount Int?
+  isActive        Boolean   @default(true)
+  discoveredAt    DateTime  @default(now())
+  lastValidatedAt DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, subreddit])
+  @@index([companyId])
+  @@index([subreddit])
+  @@index([isActive])
+}
+
+model SubredditDiscoveryLog {
+  id              String    @id @default(cuid())
+  companyId       String
+  status          String
+  suggestedCount  Int       @default(0)
+  validatedCount  Int       @default(0)
+  error           String?   @db.Text
+  llmModel        String?
+  durationMs      Int?
+  createdAt       DateTime  @default(now())
+
+  @@index([companyId])
+  @@index([createdAt])
+}
+
+// ─── Company Enrichment Pipeline ────────────────────────────────────────────
+
+model CompanyDataSource {
+  id              String     @id @default(cuid())
+  companyId       String
+  url             String
+  sourceType      SourceType
+  label           String?
+  discoveryMethod String     // "website-probe", "llm-suggest", "web-search", "manual", "seed"
+  isActive        Boolean    @default(true)
+  validatedAt     DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  company         Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, url])
+  @@index([companyId])
+  @@index([sourceType])
+}
+
+model CompanyEnrichmentLog {
+  id                String   @id @default(cuid())
+  companyId         String
+  status            String   // "success", "partial", "failed"
+  feedsDiscovered   Int      @default(0)
+  feedsValidated    Int      @default(0)
+  tickerFound       String?
+  socialsDiscovered Int      @default(0)
+  blogsDiscovered   Int      @default(0)
+  error             String?  @db.Text
+  durationMs        Int
+  createdAt         DateTime @default(now())
+
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -11,8 +11,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import {
-  Newspaper,
   BarChart3,
   Building2,
   FileText,
@@ -25,8 +26,16 @@ import {
   Settings,
   TrendingUp,
   Globe,
+  ShieldCheck,
+  Server,
+  Flag,
+  ClipboardList,
+  BarChartBig,
+  Brain,
+  Bug,
 } from "lucide-react";
-import { useState } from "react";
+import { Logo } from "@/components/logo";
+import { useState, useEffect } from "react";
 import { SearchBar } from "@/components/dashboard/search-bar";
 import { isAdmin } from "@/lib/auth-guard";
 
@@ -41,8 +50,13 @@ const navItems = [
 ];
 
 const adminNavItems: Array<{ href: string; label: string; icon: typeof LayoutDashboard }> = [
-  // Admin-only nav items will be added here as features are built.
-  // Example: { href: "/dashboard/admin/users", label: "Users", icon: ShieldCheck },
+  { href: "/dashboard/admin", label: "Overview", icon: ShieldCheck },
+  { href: "/dashboard/admin/intelligence", label: "Intelligence", icon: Brain },
+  { href: "/dashboard/admin/content", label: "Content", icon: Flag },
+  { href: "/dashboard/admin/operations", label: "Operations", icon: Server },
+  { href: "/dashboard/admin/analytics", label: "Analytics", icon: BarChartBig },
+  { href: "/dashboard/admin/audit", label: "Audit", icon: ClipboardList },
+  { href: "/dashboard/admin/debug", label: "Debug Agent", icon: Bug },
 ];
 
 export default function DashboardLayout({
@@ -50,9 +64,48 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (status === "unauthenticated" && !session) {
+      router.replace("/sign-in");
+    }
+  }, [status, session, router]);
+
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen flex flex-col bg-background">
+        <header className="border-b-2 border-foreground bg-background sticky top-0 z-50">
+          <div className="flex items-center justify-between h-14 px-4 lg:px-6">
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-8 w-8 border-2 border-foreground" />
+              <Skeleton className="h-6 w-24" />
+            </div>
+            <div className="hidden lg:flex items-center gap-1">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-8 w-20" />
+              ))}
+            </div>
+            <Skeleton className="h-8 w-32" />
+          </div>
+        </header>
+        <main className="flex-1 p-6">
+          <div className="space-y-4">
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-32 w-full" />
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return null;
+  }
 
   const showAdminNav = isAdmin(session);
   const visibleNavItems = [
@@ -77,7 +130,7 @@ export default function DashboardLayout({
             </Button>
             <Link href="/dashboard" className="flex items-center gap-2">
               <div className="h-8 w-8 border-2 border-foreground flex items-center justify-center">
-                <Newspaper className="h-4 w-4" />
+                <Logo className="h-4 w-4" />
               </div>
               <span className="font-serif text-xl font-bold tracking-tight hidden sm:inline">
                 THE TELL
@@ -128,6 +181,14 @@ export default function DashboardLayout({
                   </span>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  {isAdmin(session) && (
+                    <div className="px-2 py-1.5 mb-1">
+                      <Badge variant="default" className="text-xs flex items-center gap-1">
+                        <ShieldCheck className="h-3 w-3" />
+                        Admin
+                      </Badge>
+                    </div>
+                  )}
                   <DropdownMenuItem>
                     <Link href="/dashboard/profile" className="flex items-center gap-2 w-full">
                       <User className="h-4 w-4" />
@@ -190,10 +251,10 @@ export default function DashboardLayout({
       {/* Footer */}
       <footer className="border-t border-foreground py-4 px-4">
         <div className="flex items-center justify-between">
-          <p className="text-[10px] uppercase tracking-widest font-sans text-muted-foreground">
+          <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground">
             The Tell &mdash; Corporate Intelligence Platform
           </p>
-          <p className="text-[10px] uppercase tracking-widest font-sans text-muted-foreground">
+          <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground">
             {new Date().getFullYear()}
           </p>
         </div>

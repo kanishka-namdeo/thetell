@@ -1,6 +1,7 @@
 services:
   db:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
+    restart: always
     environment:
       POSTGRES_USER: thell_user
       POSTGRES_PASSWORD: thell_password
@@ -10,5 +11,36 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  inngest:
+    image: inngest/inngest
+    restart: always
+    command: "inngest dev -u http://host.docker.internal:3000/api/inngest"
+    ports:
+      - "8288:8288"
+      - "8289:8289"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  opencode:
+    image: ghcr.io/anomalyco/opencode:latest-debian
+    restart: always
+    ports:
+      - "4096:4096"
+    environment:
+      - OPENCODE_SERVER_PASSWORD=${OPENCODE_PASSWORD:-debug-agent-secret}
+      - OPENAI_API_KEY=${API_KEY}
+      - OPENAI_BASE_URL=${BASE_URL}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - BRAVE_API_KEY=${BRAVE_API_KEY}
+    volumes:
+      - ./:/workspace
+      - ./opencode/config:/home/opencode/.config/opencode
+      - opencode-data:/home/opencode/.local/share/opencode
+    working_dir: /workspace
+    command: ["opencode", "serve", "--port", "4096", "--hostname", "0.0.0.0", "--cors", "http://localhost:3000"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   pgdata:
+  opencode-data:

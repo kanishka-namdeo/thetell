@@ -101,6 +101,10 @@ export class GitHubScraper extends BaseScraper {
     super(1.0, 30000, 3, 3600); // 1 hour cache
   }
 
+  override get scraperName(): string {
+    return "github-scraper";
+  }
+
   /**
    * Scrape GitHub organization for signals.
    * @param org - GitHub organization name
@@ -218,6 +222,7 @@ export class GitHubScraper extends BaseScraper {
 
   /**
    * Fetch with optional GitHub token authentication.
+   * Retries on 429/503 with exponential backoff.
    */
   private async fetchWithAuth(url: string, token?: string): Promise<string | null> {
     if (!(await this.canScrape(url))) {
@@ -241,31 +246,75 @@ export class GitHubScraper extends BaseScraper {
       headers.Authorization = `token ${token}`;
     }
 
-    try {
-      const response = await fetch(url, {
-        headers,
-        signal: AbortSignal.timeout(this.timeout),
-      });
+    let lastError: Error | null = null;
 
-      if (!response.ok) {
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      try {
+        const response = await fetch(url, {
+          headers,
+          signal: AbortSignal.timeout(this.timeout),
+        });
+
+        if (response.ok) {
+          const text = await response.text();
+          await this.cache.set(url, text);
+          return text;
+        }
+
+        // Handle rate limiting with retry
+        if (response.status === 429 || response.status === 503) {
+          const retryAfter = response.headers.get("Retry-After");
+          const waitTime = retryAfter
+            ? parseInt(retryAfter, 10) * 1000
+            : Math.min(2 ** attempt * 1000, 60000);
+
+          logger.warn("GitHub API rate limited", {
+            url,
+            status: response.status,
+            waitTime: waitTime / 1000,
+            attempt,
+          });
+
+          // Consume body to release connection
+          await response.body?.cancel();
+
+          if (attempt < this.maxRetries) {
+            await new Promise((r) => setTimeout(r, waitTime));
+            continue;
+          }
+        }
+
+        // Consume body to release connection
+        await response.body?.cancel();
+
         logger.warn("GitHub API request failed", {
           url,
           status: response.status,
           statusText: response.statusText,
         });
         return null;
-      }
+      } catch (error) {
+        lastError = error as Error;
+        const waitTime = Math.min(2 ** attempt * 1000, 60000);
 
-      const text = await response.text();
-      await this.cache.set(url, text);
-      return text;
-    } catch (error) {
-      logger.error("GitHub API fetch error", {
-        url,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
+        logger.warn("GitHub API fetch error", {
+          url,
+          error: error instanceof Error ? error.message : String(error),
+          attempt,
+          waitTime: waitTime / 1000,
+        });
+
+        if (attempt < this.maxRetries) {
+          await new Promise((r) => setTimeout(r, waitTime));
+        }
+      }
     }
+
+    logger.error("GitHub API fetch failed after retries", {
+      url,
+      error: lastError?.message ?? "Unknown error",
+    });
+    return null;
   }
 
   /**

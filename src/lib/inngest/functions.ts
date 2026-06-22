@@ -11,7 +11,12 @@ import { ANALYST_CONFIG, GOSSIP_GIRL_CONFIG } from "@/lib/ai/agent/personas";
 import { logger } from "@/lib/logger";
 import type { CrossRefAnalysis } from "@/lib/ai/agent/pipeline";
 import type { AgentAnalysis } from "@/lib/ai/agent/types";
+import { extractSentimentLabel } from "@/lib/ai/agent/types";
 import { discoverSignalsFunction } from "./discovery";
+import { correlateSignalsFunction } from "./correlation";
+import { calibrateInferencesFunction } from "./calibration";
+import { detectLanguage, LANGUAGE_CONFIDENCE_THRESHOLD } from "@/lib/nlp";
+import { assessContentQuality } from "@/lib/nlp";
 
 export const analyzeSignalFunction = inngest.createFunction(
   {
@@ -40,7 +45,92 @@ export const analyzeSignalFunction = inngest.createFunction(
       return s;
     });
 
-    // Step 2: Update status to ANALYZING
+    // Step 2: Detect language (Task 3.1)
+    const languageCheck = await step.run("detect-language", async () => {
+      try {
+        const result = await detectLanguage(signal.rawContent);
+        log.info("inngest.function.language_detected", {
+          language: result.language,
+          confidence: result.confidence,
+        });
+        return result;
+      } catch (error) {
+        log.warn("inngest.function.language_detection_failed", {
+          error: String(error),
+          fallback: "assuming English",
+        });
+        return { language: "en", confidence: 1.0 };
+      }
+    });
+
+    // Step 3: Check if non-English
+    if (
+      languageCheck.language !== "en" ||
+      languageCheck.confidence < LANGUAGE_CONFIDENCE_THRESHOLD
+    ) {
+      log.info("inngest.function.non_english_skipped", {
+        language: languageCheck.language,
+        confidence: languageCheck.confidence,
+      });
+
+      await step.run("update-status-non-english", async () => {
+        await prisma.signal.update({
+          where: { id: signalId },
+          data: { status: "NON_ENGLISH" },
+        });
+      });
+
+      return {
+        success: false,
+        signalId,
+        reason: "NON_ENGLISH",
+        language: languageCheck.language,
+      };
+    }
+
+    // Step 4: Assess content quality (Task 3.3)
+    const qualityCheck = await step.run("assess-quality", async () => {
+      try {
+        const companyName = signal.company?.name ?? "";
+        const result = await assessContentQuality(signal.rawContent, companyName);
+        log.info("inngest.function.quality_assessed", {
+          score: result.score,
+          pass: result.pass,
+          reasons: result.reasons,
+        });
+        return result;
+      } catch (error) {
+        log.warn("inngest.function.quality_assessment_failed", {
+          error: String(error),
+          fallback: "allowing through",
+        });
+        return { score: 0.5, pass: true, reasons: ["Quality check failed, defaulting to pass"] };
+      }
+    });
+
+    // Step 5: Check if low quality
+    if (!qualityCheck.pass) {
+      log.info("inngest.function.low_quality_skipped", {
+        score: qualityCheck.score,
+        reasons: qualityCheck.reasons,
+      });
+
+      await step.run("update-status-low-quality", async () => {
+        await prisma.signal.update({
+          where: { id: signalId },
+          data: { status: "LOW_QUALITY" },
+        });
+      });
+
+      return {
+        success: false,
+        signalId,
+        reason: "LOW_QUALITY",
+        score: qualityCheck.score,
+      };
+    }
+
+    // Step 6: Update status to ANALYZING
     await step.run("update-status-analyzing", async () => {
       await prisma.signal.update({
         where: { id: signalId },
@@ -78,6 +168,9 @@ export const analyzeSignalFunction = inngest.createFunction(
         return await analyzeSignalWithAgent(signalInput, ANALYST_CONFIG);
       });
 
+      // Extract simple sentiment label for DB enum field
+      const analystSentimentLabel = extractSentimentLabel(analystAnalysis!);
+
       await step.run("create-analyst-analysis-record", async () => {
         await prisma.analysis.create({
           data: {
@@ -86,7 +179,8 @@ export const analyzeSignalFunction = inngest.createFunction(
             agentPersona: "ANALYST",
             summary: analystAnalysis!.summary,
             keyFacts: analystAnalysis!.keyFacts,
-            sentiment: analystAnalysis!.sentiment,
+            sentiment: analystSentimentLabel,
+            sentimentData: analystAnalysis!.sentiment,
             strategicThemes: analystAnalysis!.strategicThemes,
             confidence: analystAnalysis!.confidence,
             modelUsed: analystAnalysis!.modelUsed,
@@ -104,6 +198,13 @@ export const analyzeSignalFunction = inngest.createFunction(
 
     // Step 4: Run Gossip Girl agent pipeline (with cross-reference to Analyst)
     try {
+      // Extract simple sentiment label for cross-reference
+      const analystSentimentForCrossRef = analystAnalysis
+        ? ("sentiment" in analystAnalysis.sentiment
+          ? analystAnalysis.sentiment.sentiment
+          : "NEUTRAL")
+        : "NEUTRAL";
+
       const crossRefAnalyses: CrossRefAnalysis[] = analystAnalysis
         ? [
             {
@@ -111,7 +212,7 @@ export const analyzeSignalFunction = inngest.createFunction(
               agentPersona: analystAnalysis.agentPersona,
               summary: analystAnalysis.summary,
               keyFacts: analystAnalysis.keyFacts.map((f) => ({ text: f.text })),
-              sentiment: analystAnalysis.sentiment,
+              sentiment: analystSentimentForCrossRef,
               strategicThemes: analystAnalysis.strategicThemes.map((t) => ({
                 label: t.label,
               })),
@@ -127,6 +228,9 @@ export const analyzeSignalFunction = inngest.createFunction(
         );
       });
 
+      // Extract simple sentiment label for DB enum field
+      const gossipSentimentLabel = extractSentimentLabel(gossipGirlAnalysis!);
+
       await step.run("create-gossip-girl-analysis-record", async () => {
         await prisma.analysis.create({
           data: {
@@ -135,7 +239,8 @@ export const analyzeSignalFunction = inngest.createFunction(
             agentPersona: "GOSSIP_GIRL",
             summary: gossipGirlAnalysis!.summary,
             keyFacts: gossipGirlAnalysis!.keyFacts,
-            sentiment: gossipGirlAnalysis!.sentiment,
+            sentiment: gossipSentimentLabel,
+            sentimentData: gossipGirlAnalysis!.sentiment,
             strategicThemes: gossipGirlAnalysis!.strategicThemes,
             confidence: gossipGirlAnalysis!.confidence,
             modelUsed: gossipGirlAnalysis!.modelUsed,
@@ -184,7 +289,9 @@ export const analyzeSignalFunction = inngest.createFunction(
             {
               summary: analystAnalysis.summary,
               keyFacts: analystAnalysis.keyFacts.map((f) => ({ text: f.text })),
-              sentiment: analystAnalysis.sentiment,
+              sentiment: "sentiment" in analystAnalysis.sentiment
+                ? analystAnalysis.sentiment.sentiment
+                : "NEUTRAL",
               strategicThemes: analystAnalysis.strategicThemes.map((t) => ({
                 label: t.label,
               })),
@@ -247,7 +354,9 @@ export const analyzeSignalFunction = inngest.createFunction(
             keyFacts: gossipGirlAnalysis.keyFacts.map((f) => ({
               text: f.text,
             })),
-            sentiment: gossipGirlAnalysis.sentiment,
+            sentiment: "surface_reading" in gossipGirlAnalysis.sentiment
+              ? ({ "bullish-spin": "POSITIVE", "bearish-subtext": "NEGATIVE", "neutral-surface": "NEUTRAL", "mixed-signals": "NEUTRAL" } as Record<string, string>)[gossipGirlAnalysis.sentiment.surface_reading] ?? "NEUTRAL"
+              : "NEUTRAL",
             strategicThemes: gossipGirlAnalysis.strategicThemes.map((t) => ({
               label: t.label,
             })),
@@ -303,6 +412,38 @@ export const analyzeSignalFunction = inngest.createFunction(
       }
     }
 
+    // Step 6: Generate structured debate (requires both analyses)
+    if (analystAnalysis && gossipGirlAnalysis) {
+      try {
+        const debate = await step.run("generate-debate", async () => {
+          const { generateDebate } = await import("@/lib/ai/agent/debate");
+          return await generateDebate(analystAnalysis!, gossipGirlAnalysis!);
+        });
+
+        await step.run("create-debate-record", async () => {
+          await prisma.agentDebate.create({
+            data: {
+              signalId,
+              analystPosition: debate.analystPosition,
+              gossipGirlPosition: debate.gossipGirlPosition,
+              pointsOfAgreement: debate.pointsOfAgreement,
+              pointsOfContention: debate.pointsOfContention,
+              synthesis: debate.synthesis,
+            },
+          });
+          log.info("inngest.function.debate_created", {
+            signalId,
+            agreementCount: debate.pointsOfAgreement.length,
+            contentionCount: debate.pointsOfContention.length,
+          });
+        });
+      } catch (error) {
+        log.error("inngest.function.debate_failed", {
+          error: String(error),
+        });
+      }
+    }
+
     // Step 7: Update signal status to ANALYZED (at least one agent succeeded)
     await step.run("update-status-analyzed", async () => {
       await prisma.signal.update({
@@ -327,4 +468,4 @@ export const analyzeSignalFunction = inngest.createFunction(
   }
 );
 
-export const functions = [analyzeSignalFunction, discoverSignalsFunction];
+export const functions = [analyzeSignalFunction, discoverSignalsFunction, correlateSignalsFunction, calibrateInferencesFunction];

@@ -41,9 +41,10 @@ export async function POST(request: Request) {
     });
 
     if (existingUser) {
+      // Return same message as success to prevent user enumeration
       return NextResponse.json(
-        { error: "conflict", message: "Email already registered" },
-        { status: 409 }
+        { message: "Account created. Check your email to verify your account." },
+        { status: 201 }
       );
     }
 
@@ -68,9 +69,13 @@ export async function POST(request: Request) {
       },
     });
 
-    console.log(
-      `[Registration] Verification link for ${email}: http://localhost:3000/api/v1/auth/verify-email?token=${verificationToken}`
-    );
+    // In production, send email with verification link
+    // For development, log the link (never log in production)
+    if (process.env.NODE_ENV === "development") {
+      console.log(
+        `[Registration] Verification token generated for ${email}`
+      );
+    }
 
     return NextResponse.json(
       {

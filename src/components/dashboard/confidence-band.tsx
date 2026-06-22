@@ -8,34 +8,18 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { getConfidenceBand } from "@/lib/utils/confidence";
 import { motion } from "motion/react";
-
-type ConfidenceBandLevel = "high" | "likely" | "uncertain";
 
 interface ConfidenceBandProps {
   confidence: number;
   className?: string;
+  label?: string;
 }
 
-function getBandLevel(confidence: number): ConfidenceBandLevel {
-  if (confidence >= 0.8) return "high";
-  if (confidence >= 0.6) return "likely";
-  return "uncertain";
-}
-
-const bandConfig: Record<
-  ConfidenceBandLevel,
-  { label: string; variant: "default" | "secondary" | "outline" }
-> = {
-  high: { label: "High Confidence", variant: "default" },
-  likely: { label: "Likely", variant: "secondary" },
-  uncertain: { label: "Uncertain", variant: "outline" },
-};
-
-export function ConfidenceBand({ confidence, className }: ConfidenceBandProps) {
-  const level = getBandLevel(confidence);
-  const config = bandConfig[level];
+export function ConfidenceBand({ confidence, className, label }: ConfidenceBandProps) {
   const percentage = Math.round(confidence * 100);
+  const band = getConfidenceBand(confidence);
 
   return (
     <TooltipProvider>
@@ -46,13 +30,22 @@ export function ConfidenceBand({ confidence, className }: ConfidenceBandProps) {
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.2 }}
           >
-            <Badge variant={config.variant} className={cn("font-mono", className)}>
-              {config.label}
+            <Badge
+              className={cn(
+                "font-mono cursor-help",
+                band.color,
+                band.bgColor,
+                className
+              )}
+            >
+              {label || band.label}
             </Badge>
           </motion.div>
         </TooltipTrigger>
         <TooltipContent>
-          <span className="font-mono">{percentage}% confidence</span>
+          <span className="font-mono">
+            {percentage}% confidence — {band.description}
+          </span>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

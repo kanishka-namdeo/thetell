@@ -9,6 +9,14 @@ import { BaseScraper } from "./base-scraper";
 import type { ArticleData } from "./news-scraper";
 
 export class BlogScraper extends BaseScraper {
+  constructor() {
+    super(1.0, 30000, 3, 86400, true);
+  }
+
+  override get scraperName(): string {
+    return "blog-scraper";
+  }
+
   /**
    * Scrape a blog post from a URL.
    * Returns ArticleData or null if scraping failed.

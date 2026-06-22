@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { CompanyWithCounts, PaginatedApiResponse } from "@/lib/api/schemas";
 
 interface UseCompaniesOptions {
@@ -11,8 +11,9 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const loadMoreControllerRef = useRef<AbortController | null>(null);
 
-  const fetchCompanies = useCallback(async (cursor?: string) => {
+  const fetchCompanies = useCallback(async (cursor?: string, signal?: AbortSignal) => {
     try {
       setLoading(true);
       setError(null);
@@ -21,7 +22,7 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
       params.set("limit", String(options.limit || 20));
       if (cursor) params.set("cursor", cursor);
 
-      const res = await fetch(`/api/v1/companies?${params.toString()}`);
+      const res = await fetch(`/api/v1/companies?${params.toString()}`, { signal });
       if (!res.ok) throw new Error("Failed to fetch companies");
 
       const json: PaginatedApiResponse<CompanyWithCounts> = await res.json();
@@ -35,6 +36,7 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
       setHasMore(json.hasMore);
       setNextCursor(json.nextCursor);
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
@@ -42,13 +44,53 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
   }, [options.limit]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetch, setState is after await
-    void fetchCompanies();
-  }, [fetchCompanies]);
+    const controller = new AbortController();
+
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const params = new URLSearchParams();
+        params.set("limit", String(options.limit || 20));
+
+        const res = await fetch(`/api/v1/companies?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error("Failed to fetch companies");
+
+        const json: PaginatedApiResponse<CompanyWithCounts> = await res.json();
+
+        setData(json.items);
+        setHasMore(json.hasMore);
+        setNextCursor(json.nextCursor);
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setError(err instanceof Error ? err.message : "Unknown error");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+
+    return () => {
+      controller.abort();
+    };
+  }, [options.limit]);
+
+  useEffect(() => {
+    return () => {
+      loadMoreControllerRef.current?.abort();
+    };
+  }, []);
 
   const loadMore = useCallback(() => {
     if (hasMore && nextCursor) {
-      fetchCompanies(nextCursor);
+      loadMoreControllerRef.current?.abort();
+      const controller = new AbortController();
+      loadMoreControllerRef.current = controller;
+      fetchCompanies(nextCursor, controller.signal);
     }
   }, [hasMore, nextCursor, fetchCompanies]);
 

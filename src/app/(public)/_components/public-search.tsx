@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Search, X, FileText, Building2, BarChart3 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { logger } from "@/lib/logger";
 
 interface SearchResult {
   signals: Array<{ id: string; title: string; company: { id: string; name: string } }>;
@@ -19,6 +20,7 @@ export function PublicSearch() {
   const containerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const controllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -36,16 +38,20 @@ export function PublicSearch() {
       setOpen(false);
       return;
     }
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/public/search?q=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/v1/public/search?q=${encodeURIComponent(q)}`, { signal: controller.signal });
       if (res.ok) {
         const data = await res.json();
         setResults(data);
         setOpen(true);
       }
     } catch (err) {
-      console.error("Search error:", err);
+      if (err instanceof Error && err.name === "AbortError") return;
+      logger.error("public-search.error", { error: String(err), query: q });
     } finally {
       setLoading(false);
     }
@@ -77,6 +83,7 @@ export function PublicSearch() {
         <Input
           type="text"
           placeholder="Search…"
+          aria-label="Search signals"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => {
@@ -100,7 +107,7 @@ export function PublicSearch() {
       </div>
 
       {open && results && (
-        <div className="absolute top-full left-0 right-0 mt-1 border-2 border-foreground bg-background shadow-md z-50 max-h-80 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 mt-1 border border-foreground bg-background shadow-md z-50 max-h-80 overflow-y-auto">
           {loading && (
             <div className="px-3 py-2 text-xs font-mono text-muted-foreground">Searching…</div>
           )}
@@ -111,7 +118,7 @@ export function PublicSearch() {
 
           {!loading && results.signals.length > 0 && (
             <div className="border-b border-border">
-              <div className="px-3 py-1.5 text-[10px] uppercase tracking-widest font-sans text-muted-foreground flex items-center gap-1.5">
+              <div className="px-3 py-1.5 text-[11px] uppercase tracking-widest font-sans text-muted-foreground flex items-center gap-1.5">
                 <BarChart3 className="h-3 w-3" /> Signals
               </div>
               {results.signals.map((s) => (
@@ -129,13 +136,13 @@ export function PublicSearch() {
 
           {!loading && results.companies.length > 0 && (
             <div className="border-b border-border">
-              <div className="px-3 py-1.5 text-[10px] uppercase tracking-widest font-sans text-muted-foreground flex items-center gap-1.5">
+              <div className="px-3 py-1.5 text-[11px] uppercase tracking-widest font-sans text-muted-foreground flex items-center gap-1.5">
                 <Building2 className="h-3 w-3" /> Companies
               </div>
               {results.companies.map((c) => (
                 <button
                   key={c.id}
-                  onClick={() => navigateTo(`/companies/${c.id}`)}
+                  onClick={() => navigateTo(`/dashboard/companies/${c.id}`)}
                   className="w-full text-left px-3 py-2 text-xs font-body hover:bg-muted transition-colors"
                 >
                   <span className="font-medium">{c.name}</span>
@@ -149,7 +156,7 @@ export function PublicSearch() {
 
           {!loading && results.articles.length > 0 && (
             <div>
-              <div className="px-3 py-1.5 text-[10px] uppercase tracking-widest font-sans text-muted-foreground flex items-center gap-1.5">
+              <div className="px-3 py-1.5 text-[11px] uppercase tracking-widest font-sans text-muted-foreground flex items-center gap-1.5">
                 <FileText className="h-3 w-3" /> Articles
               </div>
               {results.articles.map((a) => (

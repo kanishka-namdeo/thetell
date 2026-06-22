@@ -12,7 +12,7 @@ const Section = React.forwardRef<HTMLElement, SectionProps>(
       <section
         ref={ref}
         className={cn(
-          "relative py-16 md:py-20",
+          "relative py-20 md:py-24",
           inverted && "bg-foreground text-background",
           texture && "newsprint-texture",
           className

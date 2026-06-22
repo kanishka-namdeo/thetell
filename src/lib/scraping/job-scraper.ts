@@ -20,6 +20,14 @@ export interface JobPostingData {
 }
 
 export class JobPostingScraper extends BaseScraper {
+  constructor() {
+    super(1.0, 30000, 3, 86400, true);
+  }
+
+  override get scraperName(): string {
+    return "job-scraper";
+  }
+
   /**
    * Scrape a job posting from a URL.
    * Returns JobPostingData or null if scraping failed.

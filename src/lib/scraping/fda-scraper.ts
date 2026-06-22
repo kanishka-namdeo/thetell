@@ -51,6 +51,10 @@ export class FdaScraper extends BaseScraper {
     super(4.0, 30000, 3, 21600);
   }
 
+  override get scraperName(): string {
+    return "fda-scraper";
+  }
+
   /**
    * Search for drug adverse events by company/manufacturer name.
    * Returns signals for each adverse event report.

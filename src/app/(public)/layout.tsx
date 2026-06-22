@@ -1,4 +1,6 @@
-import { Container, Headline, Metadata, Icon, Newspaper, Button, Label } from "@/components";
+import { Container, Headline, Metadata, Button, Label } from "@/components";
+import { Logo } from "@/components/logo";
+import { MobileNav } from "@/components/layout/mobile-nav";
 import Link from "next/link";
 import { PublicSearch } from "./_components/public-search";
 import { Suspense } from "react";
@@ -17,20 +19,29 @@ export default function PublicLayout({
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+
       {/* Newspaper Header */}
       <header className="border-b-4 border-foreground bg-background">
-        <Container className="py-6">
+        <Container className="py-3 md:py-6">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Icon icon={Newspaper} size="lg" bordered />
+            <Link href="/" className="flex items-center gap-2 md:gap-4 hover:opacity-80 transition-opacity">
+              <div className="md:hidden">
+                <Logo className="h-8 w-8" />
+              </div>
+              <div className="hidden md:flex">
+                <Logo className="h-12 w-12" />
+              </div>
               <div>
-                <Headline level={1} size="subheading" className="text-3xl">
+                <Headline level={1} size="subheading" className="text-xl md:text-3xl">
                   THE TELL
                 </Headline>
-                <Metadata>{currentDate}</Metadata>
+                <Metadata className="hidden sm:block">{currentDate}</Metadata>
               </div>
-            </div>
-            <nav className="flex items-center gap-6">
+            </Link>
+            <nav className="hidden md:flex items-center gap-6">
               <Link href="/">
                 <Label className="hover:text-accent cursor-pointer transition-colors">
                   Feed
@@ -43,12 +54,15 @@ export default function PublicLayout({
                 <Button size="sm">Sign In</Button>
               </Link>
             </nav>
+            <div className="md:hidden">
+              <MobileNav />
+            </div>
           </div>
         </Container>
       </header>
 
       {/* Main Content */}
-      <main className="flex-1">
+      <main id="main-content" className="flex-1">
         {children}
       </main>
 

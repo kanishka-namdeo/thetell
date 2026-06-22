@@ -132,6 +132,10 @@ export class AcademicScraper extends BaseScraper {
     super(2.0, 30000, 3, 86400);
   }
 
+  override get scraperName(): string {
+    return "academic-scraper";
+  }
+
   /**
    * Search OpenAlex for academic works by keyword or author affiliation.
    */

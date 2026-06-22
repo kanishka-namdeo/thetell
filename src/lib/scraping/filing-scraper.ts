@@ -56,6 +56,10 @@ export class FilingScraper extends BaseScraper {
     super(10.0, 30000, 3, 3600); // 1 hour cache TTL
   }
 
+  override get scraperName(): string {
+    return "filing-scraper";
+  }
+
   /**
    * Fetch recent filings for a company by CIK from SEC EDGAR.
    * CIK must be 10 digits (zero-padded).

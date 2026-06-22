@@ -22,6 +22,8 @@ export default function SignalsPage() {
     sentiment,
     companyId,
     limit: 20,
+    includeInferences: true,
+    includeCorrelations: true,
   });
 
   const { data: companies } = useCompanies({ limit: 50 });
@@ -37,7 +39,7 @@ export default function SignalsPage() {
     <div className="p-4 lg:p-6 space-y-6">
       {/* Page Header */}
       <div className="border-b-2 border-foreground pb-4">
-        <p className="text-[10px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
+        <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
           Intelligence
         </p>
         <h1 className="text-3xl font-serif font-bold">Signals</h1>
@@ -48,7 +50,7 @@ export default function SignalsPage() {
 
       {/* Filters */}
       <div className="border border-foreground p-4">
-        <p className="text-[10px] uppercase tracking-widest font-sans text-muted-foreground mb-3">
+        <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground mb-3">
           Filters
         </p>
         <SignalFilters

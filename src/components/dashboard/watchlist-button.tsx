@@ -7,7 +7,7 @@ import { Bookmark } from "lucide-react";
 interface WatchlistButtonProps {
   companyId: string;
   isWatched: boolean;
-  onToggle: (isWatched: boolean) => void;
+  onToggle?: (isWatched: boolean) => void;
 }
 
 export function WatchlistButton({
@@ -48,7 +48,7 @@ export function WatchlistButton({
         }
       }
 
-      onToggle(!previousState);
+      onToggle?.(!previousState);
     } catch (error) {
       // Rollback on error
       setIsWatched(previousState);

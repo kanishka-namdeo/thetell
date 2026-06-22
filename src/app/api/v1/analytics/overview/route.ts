@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,7 +16,8 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const companyId = searchParams.get("companyId");
-    const days = parseInt(searchParams.get("days") || "30");
+    const rawDays = parseInt(searchParams.get("days") || "30");
+    const days = Number.isNaN(rawDays) ? 30 : Math.min(Math.max(rawDays, 1), 365);
 
     const dateThreshold = new Date();
     dateThreshold.setDate(dateThreshold.getDate() - days);
@@ -37,7 +39,7 @@ export async function GET(request: NextRequest) {
       sourceBreakdown,
     });
   } catch (error) {
-    console.error("Error fetching analytics overview:", error);
+    logger.error("Error fetching analytics overview", { error: String(error) });
     return NextResponse.json(
       { error: "internal_error", message: "Failed to fetch analytics overview" },
       { status: 500 }

@@ -57,6 +57,10 @@ export class UspScraper extends BaseScraper {
     this.apiKey = process.env.USPTO_API_KEY ?? null;
   }
 
+  override get scraperName(): string {
+    return "uspto-scraper";
+  }
+
   /**
    * Whether the scraper is configured with an API key.
    * Without a key, only bulk data search (limited) is available.

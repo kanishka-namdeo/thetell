@@ -1,14 +1,14 @@
 <!-- BEGIN:nextjs-agent-rules -->
 # This is NOT the Next.js you know
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+This version has breaking changes â€” APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
 # The Tell - Project Structure
 
 **The Tell** is an AI system that reads public company signals and infers inner workings. It's a Next.js 16.2.9 application with integrated TypeScript AI layer.
 
-## Current State (as of 2026-06-18)
+## Current State (as of 2026-06-19)
 
 **Built:**
 - Design system (newsprint aesthetic, shadcn/ui components, typography, layout)
@@ -29,11 +29,14 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **Dual-agent analysis system** (two distinct AI personas: Analyst and Gossip Girl)
 - **Agent abstraction layer** (persona configs, prompt builders, cross-referencing)
 - **Extended scrapers** (blog, social media, job postings)
+- **Hypothesis-driven collection system** (LLM-generated investigative questions guide targeted signal collection)
+- **Cross-signal debate engine** (dual agents debate accumulated evidence across multiple signals to refine inferences)
+- **Correlation engine with dual-agent awareness** (connects themes across signals, tracks momentum, generates strategic inferences)
+- **22 scrapers total** (core 7 + extended 11 + hypothesis-guided 3: AppStore, Domain, Conference + web search)
 
 **Aspirational (rules exist but features not implemented):**
 - LangGraph agent layer for multi-step analysis
 - Signal ingestion from multiple sources (news, filings, transcripts, social)
-- Cross-signal inference engine
 
 ## Dual-Agent Analysis System
 
@@ -56,8 +59,8 @@ The Tell uses two distinct AI personas to analyze signals from different perspec
 ### Data Flow
 
 ```
-Signal → Agent Pipeline → Analysis → Article
-  ↓         ↓              ↓          ↓
+Signal â†’ Agent Pipeline â†’ Analysis â†’ Article
+  â†“         â†“              â†“          â†“
 Scraped   Persona-specific  Facts,    Headline,
 content   prompts with     sentiment,  summary,
           agent voice      themes,    body in
@@ -72,11 +75,18 @@ content   prompts with     sentiment,  summary,
 - `prompts.ts` - Prompt builders that inject agent voice into analysis
 - `pipeline.ts` - `analyzeSignalWithAgent()` runs full analysis with persona
 - `article-generator.ts` - `generateArticleWithAgent()` creates articles in agent voice
+- `cross-signal-debate.ts` - Dual-agent debate over accumulated evidence across signals
+
+**Hypothesis Layer** (`src/lib/ai/hypothesis-generator.ts`)
+- Generates investigative questions from signal patterns using LLM
+- Questions guide targeted collection via hypothesis-specific scrapers
+- `src/lib/inngest/hypothesis.ts` - Background job for hypothesis generation
 
 **Cross-Referencing**
 - Agents can reference each other's analyses
 - `crossRefAnalyses` parameter allows agents to build on each other's work
 - Enables multi-perspective synthesis
+- Cross-signal debate has agents argue for/against hypotheses using accumulated evidence
 
 ### Extended Scrapers
 
@@ -97,13 +107,54 @@ content   prompts with     sentiment,  summary,
 | Term | Definition |
 |------|-----------|
 | **Signal** | A piece of public information about a company (news article, earnings call transcript, SEC filing, social media post, job posting, patent filing) |
-| **Inference** | AI analysis that extracts strategic insights from signals — predicts corporate intent, not just summarizes content |
+| **Inference** | AI analysis that extracts strategic insights from signals â€” predicts corporate intent, not just summarizes content |
 | **Company** | An organization being monitored for signals (public company, private startup, government agency) |
 | **Signal Source** | The origin/channel where a signal was found (Reuters, SEC EDGAR, Twitter/X, company blog, job board) |
 | **Confidence** | AI-assessed probability that an inference is correct (0.0-1.0) |
 | **Sentiment** | Emotional tone of a signal (positive/negative/neutral) |
 | **Analysis** | The process of extracting insights from a signal (fact extraction, sentiment classification, strategic implications) |
 | **Article** | News-style output generated from analysis results |
+
+## Module Map
+
+**Last updated**: 2026-06-22
+
+### Signal Pipeline (data flows top-to-bottom)
+- **Ingestion**: `src/lib/scraping/registry.ts` -> 22 scrapers -> `src/lib/scraping/cache.ts`
+- **Analysis**: `src/lib/ai/agent/pipeline.ts` -> `prompts.ts` -> `personas.ts`
+- **URL Discovery**: `src/lib/ai/url-discovery.ts`
+- **Article Gen**: `src/lib/ai/agent/article-generator.ts`
+- **Hypothesis Layer**: `src/lib/ai/hypothesis-generator.ts` -> `src/lib/inngest/hypothesis.ts`
+- **Cross-Signal Debate**: `src/lib/ai/agent/cross-signal-debate.ts`
+- **Background**: `src/lib/inngest/functions.ts` -> `discovery.ts`
+
+### Key Entry Points
+- **Public feed**: `src/app/(public)/page.tsx` -> `feed-content.tsx` -> `feed-signal-card.tsx`
+- **Dashboard**: `src/app/dashboard/layout.tsx` -> per-page components
+- **API routes**: `src/app/api/v1/{signals,articles,search}/route.ts`
+- **Inference API**: `src/app/api/v1/inferences/`
+- **Timeline API**: `src/app/api/v1/companies/[id]/timeline/`
+- **Correlations API**: `src/app/api/v1/signals/[id]/correlations/`
+
+### Data Layer
+- **Schema**: `prisma/schema.prisma` (7 models: User, Company, Signal, Analysis, Article, WatchedCompany, ScrapeCache)
+- **DB access**: Prisma client via `src/lib/db.ts`
+
+### Cross-Cutting
+- **Auth**: `src/lib/auth.ts` (NextAuth v5) - used in dashboard layout, API routes
+- **Middleware**: `src/middleware.ts` - edge auth, rate limiting, public route protection
+- **AI Provider**: `src/lib/ai/provider.ts` -> OpenAI/Anthropic abstraction
+- **Confidence**: `src/lib/ai/confidence.ts` + `src/lib/utils/confidence.ts`
+
+### Scrapers (22 total, in `src/lib/scraping/`)
+- **Core**: `blog-scraper.ts`, `filing-scraper.ts`, `job-scraper.ts`, `news-scraper.ts`, `rss-scraper.ts`, `social-scraper.ts`, `transcript-scraper.ts`
+- **Extended**: `academic-scraper.ts`, `cert-transparency-scraper.ts`, `congress-scraper.ts`, `courtlistener-scraper.ts`, `fda-scraper.ts`, `github-scraper.ts`, `press-release-scraper.ts`, `reddit-financial-scraper.ts`, `sam-scraper.ts`, `uspto-scraper.ts`, `wayback-scraper.ts`
+- **New**: `app-store-scraper.ts`, `domain-tracker.ts`, `conference-scraper.ts`, `web-search-scraper.ts`
+
+### NLP Layer (`src/lib/nlp/`)
+- `embedding-generator.ts`, `entity-extractor.ts`, `index.ts`, `keyphrase-extractor.ts`, `language-detector.ts`, `model-cache.ts`, `quality-gate.ts`, `sentiment-classifier.ts`
+
+---
 
 ## Windows Operating System
 
@@ -116,7 +167,7 @@ This workspace runs on Windows. All agents must:
 
 ## Agent Configuration
 
-The `.cursor/` directory contains 26 rules and 12 skills that guide agent behavior. Rules use three activation modes:
+The `.cursor/` directory contains 34 rules and 16 skills that guide agent behavior. Rules use three activation modes:
 
 ### Rule Activation Modes
 
@@ -166,12 +217,16 @@ The `.cursor/` directory contains 26 rules and 12 skills that guide agent behavi
 
 ### Skills (`.cursor/skills/`)
 
-**Domain skills** (8):
+**Domain skills** (12):
+- `adding-signal-source/` - Add new signal source types to the pipeline
 - `api-design/` - Next.js Route Handler patterns, request/response schemas, versioning
 - `article-generation/` - Transform analysis into news-style articles
 - `data-modeling/` - TypeScript types, Zod schemas, layered validation
+- `langgraph-orchestration/` - LangGraph.js workflows, state machines, cross-signal inference
 - `llm-abstraction/` - Provider-agnostic LLM interface (OpenAI/Anthropic)
 - `monorepo-deployment/` - Next.js deployment patterns
+- `opencode-sdk/` - OpenCode SDK integration, custom agents/tools, automation
+- `pydanticai-agents/` - PydanticAI structured outputs and multi-provider LLM
 - `signal-analysis/` - Extract insights from raw public signals
 - `testing-strategies/` - Test non-deterministic systems (LLM, scraping)
 - `web-scraping/` - Polite scraping with caching, rate limiting, retry logic

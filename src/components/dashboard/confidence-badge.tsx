@@ -1,7 +1,14 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { getConfidenceBand } from "@/lib/utils/confidence";
 
 interface ConfidenceBadgeProps {
   confidence: number;
@@ -10,27 +17,29 @@ interface ConfidenceBadgeProps {
 
 export function ConfidenceBadge({ confidence, className }: ConfidenceBadgeProps) {
   const percentage = Math.round(confidence * 100);
-  
-  let variant: "default" | "secondary" | "outline" | "accent" = "outline";
-  let label = "Low";
-  
-  if (confidence >= 0.8) {
-    variant = "default";
-    label = "High";
-  } else if (confidence >= 0.6) {
-    variant = "secondary";
-    label = "Medium";
-  } else if (confidence >= 0.4) {
-    variant = "outline";
-    label = "Low";
-  } else {
-    variant = "accent";
-    label = "Very Low";
-  }
+  const band = getConfidenceBand(confidence);
 
   return (
-    <Badge variant={variant} className={cn("font-mono", className)}>
-      {percentage}% · {label}
-    </Badge>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger>
+          <Badge
+            className={cn(
+              "font-mono cursor-help w-fit",
+              band.color,
+              band.bgColor,
+              className
+            )}
+          >
+            {band.label}
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent>
+          <span className="font-mono">
+            {percentage}% confidence — {band.description}
+          </span>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

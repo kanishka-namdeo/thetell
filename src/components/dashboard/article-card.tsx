@@ -14,7 +14,7 @@ interface ArticleCardProps {
   companyName: string;
   companyTicker: string | null;
   publishedAt: string | null;
-  status: "DRAFT" | "PUBLISHED";
+  status: "DRAFT" | "PUBLISHED" | "PENDING_REVIEW";
   authorName: string | null;
 }
 
@@ -41,9 +41,11 @@ export function ArticleCard({
   return (
     <Card className="hard-shadow-hover transition-all">
       <CardHeader>
-        <div className="flex items-start justify-between gap-2">
-          <CardTitle className="text-lg leading-tight">{title}</CardTitle>
-          <Badge variant={status === "PUBLISHED" ? "default" : "outline"}>
+        <div className="flex items-start justify-between gap-2 min-w-0">
+          <CardTitle className="text-lg leading-tight truncate min-w-0" title={title}>
+            {title}
+          </CardTitle>
+          <Badge variant={status === "PUBLISHED" ? "default" : "outline"} className="shrink-0">
             {status}
           </Badge>
         </div>

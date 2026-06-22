@@ -93,10 +93,10 @@ export function AnalysisDetail({ analysis, agentPersona }: AnalysisDetailProps) 
                   <div className="flex-1">
                     <p className="text-sm font-body">{fact.text}</p>
                     <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="outline" className="text-[9px]">
+                      <Badge variant="outline" className="text-[11px]">
                         {categoryLabels[fact.category] || fact.category}
                       </Badge>
-                      <span className="text-[10px] font-mono text-muted-foreground">
+                      <span className="text-[11px] font-mono text-muted-foreground">
                         {Math.round(fact.confidence * 100)}% confidence
                       </span>
                     </div>
@@ -127,7 +127,7 @@ export function AnalysisDetail({ analysis, agentPersona }: AnalysisDetailProps) 
             <div className="space-y-4">
               {themes.map((theme, i) => (
                 <div key={i} className="border border-foreground p-4">
-                  <Badge variant="default" className="mb-2 uppercase tracking-widest text-[10px]">
+                  <Badge variant="default" className="mb-2 uppercase tracking-widest text-[11px]">
                     {theme.label}
                   </Badge>
                   <div className="space-y-1">

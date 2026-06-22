@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
 import { ChartCard } from "@/components/charts/chart-card";
 
@@ -20,7 +20,7 @@ const SOURCE_COLORS = [
   "var(--chart-3)",
   "var(--chart-4)",
   "var(--chart-5)",
-  "#737373",
+  "var(--chart-6)",
 ];
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -32,36 +32,46 @@ const SOURCE_LABELS: Record<string, string> = {
   JOB_POSTING: "Job Posting",
 };
 
+const subscribe = () => () => {};
+function getClientSnapshot() { return true; }
+function getServerSnapshot() { return false; }
+
 export function SourceBreakdown({ companyId, days = 30 }: SourceBreakdownProps) {
   const [data, setData] = useState<SourceBreakdownData[]>([]);
   const [loading, setLoading] = useState(true);
+  const mounted = useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
 
   useEffect(() => {
+    const controller = new AbortController();
     const fetchBreakdown = async () => {
       try {
         const params = new URLSearchParams({ days: days.toString() });
         if (companyId) params.append("companyId", companyId);
 
-        const res = await fetch(`/api/v1/analytics/overview?${params}`);
+        const res = await fetch(`/api/v1/analytics/overview?${params}`, {
+          signal: controller.signal,
+        });
         if (!res.ok) throw new Error("Failed to fetch");
 
         const json = await res.json();
         setData(json.sourceBreakdown || []);
       } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
         console.error("Error fetching source breakdown:", error);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
 
     fetchBreakdown();
+    return () => controller.abort();
   }, [companyId, days]);
 
-  if (loading) {
+  if (!mounted || loading) {
     return (
       <ChartCard title="Signal Sources" description="Signals by source type">
         <div className="h-[300px] flex items-center justify-center text-muted-foreground text-sm">
-          Loading...
+          {loading ? "Loading..." : ""}
         </div>
       </ChartCard>
     );
@@ -75,7 +85,7 @@ export function SourceBreakdown({ companyId, days = 30 }: SourceBreakdownProps) 
   return (
     <ChartCard title="Signal Sources" description="Signals by source type">
       <div className="h-[300px]">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
           <PieChart>
             <Pie
               data={chartData}

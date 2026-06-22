@@ -23,8 +23,57 @@ export interface LLMProvider {
 }
 
 function extractJsonFromMarkdown(content: string): string {
+  // Strip markdown code blocks
   const match = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-  return match ? match[1].trim() : content;
+  let cleaned = match ? match[1].trim() : content;
+  
+  // Remove any leading/trailing non-JSON content
+  cleaned = cleaned.trim();
+  
+  // Try to find JSON object or array boundaries
+  const firstBrace = cleaned.indexOf('{');
+  const firstBracket = cleaned.indexOf('[');
+  const lastBrace = cleaned.lastIndexOf('}');
+  const lastBracket = cleaned.lastIndexOf(']');
+  
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+  } else if (firstBracket !== -1 && lastBracket > firstBracket) {
+    cleaned = cleaned.substring(firstBracket, lastBracket + 1);
+  }
+  
+  return cleaned;
+}
+
+function tryParseJSON(content: string): unknown {
+  try {
+    return JSON.parse(content);
+  } catch (e) {
+    // Try to fix common JSON issues
+    let fixed = content;
+    
+    // Remove trailing commas in arrays/objects
+    fixed = fixed.replace(/,\s*([\]}])/g, '$1');
+    
+    // Fix missing commas between array elements (common LLM error)
+    fixed = fixed.replace(/}\s*{/g, '},{');
+    fixed = fixed.replace(/"\s*"/g, '","');
+    
+    try {
+      return JSON.parse(fixed);
+    } catch {
+      // Last resort: try to extract just the main structure
+      const objMatch = content.match(/\{[\s\S]*\}/);
+      const arrMatch = content.match(/\[[\s\S]*\]/);
+      if (objMatch) {
+        try { return JSON.parse(objMatch[0]); } catch {}
+      }
+      if (arrMatch) {
+        try { return JSON.parse(arrMatch[0]); } catch {}
+      }
+      throw new Error(`Failed to parse JSON: ${String(e)}`);
+    }
+  }
 }
 
 class OpenAIProvider implements LLMProvider {
@@ -35,6 +84,8 @@ class OpenAIProvider implements LLMProvider {
       this.client = new OpenAI({
         apiKey: process.env.API_KEY ?? process.env.OPENAI_API_KEY,
         baseURL: process.env.BASE_URL ?? process.env.OPENAI_BASE_URL,
+        timeout: 60_000,
+        maxRetries: 2,
       });
     }
     return this.client;
@@ -54,15 +105,26 @@ class OpenAIProvider implements LLMProvider {
 
     logger.debug("llm.openai.request", { model, temperature });
 
-    const response = await client.chat.completions.create({
-      model,
-      messages: messages.map((m) => ({
-        role: m.role as "system" | "user" | "assistant",
-        content: m.content,
-      })),
-      temperature,
-      response_format: { type: "json_object" },
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+
+    let response;
+    try {
+      response = await client.chat.completions.create(
+        {
+          model,
+          messages: messages.map((m) => ({
+            role: m.role as "system" | "user" | "assistant",
+            content: m.content,
+          })),
+          temperature,
+          response_format: { type: "json_object" },
+        },
+        { signal: controller.signal }
+      );
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     const content = response.choices[0]?.message?.content;
     if (!content) {
@@ -70,7 +132,7 @@ class OpenAIProvider implements LLMProvider {
     }
 
     const cleanedContent = extractJsonFromMarkdown(content);
-    const parsed = JSON.parse(cleanedContent);
+    const parsed = tryParseJSON(cleanedContent);
     const result = schema.parse(parsed);
 
     logger.info("llm.openai.success", {
@@ -90,6 +152,8 @@ class AnthropicProvider implements LLMProvider {
     if (!this.client) {
       this.client = new Anthropic({
         apiKey: process.env.ANTHROPIC_API_KEY,
+        timeout: 60_000,
+        maxRetries: 2,
       });
     }
     return this.client;
@@ -113,16 +177,27 @@ class AnthropicProvider implements LLMProvider {
     const systemMessage = messages.find((m) => m.role === "system");
     const userMessages = messages.filter((m) => m.role !== "system");
 
-    const response = await client.messages.create({
-      model,
-      max_tokens: 4096,
-      temperature,
-      system: systemMessage?.content,
-      messages: userMessages.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+
+    let response;
+    try {
+      response = await client.messages.create(
+        {
+          model,
+          max_tokens: 4096,
+          temperature,
+          system: systemMessage?.content,
+          messages: userMessages.map((m) => ({
+            role: m.role as "user" | "assistant",
+            content: m.content,
+          })),
+        },
+        { signal: controller.signal }
+      );
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     const content = response.content[0];
     if (content.type !== "text") {
@@ -130,7 +205,7 @@ class AnthropicProvider implements LLMProvider {
     }
 
     const cleanedContent = extractJsonFromMarkdown(content.text);
-    const parsed = JSON.parse(cleanedContent);
+    const parsed = tryParseJSON(cleanedContent);
     const result = schema.parse(parsed);
 
     logger.info("llm.anthropic.success", {

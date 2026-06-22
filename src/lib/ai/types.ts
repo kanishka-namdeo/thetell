@@ -26,6 +26,7 @@ export const SourceTypeEnum = z.enum([
   "PODCAST",
   "CONFERENCE",
   "PRESS_RELEASE",
+  "LOBBYING",
 ]);
 export type SourceType = z.infer<typeof SourceTypeEnum>;
 

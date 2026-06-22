@@ -41,7 +41,7 @@ interface WireServiceConfig {
 const DEFAULT_WIRE_SERVICES: WireServiceConfig[] = [
   {
     name: "business_wire",
-    feedUrl: "https://www.businesswire.com/portal/site/en/home/rss/mrss/",
+    feedUrl: "https://www.businesswire.com/portal/site/en/home/rss/businesswire-en.xml",
     displayName: "Business Wire",
   },
   {
@@ -60,6 +60,10 @@ export class PressReleaseScraper extends BaseScraper {
   constructor() {
     // RSS feeds are typically static and can be cached longer
     super(1.0, 30000, 3, 3600); // 1 hour cache
+  }
+
+  override get scraperName(): string {
+    return "press-release-scraper";
   }
 
   /**

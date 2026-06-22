@@ -34,6 +34,26 @@ const FEED_REGISTRY: CompanyFeed[] = [
         label: "Apple Newsroom",
         sourceType: "NEWS",
       },
+      {
+        url: "https://www.apple.com/newsroom/feed/articles.rss",
+        label: "Apple Newsroom Articles",
+        sourceType: "NEWS",
+      },
+      {
+        url: "https://developer.apple.com/news/",
+        label: "Apple Developer",
+        sourceType: "BLOG",
+      },
+      {
+        url: "https://investor.apple.com/rss",
+        label: "Apple Investor Relations",
+        sourceType: "NEWS",
+      },
+      {
+        url: "https://rss.applemarketingtools.com/api/v2/us/apps/top-free/50/rss.json",
+        label: "Apple App Store Top Free",
+        sourceType: "NEWS",
+      },
     ],
   },
   {
@@ -43,6 +63,21 @@ const FEED_REGISTRY: CompanyFeed[] = [
       {
         url: "https://news.microsoft.com/feed/",
         label: "Microsoft Stories",
+        sourceType: "NEWS",
+      },
+      {
+        url: "https://blogs.microsoft.com/feed/",
+        label: "Microsoft Blog",
+        sourceType: "BLOG",
+      },
+      {
+        url: "https://devblogs.microsoft.com/feed/",
+        label: "Microsoft Developer Blog",
+        sourceType: "BLOG",
+      },
+      {
+        url: "https://www.microsoft.com/en-us/investor/rss/rss.xml",
+        label: "Microsoft Investor Relations",
         sourceType: "NEWS",
       },
     ],
@@ -61,6 +96,26 @@ const FEED_REGISTRY: CompanyFeed[] = [
         label: "Alphabet Investor News",
         sourceType: "NEWS",
       },
+      {
+        url: "https://blog.google/technology/ai/rss/",
+        label: "Google AI Blog",
+        sourceType: "BLOG",
+      },
+      {
+        url: "https://blog.youtube/rss/",
+        label: "YouTube Blog",
+        sourceType: "BLOG",
+      },
+      {
+        url: "https://cloudblog.withgoogle.com/rss/",
+        label: "Google Cloud Blog",
+        sourceType: "BLOG",
+      },
+      {
+        url: "https://abc.xyz/investor/static/content/rss/news.xml",
+        label: "Alphabet Investor Relations",
+        sourceType: "NEWS",
+      },
     ],
   },
   {
@@ -76,6 +131,21 @@ const FEED_REGISTRY: CompanyFeed[] = [
         url: "https://aws.amazon.com/blogs/aws/feed/",
         label: "AWS News Blog",
         sourceType: "BLOG",
+      },
+      {
+        url: "https://aws.amazon.com/blogs/compute/feed/",
+        label: "AWS Compute Blog",
+        sourceType: "BLOG",
+      },
+      {
+        url: "https://www.amazon.science/rss",
+        label: "Amazon Science",
+        sourceType: "BLOG",
+      },
+      {
+        url: "https://ir.aboutamazon.com/rss.xml",
+        label: "Amazon Investor Relations",
+        sourceType: "NEWS",
       },
     ],
   },
@@ -93,6 +163,16 @@ const FEED_REGISTRY: CompanyFeed[] = [
         label: "Meta Engineering Blog",
         sourceType: "BLOG",
       },
+      {
+        url: "https://ai.meta.com/blog/rss/",
+        label: "Meta AI Blog",
+        sourceType: "BLOG",
+      },
+      {
+        url: "https://investor.fb.com/rss.xml",
+        label: "Meta Investor Relations",
+        sourceType: "NEWS",
+      },
     ],
   },
   {
@@ -102,6 +182,16 @@ const FEED_REGISTRY: CompanyFeed[] = [
       {
         url: "https://nvidianews.nvidia.com/releases.xml",
         label: "NVIDIA Press Releases",
+        sourceType: "NEWS",
+      },
+      {
+        url: "https://blogs.nvidia.com/feed/",
+        label: "NVIDIA Blog",
+        sourceType: "BLOG",
+      },
+      {
+        url: "https://investor.nvidia.com/rss.xml",
+        label: "NVIDIA Investor Relations",
         sourceType: "NEWS",
       },
     ],
@@ -115,6 +205,22 @@ const FEED_REGISTRY: CompanyFeed[] = [
         label: "Tesla Blog",
         sourceType: "BLOG",
       },
+      {
+        url: "https://ir.tesla.com/rss.xml",
+        label: "Tesla Investor Relations",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "broadcom",
+    companyName: "Broadcom",
+    feeds: [
+      {
+        url: "https://investors.broadcom.com/rss.xml",
+        label: "Broadcom Investor Relations",
+        sourceType: "NEWS",
+      },
     ],
   },
   {
@@ -125,6 +231,11 @@ const FEED_REGISTRY: CompanyFeed[] = [
         url: "https://www.oracle.com/news/announcement/rss-feed.xml",
         label: "Oracle Press Releases",
         sourceType: "NEWS",
+      },
+      {
+        url: "https://blogs.oracle.com/blog/rss",
+        label: "Oracle Blog",
+        sourceType: "BLOG",
       },
     ],
   },
@@ -137,6 +248,16 @@ const FEED_REGISTRY: CompanyFeed[] = [
         label: "Salesforce News",
         sourceType: "NEWS",
       },
+      {
+        url: "https://engineering.salesforce.com/feed/",
+        label: "Salesforce Engineering Blog",
+        sourceType: "BLOG",
+      },
+      {
+        url: "https://developer.salesforce.com/blogs/feed",
+        label: "Salesforce Developer Blog",
+        sourceType: "BLOG",
+      },
     ],
   },
   {
@@ -148,6 +269,11 @@ const FEED_REGISTRY: CompanyFeed[] = [
         label: "IBM Newsroom",
         sourceType: "NEWS",
       },
+      {
+        url: "https://research.ibm.com/blog/rss",
+        label: "IBM Research Blog",
+        sourceType: "BLOG",
+      },
     ],
   },
   {
@@ -158,6 +284,11 @@ const FEED_REGISTRY: CompanyFeed[] = [
         url: "https://newsroom.intel.com/feed",
         label: "Intel Newsroom",
         sourceType: "NEWS",
+      },
+      {
+        url: "https://www.intel.com/content/www/us/en/developer/blog/rss.xml",
+        label: "Intel Developer Blog",
+        sourceType: "BLOG",
       },
     ],
   },
@@ -192,6 +323,11 @@ const FEED_REGISTRY: CompanyFeed[] = [
         label: "Adobe Newsroom",
         sourceType: "NEWS",
       },
+      {
+        url: "https://blog.adobe.com/en/publish/rss.xml",
+        label: "Adobe Blog",
+        sourceType: "BLOG",
+      },
     ],
   },
   {
@@ -202,6 +338,11 @@ const FEED_REGISTRY: CompanyFeed[] = [
         url: "https://media.netflix.com/en/press-releases.rss",
         label: "Netflix Press Releases",
         sourceType: "NEWS",
+      },
+      {
+        url: "https://netflixtechblog.com/feed",
+        label: "Netflix Tech Blog",
+        sourceType: "BLOG",
       },
     ],
   },
@@ -235,6 +376,11 @@ const FEED_REGISTRY: CompanyFeed[] = [
         url: "https://news.sap.com/feed/",
         label: "SAP News",
         sourceType: "NEWS",
+      },
+      {
+        url: "https://community.sap.com/khhcv55317/rss/board",
+        label: "SAP Community",
+        sourceType: "BLOG",
       },
     ],
   },
@@ -271,6 +417,11 @@ const FEED_REGISTRY: CompanyFeed[] = [
         label: "JPMorgan Press Releases",
         sourceType: "NEWS",
       },
+      {
+        url: "https://www.jpmorgan.com/insights/rss",
+        label: "JPMorgan Insights",
+        sourceType: "BLOG",
+      },
     ],
   },
   {
@@ -281,6 +432,11 @@ const FEED_REGISTRY: CompanyFeed[] = [
         url: "https://www.goldmansachs.com/media-rss/press-release.rss",
         label: "Goldman Sachs Press Releases",
         sourceType: "NEWS",
+      },
+      {
+        url: "https://www.goldmansachs.com/insights/rss",
+        label: "Goldman Sachs Insights",
+        sourceType: "BLOG",
       },
     ],
   },
@@ -416,6 +572,11 @@ const FEED_REGISTRY: CompanyFeed[] = [
         label: "Pfizer Press Releases",
         sourceType: "NEWS",
       },
+      {
+        url: "https://www.pfizer.com/news/rss",
+        label: "Pfizer News",
+        sourceType: "NEWS",
+      },
     ],
   },
   {
@@ -527,6 +688,11 @@ const FEED_REGISTRY: CompanyFeed[] = [
         url: "https://corporate.walmart.com/rss",
         label: "Walmart Corporate News",
         sourceType: "NEWS",
+      },
+      {
+        url: "https://tech.walmart.com/feed/",
+        label: "Walmart Tech Blog",
+        sourceType: "BLOG",
       },
     ],
   },
@@ -711,6 +877,272 @@ const FEED_REGISTRY: CompanyFeed[] = [
     ],
   },
 
+  // ─── Additional Technology ────────────────────────────────────────────────
+  {
+    companyId: "broadcom",
+    companyName: "Broadcom",
+    feeds: [
+      {
+        url: "https://www.broadcom.com/company/news/rss",
+        label: "Broadcom News",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "shopify",
+    companyName: "Shopify",
+    feeds: [
+      {
+        url: "https://www.shopify.com/blog/feed",
+        label: "Shopify Blog",
+        sourceType: "BLOG",
+      },
+      {
+        url: "https://shopify.engineering/feed",
+        label: "Shopify Engineering",
+        sourceType: "BLOG",
+      },
+    ],
+  },
+  {
+    companyId: "servicenow",
+    companyName: "ServiceNow",
+    feeds: [
+      {
+        url: "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/rss/rss-newsroom.xml",
+        label: "ServiceNow Newsroom",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "snowflake",
+    companyName: "Snowflake",
+    feeds: [
+      {
+        url: "https://www.snowflake.com/blog/feed/",
+        label: "Snowflake Blog",
+        sourceType: "BLOG",
+      },
+    ],
+  },
+  {
+    companyId: "palantir",
+    companyName: "Palantir",
+    feeds: [
+      {
+        url: "https://www.palantir.com/feed/",
+        label: "Palantir Blog",
+        sourceType: "BLOG",
+      },
+    ],
+  },
+  {
+    companyId: "crowdstrike",
+    companyName: "CrowdStrike",
+    feeds: [
+      {
+        url: "https://www.crowdstrike.com/blog/feed/",
+        label: "CrowdStrike Blog",
+        sourceType: "BLOG",
+      },
+    ],
+  },
+  {
+    companyId: "uber",
+    companyName: "Uber",
+    feeds: [
+      {
+        url: "https://www.uber.com/blog/feed/",
+        label: "Uber Blog",
+        sourceType: "BLOG",
+      },
+      {
+        url: "https://eng.uber.com/feed/",
+        label: "Uber Engineering",
+        sourceType: "BLOG",
+      },
+    ],
+  },
+  {
+    companyId: "airbnb",
+    companyName: "Airbnb",
+    feeds: [
+      {
+        url: "https://www.airbnb.com/newsroom/rss",
+        label: "Airbnb Newsroom",
+        sourceType: "NEWS",
+      },
+      {
+        url: "https://medium.com/feed/airbnb-engineering",
+        label: "Airbnb Engineering",
+        sourceType: "BLOG",
+      },
+    ],
+  },
+  {
+    companyId: "stripe",
+    companyName: "Stripe",
+    feeds: [
+      {
+        url: "https://stripe.com/blog/feed.rss",
+        label: "Stripe Blog",
+        sourceType: "BLOG",
+      },
+    ],
+  },
+  {
+    companyId: "databricks",
+    companyName: "Databricks",
+    feeds: [
+      {
+        url: "https://www.databricks.com/blog/feed",
+        label: "Databricks Blog",
+        sourceType: "BLOG",
+      },
+    ],
+  },
+  {
+    companyId: "hashicorp",
+    companyName: "HashiCorp",
+    feeds: [
+      {
+        url: "https://www.hashicorp.com/blog/feed.xml",
+        label: "HashiCorp Blog",
+        sourceType: "BLOG",
+      },
+    ],
+  },
+  {
+    companyId: "mongodb",
+    companyName: "MongoDB",
+    feeds: [
+      {
+        url: "https://www.mongodb.com/blog/rss",
+        label: "MongoDB Blog",
+        sourceType: "BLOG",
+      },
+    ],
+  },
+  {
+    companyId: "cloudflare",
+    companyName: "Cloudflare",
+    feeds: [
+      {
+        url: "https://blog.cloudflare.com/rss/",
+        label: "Cloudflare Blog",
+        sourceType: "BLOG",
+      },
+    ],
+  },
+  {
+    companyId: "datadog",
+    companyName: "Datadog",
+    feeds: [
+      {
+        url: "https://www.datadoghq.com/blog/feed/",
+        label: "Datadog Blog",
+        sourceType: "BLOG",
+      },
+    ],
+  },
+  {
+    companyId: "twilio",
+    companyName: "Twilio",
+    feeds: [
+      {
+        url: "https://www.twilio.com/blog/feed",
+        label: "Twilio Blog",
+        sourceType: "BLOG",
+      },
+    ],
+  },
+  {
+    companyId: "spotify",
+    companyName: "Spotify",
+    feeds: [
+      {
+        url: "https://newsroom.spotify.com/feed/",
+        label: "Spotify Newsroom",
+        sourceType: "NEWS",
+      },
+      {
+        url: "https://engineering.atspotify.com/feed/",
+        label: "Spotify Engineering",
+        sourceType: "BLOG",
+      },
+    ],
+  },
+
+  // ─── Industry / Regulatory Feeds ────────────────────────────────────────
+  {
+    companyId: "sec-edgar",
+    companyName: "SEC EDGAR",
+    feeds: [
+      {
+        url: "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=10-K&dateb=&owner=include&count=40&search_text=&action=getcompany&rss",
+        label: "SEC EDGAR 10-K Filings",
+        sourceType: "FILING",
+      },
+    ],
+  },
+  {
+    companyId: "federal-reserve",
+    companyName: "Federal Reserve",
+    feeds: [
+      {
+        url: "https://www.federalreserve.gov/feeds/press_all.xml",
+        label: "Federal Reserve Press",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "bureau-labor-stats",
+    companyName: "Bureau of Labor Statistics",
+    feeds: [
+      {
+        url: "https://www.bls.gov/feed/bls_latest.rss",
+        label: "BLS Latest Releases",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "techcrunch",
+    companyName: "TechCrunch",
+    feeds: [
+      {
+        url: "https://techcrunch.com/feed/",
+        label: "TechCrunch",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "the-information",
+    companyName: "The Information",
+    feeds: [
+      {
+        url: "https://www.theinformation.com/feed",
+        label: "The Information",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "stratechery",
+    companyName: "Stratechery",
+    feeds: [
+      {
+        url: "https://stratechery.com/feed/",
+        label: "Stratechery",
+        sourceType: "BLOG",
+      },
+    ],
+  },
+
   // ─── Reddit Financial Subreddits (social sentiment signals) ──────────────
   {
     companyId: "reddit-wallstreetbets",
@@ -868,4 +1300,63 @@ export function getFeedsBySourceType(sourceType: FeedConfig["sourceType"]): Comp
  */
 export function getTotalFeedCount(): number {
   return FEED_REGISTRY.reduce((total, cf) => total + cf.feeds.length, 0);
+}
+
+// ─── Database-backed feed functions ──────────────────────────────────────────
+
+import { prisma } from "@/lib/db";
+
+/**
+ * Get all company feeds from the database.
+ * Returns feeds in the same CompanyFeed format as the hardcoded registry.
+ */
+export async function getAllFeedsFromDB(): Promise<CompanyFeed[]> {
+  const dataSources = await prisma.companyDataSource.findMany({
+    where: { isActive: true },
+    include: { company: { select: { id: true, name: true, slug: true } } },
+  });
+
+  // Group by companyId
+  const grouped = new Map<string, CompanyFeed>();
+
+  for (const ds of dataSources) {
+    if (!grouped.has(ds.companyId)) {
+      grouped.set(ds.companyId, {
+        companyId: ds.companyId,
+        companyName: ds.company.name,
+        feeds: [],
+      });
+    }
+
+    const companyFeed = grouped.get(ds.companyId)!;
+    companyFeed.feeds.push({
+      url: ds.url,
+      label: ds.label || `${ds.sourceType} Feed`,
+      sourceType: ds.sourceType as "NEWS" | "BLOG" | "FILING" | "TRANSCRIPT" | "SOCIAL",
+    });
+  }
+
+  return Array.from(grouped.values());
+}
+
+/**
+ * Get feeds for a specific company from the database.
+ */
+export async function getFeedsFromDBByCompanyId(companyId: string): Promise<CompanyFeed | null> {
+  const dataSources = await prisma.companyDataSource.findMany({
+    where: { companyId, isActive: true },
+    include: { company: { select: { id: true, name: true, slug: true } } },
+  });
+
+  if (dataSources.length === 0) return null;
+
+  return {
+    companyId: dataSources[0].companyId,
+    companyName: dataSources[0].company.name,
+    feeds: dataSources.map(ds => ({
+      url: ds.url,
+      label: ds.label || `${ds.sourceType} Feed`,
+      sourceType: ds.sourceType as "NEWS" | "BLOG" | "FILING" | "TRANSCRIPT" | "SOCIAL",
+    })),
+  };
 }

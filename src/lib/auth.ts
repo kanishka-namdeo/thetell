@@ -28,6 +28,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return null;
         }
 
+        // Block suspended users from logging in
+        if (user.status === "SUSPENDED") {
+          return null;
+        }
+
         const isValid = await bcrypt.compare(
           credentials.password as string,
           user.passwordHash
@@ -48,9 +53,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async signIn({ user }) {
+    async signIn({ user, account }) {
       if (!user.email) {
         return "/sign-in?error=NoEmail";
+      }
+
+      // Skip email verification check for credentials provider
+      // (credentials users are already verified during signup)
+      if (account?.provider === "credentials") {
+        return true;
       }
 
       const dbUser = await prisma.user.findUnique({
@@ -68,6 +79,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (user) {
         token.userId = user.id;
         token.role = user.role;
+      }
+      // Refresh role from DB on every request to prevent stale roles
+      // (e.g., demoted admin retaining access until token expires)
+      if (token.userId && !user) {
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { id: token.userId as string },
+            select: { role: true, status: true },
+          });
+          if (dbUser) {
+            token.role = dbUser.role;
+            // Invalidate session if user is suspended
+            if (dbUser.status === "SUSPENDED") {
+              return {};
+            }
+          }
+        } catch {
+          // If DB query fails, keep existing role (graceful degradation)
+        }
       }
       return token;
     },

@@ -4,12 +4,18 @@
  */
 
 import type { LLMMessage } from "./types";
+import type { ExtractedEntities } from "@/lib/nlp";
+import type { LocalSentimentResult } from "@/lib/nlp";
 
-export function buildFactExtractionPrompt(text: string): LLMMessage[] {
+export function buildFactExtractionPrompt(text: string, entityContext?: string): LLMMessage[] {
+  const entitySection = entityContext
+    ? `\n\nDetected entities: ${entityContext}\n\nUse these entities to improve fact extraction accuracy.`
+    : "";
+
   return [
     {
       role: "system",
-      content: `You are an expert corporate intelligence analyst. Extract key facts from the provided text.
+      content: `You are an expert corporate intelligence analyst. Extract key facts from the provided text.${entitySection}
 
 For each fact, provide:
 - text: A clear statement of the fact
@@ -26,11 +32,15 @@ Respond with a json object with a "facts" array containing these objects.`,
   ];
 }
 
-export function buildSentimentPrompt(text: string): LLMMessage[] {
+export function buildSentimentPrompt(text: string, entityContext?: string): LLMMessage[] {
+  const entitySection = entityContext
+    ? `\n\nDetected entities: ${entityContext}\n\nUse these entities to improve sentiment analysis accuracy.`
+    : "";
+
   return [
     {
       role: "system",
-      content: `You are an expert at analyzing corporate sentiment. Classify the overall sentiment of the text.
+      content: `You are an expert at analyzing corporate sentiment. Classify the overall sentiment of the text.${entitySection}
 
 Provide:
 - sentiment: One of: POSITIVE, NEGATIVE, NEUTRAL
@@ -46,11 +56,15 @@ Respond with a json object containing these fields.`,
   ];
 }
 
-export function buildThemesPrompt(text: string): LLMMessage[] {
+export function buildThemesPrompt(text: string, entityContext?: string): LLMMessage[] {
+  const entitySection = entityContext
+    ? `\n\nDetected entities: ${entityContext}\n\nUse these entities to improve theme identification accuracy.`
+    : "";
+
   return [
     {
       role: "system",
-      content: `You are a corporate strategy analyst. Identify strategic themes in the text.
+      content: `You are a corporate strategy analyst. Identify strategic themes in the text.${entitySection}
 
 Common themes include: expansion, cost-cutting, M&A, leadership change, product launch, market entry, partnership, restructuring, innovation, competition.
 
@@ -77,7 +91,9 @@ export function buildSummaryPrompt(
       role: "system",
       content: `You are a corporate intelligence analyst. Generate a concise summary (2-3 sentences) of the key strategic implications of this text.
 
-Focus on what this reveals about the company's strategy, plans, or market position. Be specific and actionable.`,
+Focus on what this reveals about the company's strategy, plans, or market position. Be specific and actionable.
+
+Respond with a json object containing a "summary" field.`,
     },
     {
       role: "user",

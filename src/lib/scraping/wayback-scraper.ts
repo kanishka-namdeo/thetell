@@ -51,6 +51,10 @@ export class WaybackScraper extends BaseScraper {
     super(1.0, 30000, 3, 43200);
   }
 
+  override get scraperName(): string {
+    return "wayback-scraper";
+  }
+
   /**
    * Fetch CDX index of snapshots for a domain.
    * Returns signals representing notable snapshots and changes.

@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { logger } from "@/lib/logger";
+import { inngest } from "@/lib/inngest/client";
+import { z } from "zod";
+
+const CompanyUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  slug: z.string().min(1).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug must be lowercase alphanumeric with hyphens").optional(),
+  ticker: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  websiteUrl: z.string().url("Invalid website URL").nullable().optional(),
+  industry: z.string().nullable().optional(),
+  sector: z.string().nullable().optional(),
+});
 
 export async function GET(
   request: NextRequest,
@@ -30,6 +43,10 @@ export async function GET(
           take: 5,
           orderBy: { publishedAt: "desc" },
         },
+        trackedSubreddits: {
+          take: 50,
+          orderBy: { discoveredAt: "desc" },
+        },
         _count: {
           select: { signals: true, articles: true },
         },
@@ -45,7 +62,7 @@ export async function GET(
 
     return NextResponse.json(company);
   } catch (error) {
-    console.error("Error fetching company:", error);
+    logger.error("Error fetching company", { error: String(error) });
     return NextResponse.json(
       { error: "internal_error", message: "Failed to fetch company" },
       { status: 500 }
@@ -68,7 +85,26 @@ export async function PATCH(
 
     const { id } = await params;
     const body = await request.json();
-    const { name, slug, ticker, description, websiteUrl } = body;
+    const parseResult = CompanyUpdateSchema.safeParse(body);
+
+    if (!parseResult.success) {
+      const details: Record<string, string[]> = {};
+      for (const issue of parseResult.error.issues) {
+        const key = issue.path.join(".");
+        if (!details[key]) details[key] = [];
+        details[key].push(issue.message);
+      }
+      return NextResponse.json(
+        {
+          error: "validation_error",
+          message: "Invalid request body",
+          details,
+        },
+        { status: 400 }
+      );
+    }
+
+    const { name, slug, ticker, description, websiteUrl, industry, sector } = parseResult.data;
 
     const existingCompany = await prisma.company.findUnique({
       where: { id },
@@ -93,6 +129,9 @@ export async function PATCH(
       }
     }
 
+    const industryChanged = industry !== undefined && industry !== existingCompany.industry;
+    const sectorChanged = sector !== undefined && sector !== existingCompany.sector;
+
     const company = await prisma.company.update({
       where: { id },
       data: {
@@ -101,12 +140,23 @@ export async function PATCH(
         ...(ticker !== undefined && { ticker }),
         ...(description !== undefined && { description }),
         ...(websiteUrl !== undefined && { websiteUrl }),
+        ...(industry !== undefined && { industry }),
+        ...(sector !== undefined && { sector }),
       },
     });
 
+    if (industryChanged || sectorChanged) {
+      inngest.send({
+        name: "company.subreddits.discover",
+        data: { companyId: id },
+      }).catch((err) => {
+        logger.error("Failed to trigger subreddit discovery after update", { error: String(err), companyId: id });
+      });
+    }
+
     return NextResponse.json(company);
   } catch (error) {
-    console.error("Error updating company:", error);
+    logger.error("Error updating company", { error: String(error) });
     return NextResponse.json(
       { error: "internal_error", message: "Failed to update company" },
       { status: 500 }
@@ -145,7 +195,7 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting company:", error);
+    logger.error("Error deleting company", { error: String(error) });
     return NextResponse.json(
       { error: "internal_error", message: "Failed to delete company" },
       { status: 500 }

@@ -44,7 +44,7 @@ export default async function WatchlistPage() {
     <div className="p-4 lg:p-6 space-y-6">
       {/* Page Header */}
       <div className="border-b-2 border-foreground pb-4">
-        <p className="text-[10px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
+        <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
           Tracking
         </p>
         <h1 className="text-3xl font-serif font-bold">Watchlist</h1>
@@ -112,14 +112,14 @@ export default async function WatchlistPage() {
                             {signal.title}
                           </Link>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] font-mono text-muted-foreground">
+                            <span className="text-[11px] font-mono text-muted-foreground">
                               {new Date(signal.scrapedAt).toLocaleDateString("en-US", {
                                 month: "short",
                                 day: "numeric",
                               })}
                             </span>
                             {signal.analyses && signal.analyses.length > 0 && (
-                              <Badge variant="outline" className="text-[9px]">
+                              <Badge variant="outline" className="text-[11px]">
                                 {Math.round(signal.analyses[0].confidence * 100)}% confidence
                               </Badge>
                             )}

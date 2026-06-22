@@ -6,36 +6,47 @@ import { motion } from "motion/react";
 
 interface SentimentIndicatorProps {
   sentiment: "POSITIVE" | "NEGATIVE" | "NEUTRAL";
+  strength?: "STRONGLY" | "MILDY";
   className?: string;
   showLabel?: boolean;
 }
 
 export function SentimentIndicator({
   sentiment,
+  strength,
   className,
   showLabel = true,
 }: SentimentIndicatorProps) {
+  const getLabel = () => {
+    if (!strength) {
+      return sentiment.charAt(0) + sentiment.slice(1).toLowerCase();
+    }
+    
+    const strengthPrefix = strength === "STRONGLY" ? "Strongly " : "Mildly ";
+    return strengthPrefix + sentiment.charAt(0) + sentiment.slice(1).toLowerCase();
+  };
+
   const config = {
     POSITIVE: {
       icon: TrendingUp,
-      color: "text-success",
-      bgColor: "bg-success/10",
+      color: strength === "STRONGLY" ? "text-success" : "text-success/70",
+      bgColor: strength === "STRONGLY" ? "bg-success/10" : "bg-success/5",
       borderColor: "border-success",
-      label: "Positive",
+      label: getLabel(),
     },
     NEGATIVE: {
       icon: TrendingDown,
-      color: "text-destructive",
-      bgColor: "bg-destructive/10",
+      color: strength === "STRONGLY" ? "text-destructive" : "text-destructive/70",
+      bgColor: strength === "STRONGLY" ? "bg-destructive/10" : "bg-destructive/5",
       borderColor: "border-destructive",
-      label: "Negative",
+      label: getLabel(),
     },
     NEUTRAL: {
       icon: Minus,
       color: "text-muted-foreground",
       bgColor: "bg-muted",
       borderColor: "border-border",
-      label: "Neutral",
+      label: getLabel(),
     },
   };
 
@@ -47,7 +58,8 @@ export function SentimentIndicator({
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.3 }}
       className={cn(
-        "inline-flex items-center gap-1.5 px-2 py-1 border font-mono text-xs uppercase tracking-wider",
+        "inline-flex items-center gap-1.5 border font-mono text-xs uppercase tracking-wider w-fit",
+        showLabel ? "px-2 py-1" : "px-1.5 py-0.5",
         bgColor,
         borderColor,
         color,

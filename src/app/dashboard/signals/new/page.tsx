@@ -34,7 +34,7 @@ export default async function NewSignalPage() {
       </div>
 
       <div className="border-b-2 border-foreground pb-4">
-        <p className="text-[10px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
+        <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
           Intelligence
         </p>
         <h1 className="text-3xl font-serif font-bold">Add Signal</h1>

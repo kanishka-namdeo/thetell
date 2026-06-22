@@ -85,8 +85,8 @@ export function ProfileForm({ user }: ProfileFormProps) {
             <div
               className={`text-sm ${
                 message.type === "success"
-                  ? "text-green-600"
-                  : "text-red-600"
+                  ? "text-success"
+                  : "text-destructive"
               }`}
             >
               {message.text}

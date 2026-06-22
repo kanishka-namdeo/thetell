@@ -129,6 +129,10 @@ export class CongressScraper extends BaseScraper {
     }
   }
 
+  override get scraperName(): string {
+    return "congress-scraper";
+  }
+
   /**
    * Check if the scraper is properly configured.
    */

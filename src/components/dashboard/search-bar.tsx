@@ -19,6 +19,7 @@ export function SearchBar() {
   const containerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const controllerRef = useRef<AbortController | null>(null);
 
   // Close on outside click
   useEffect(() => {
@@ -38,15 +39,19 @@ export function SearchBar() {
       setOpen(false);
       return;
     }
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/search?q=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/v1/search?q=${encodeURIComponent(q)}`, { signal: controller.signal });
       if (res.ok) {
         const data = await res.json();
         setResults(data);
         setOpen(true);
       }
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
       console.error("Search error:", err);
     } finally {
       setLoading(false);
@@ -113,7 +118,7 @@ export function SearchBar() {
 
           {!loading && results.signals.length > 0 && (
             <div className="border-b border-border">
-              <div className="px-3 py-1.5 text-[10px] uppercase tracking-widest font-sans text-muted-foreground flex items-center gap-1.5">
+              <div className="px-3 py-1.5 text-[11px] uppercase tracking-widest font-sans text-muted-foreground flex items-center gap-1.5">
                 <BarChart3 className="h-3 w-3" /> Signals
               </div>
               {results.signals.map((s) => (
@@ -131,7 +136,7 @@ export function SearchBar() {
 
           {!loading && results.companies.length > 0 && (
             <div className="border-b border-border">
-              <div className="px-3 py-1.5 text-[10px] uppercase tracking-widest font-sans text-muted-foreground flex items-center gap-1.5">
+              <div className="px-3 py-1.5 text-[11px] uppercase tracking-widest font-sans text-muted-foreground flex items-center gap-1.5">
                 <Building2 className="h-3 w-3" /> Companies
               </div>
               {results.companies.map((c) => (
@@ -151,7 +156,7 @@ export function SearchBar() {
 
           {!loading && results.articles.length > 0 && (
             <div>
-              <div className="px-3 py-1.5 text-[10px] uppercase tracking-widest font-sans text-muted-foreground flex items-center gap-1.5">
+              <div className="px-3 py-1.5 text-[11px] uppercase tracking-widest font-sans text-muted-foreground flex items-center gap-1.5">
                 <FileText className="h-3 w-3" /> Articles
               </div>
               {results.articles.map((a) => (

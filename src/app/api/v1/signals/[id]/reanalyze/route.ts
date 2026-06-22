@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { inngest } from "@/lib/inngest/client";
+import { logger } from "@/lib/logger";
 
 export async function POST(
   request: NextRequest,
@@ -41,12 +42,12 @@ export async function POST(
         data: { signalId: id },
       });
     } catch (err) {
-      console.error("Failed to trigger analysis:", err);
+      logger.error("reanalyze.inngest_trigger_failed", { signalId: id, error: String(err) });
     }
 
     return NextResponse.json({ success: true, signalId: id });
   } catch (error) {
-    console.error("Error re-analyzing signal:", error);
+    logger.error("reanalyze.request_failed", { error: String(error) });
     return NextResponse.json(
       { error: "internal_error", message: "Failed to re-analyze signal" },
       { status: 500 }

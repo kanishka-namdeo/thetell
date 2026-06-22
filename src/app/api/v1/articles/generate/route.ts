@@ -75,6 +75,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const invalidAnalyses = analyses.filter((a) => a.signal.companyId !== companyId);
+    if (invalidAnalyses.length > 0) {
+      return NextResponse.json(
+        {
+          error: "validation_error",
+          message: "One or more analyses do not belong to the specified company",
+          details: {
+            analysisIds: invalidAnalyses.map((a) => a.id),
+          },
+        },
+        { status: 400 }
+      );
+    }
+
     const analysesForGeneration = analyses.map((a) => ({
       summary: a.summary,
       keyFacts: (a.keyFacts as Array<{ text: string }>) || [],
@@ -114,6 +128,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const status = body.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT";
+
     const dbArticle = await prisma.article.create({
       data: {
         title: customHeadline || article.title,
@@ -123,9 +139,9 @@ export async function POST(request: NextRequest) {
         companyId,
         agentPersona: resolvedPersona,
         analysisIds: analysisIds,
-        status: "DRAFT",
+        status,
         authorId: session.user.id,
-        publishedAt: new Date(),
+        publishedAt: status === "PUBLISHED" ? new Date() : null,
       },
     });
 

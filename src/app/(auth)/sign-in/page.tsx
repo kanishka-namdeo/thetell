@@ -7,7 +7,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
-import { Newspaper } from "lucide-react";
+import { Logo } from "@/components/logo";
 
 export default function SignInPage() {
   const router = useRouter();
@@ -56,9 +56,9 @@ export default function SignInPage() {
     <div className="w-full max-w-md px-4">
       <Card>
         <CardHeader className="text-center">
-          <div className="flex justify-center mb-4">
-            <div className="h-16 w-16 border-2 border-foreground flex items-center justify-center">
-              <Newspaper className="h-8 w-8" />
+          <div className="flex justify-center mb-3">
+            <div className="h-12 w-12 border-2 border-foreground flex items-center justify-center">
+              <Logo className="h-6 w-6" />
             </div>
           </div>
           <CardTitle className="text-3xl font-serif">The Tell</CardTitle>
@@ -85,7 +85,7 @@ export default function SignInPage() {
               Please verify your email before signing in.
             </div>
           )}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
               <label htmlFor="email" className="text-sm font-medium">
                 Email
@@ -119,20 +119,22 @@ export default function SignInPage() {
                 {error}
               </div>
             )}
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Signing in..." : "Sign In"}
-            </Button>
-            <div className="flex justify-end">
-              <Link
-                href="/forgot-password"
-                className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4"
-              >
-                Forgot password?
-              </Link>
+            <div className="space-y-3">
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? "Signing in..." : "Sign In"}
+              </Button>
+              <div className="flex justify-end">
+                <Link
+                  href="/forgot-password"
+                  className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4"
+                >
+                  Forgot password?
+                </Link>
+              </div>
             </div>
           </form>
           {isDev && (
-            <p className="mt-4 text-xs text-muted-foreground text-center">
+            <p className="mt-6 text-xs text-muted-foreground text-center">
               Dev: admin@thetell.com / password123
             </p>
           )}

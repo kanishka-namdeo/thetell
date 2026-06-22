@@ -1,13 +1,43 @@
-import { PrismaClient, SourceType, Sentiment, SignalStatus, Role } from "@prisma/client";
+import { config } from "dotenv";
+import { resolve } from "path";
+import { createHash } from "crypto";
+
+// Load .env.local from project root (Prisma seed runs from prisma/ directory)
+config({ path: resolve(__dirname, "../.env.local") });
+
+import { PrismaClient, Role, SourceType, DataOrigin, SignalStatus } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcryptjs";
+import { RssScraper } from "../src/lib/scraping/rss-scraper";
+import { getFeedsByCompanyId } from "../src/lib/scraping/feed-registry";
+import { analyzeSignalWithAgent } from "../src/lib/ai/agent/pipeline";
+import type { CrossRefAnalysis } from "../src/lib/ai/agent/pipeline";
+import { generateArticleWithAgent } from "../src/lib/ai/agent/article-generator";
+import { ANALYST_CONFIG, GOSSIP_GIRL_CONFIG } from "../src/lib/ai/agent/personas";
 
 const adapter = new PrismaPg(process.env.DATABASE_URL!);
 const prisma = new PrismaClient({ adapter });
 
-async function main() {
-  console.log("Seeding database...");
+const ITEMS_PER_FEED_LIMIT = 5;
+const DELAY_BETWEEN_LLM_CALLS_MS = 2500;
 
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function computeContentHash(url: string, content: string): string {
+  return createHash("sha256").update(url + content).digest("hex");
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function main() {
+  console.log("=== Seeding database with real RSS data ===\n");
+
+  // ─── 1. Users ────────────────────────────────────────────────────────────
+  console.log("Step 1: Ensuring users exist...");
   const passwordHash = await bcrypt.hash("password123", 10);
 
   const adminUser = await prisma.user.upsert({
@@ -33,7 +63,10 @@ async function main() {
       emailVerified: new Date(),
     },
   });
+  console.log("  Users ready.\n");
 
+  // ─── 2. Companies ────────────────────────────────────────────────────────
+  console.log("Step 2: Ensuring companies exist...");
   const companies = [
     {
       name: "Apple Inc.",
@@ -56,8 +89,24 @@ async function main() {
       slug: "nvidia",
       ticker: "NVDA",
       description:
-        "NVIDIA Corporation, a computing infrastructure company, provides graphics and compute and networking solutions in the United States, Singapore, Taiwan, China, Hong Kong, and internationally.",
+        "NVIDIA Corporation, a computing infrastructure company, provides graphics and compute and networking solutions worldwide.",
       websiteUrl: "https://www.nvidia.com",
+    },
+    {
+      name: "Advanced Micro Devices, Inc.",
+      slug: "amd",
+      ticker: "AMD",
+      description:
+        "Advanced Micro Devices, Inc. operates as a semiconductor company worldwide, offering data center accelerators, CPUs, GPUs, networking products, and adaptive computing solutions.",
+      websiteUrl: "https://www.amd.com",
+    },
+    {
+      name: "Microsoft Corporation",
+      slug: "microsoft",
+      ticker: "MSFT",
+      description:
+        "Microsoft Corporation develops, licenses, and supports software, services, devices, and solutions worldwide.",
+      websiteUrl: "https://www.microsoft.com",
     },
   ];
 
@@ -72,409 +121,513 @@ async function main() {
   const apple = await prisma.company.findUnique({ where: { slug: "apple" } });
   const tesla = await prisma.company.findUnique({ where: { slug: "tesla" } });
   const nvidia = await prisma.company.findUnique({ where: { slug: "nvidia" } });
+  const amd = await prisma.company.findUnique({ where: { slug: "amd" } });
+  const microsoft = await prisma.company.findUnique({ where: { slug: "microsoft" } });
 
-  if (!apple || !tesla || !nvidia) {
-    throw new Error("Companies not found");
+  if (!apple || !tesla || !nvidia || !amd || !microsoft) {
+    throw new Error("Failed to find companies after upsert");
   }
 
-  const signals = [
-    {
-      title: "Apple Reports Record Q4 Revenue Amid Strong iPhone Sales",
-      sourceUrl: "https://example.com/apple-q4-revenue",
-      sourceType: SourceType.NEWS,
-      rawContent:
-        "Apple Inc. reported record fourth-quarter revenue of $94.9 billion, driven by stronger-than-expected iPhone 15 sales. The company's services segment also reached an all-time high of $22.3 billion. CEO Tim Cook attributed the results to 'unprecedented demand across all product lines' and highlighted the company's growing installed base of over 2.2 billion active devices. Analysts noted the resilience of Apple's ecosystem despite broader economic headwinds.",
-      publishedAt: new Date("2026-06-10"),
-      companyId: apple.id,
-      status: SignalStatus.ANALYZED,
-    },
-    {
-      title: "Apple Expands AI Investment with New Machine Learning Division",
-      sourceUrl: "https://example.com/apple-ai-division",
-      sourceType: SourceType.NEWS,
-      rawContent:
-        "Apple is establishing a new machine learning division focused on on-device AI capabilities, according to internal memos reviewed by Reuters. The division will be led by John Giannandrea, Apple's senior vice president of Machine Learning and AI Strategy. The move signals Apple's intent to reduce reliance on cloud-based AI services and accelerate its competitive position in the generative AI race.",
-      publishedAt: new Date("2026-06-08"),
-      companyId: apple.id,
-      status: SignalStatus.ANALYZED,
-    },
-    {
-      title: "Apple Vision Pro 2 Development Timeline Leaked",
-      sourceUrl: "https://example.com/apple-vision-pro-2",
-      sourceType: SourceType.SOCIAL,
-      rawContent:
-        "Supply chain sources indicate Apple has accelerated development of Vision Pro 2, targeting a Q1 2027 launch. The new headset is expected to be 40% lighter and feature a more affordable price point around $2,000. Apple is reportedly working with Samsung on next-generation micro-OLED displays.",
-      publishedAt: new Date("2026-06-05"),
-      companyId: apple.id,
-      status: SignalStatus.ANALYZED,
-    },
-    {
-      title: "Apple Services Revenue Crosses $22B Quarterly Milestone",
-      sourceUrl: "https://example.com/apple-services",
-      sourceType: SourceType.FILING,
-      rawContent:
-        "In its latest 10-Q filing, Apple disclosed that services revenue reached $22.3 billion in Q4, representing 18% year-over-year growth. The filing highlighted strong performance from Apple TV+, Apple Music, and the App Store. Gross margins for services improved to 73.7%, up from 70.8% a year ago.",
-      publishedAt: new Date("2026-06-03"),
-      companyId: apple.id,
-      status: SignalStatus.ANALYZED,
-    },
-    {
-      title: "Apple Hiring Freeze in Hardware Division Raises Eyebrows",
-      sourceUrl: "https://example.com/apple-hiring-freeze",
-      sourceType: SourceType.JOB_POSTING,
-      rawContent:
-        "Apple has implemented a hiring freeze across its hardware engineering division, affecting at least 12 open positions listed on its careers page. The freeze does not affect software or AI roles. Industry observers see this as a potential signal of cost optimization ahead of an economic slowdown.",
-      publishedAt: new Date("2026-06-01"),
-      companyId: apple.id,
-      status: SignalStatus.ANALYZED,
-    },
-    {
-      title: "Tesla Opens New Gigafactory in Indonesia",
-      sourceUrl: "https://example.com/tesla-indonesia",
-      sourceType: SourceType.NEWS,
-      rawContent:
-        "Tesla officially opened its new Gigafactory in Jakarta, Indonesia, with a planned annual production capacity of 500,000 vehicles. CEO Elon Musk attended the inauguration ceremony, calling it 'a pivotal moment for Tesla's Southeast Asian expansion.' The facility will primarily produce the next-generation Model 2, targeting the sub-$25,000 EV market.",
-      publishedAt: new Date("2026-06-12"),
-      companyId: tesla.id,
-      status: SignalStatus.ANALYZED,
-    },
-    {
-      title: "Tesla FSD v13 Receives Regulatory Approval in EU",
-      sourceUrl: "https://example.com/tesla-fsd-eu",
-      sourceType: SourceType.NEWS,
-      rawContent:
-        "Tesla's Full Self-Driving v13 has received regulatory approval from the European Union's automotive safety authority, making it the first Level 3 autonomous system approved for use on European roads. The approval covers highway driving scenarios and requires the driver to remain attentive. Tesla plans to roll out the feature via OTA update starting next month.",
-      publishedAt: new Date("2026-06-09"),
-      companyId: tesla.id,
-      status: SignalStatus.ANALYZED,
-    },
-    {
-      title: "Tesla Energy Storage Deployments Surge 152% YoY",
-      sourceUrl: "https://example.com/tesla-energy",
-      sourceType: SourceType.FILING,
-      rawContent:
-        "Tesla's energy generation and storage segment reported a 152% year-over-year increase in deployments, reaching 9.2 GWh in Q4. The Megapack product line accounted for 85% of deployments. CEO Elon Musk noted that energy storage is 'on track to become a business as large as automotive' within five years.",
-      publishedAt: new Date("2026-06-06"),
-      companyId: tesla.id,
-      status: SignalStatus.ANALYZED,
-    },
-    {
-      title: "Tesla Robotaxi Pilot Launches in Austin",
-      sourceUrl: "https://example.com/tesla-robotaxi",
-      sourceType: SourceType.NEWS,
-      rawContent:
-        "Tesla launched a limited robotaxi pilot program in Austin, Texas, with a fleet of 50 autonomous Model Y vehicles. The service operates in a geofenced area covering downtown Austin and the airport corridor. Initial rides are free and available to invited testers through the Tesla app.",
-      publishedAt: new Date("2026-06-04"),
-      companyId: tesla.id,
-      status: SignalStatus.ANALYZED,
-    },
-    {
-      title: "Tesla CFO Signals Potential Price Cuts for Model Y",
-      sourceUrl: "https://example.com/tesla-price-cuts",
-      sourceType: SourceType.TRANSCRIPT,
-      rawContent:
-        "During the Q4 earnings call, Tesla CFO Vaibhav Taneja indicated the company is 'evaluating pricing adjustments' for the Model Y lineup in response to increased competition. 'We want to ensure our products remain accessible to the widest possible audience,' Taneja said. Analysts interpreted the comments as signaling potential 5-10% price reductions.",
-      publishedAt: new Date("2026-06-02"),
-      companyId: tesla.id,
-      status: SignalStatus.ANALYZED,
-    },
-    {
-      title: "NVIDIA Reports 262% Revenue Growth on AI Chip Demand",
-      sourceUrl: "https://example.com/nvidia-revenue",
-      sourceType: SourceType.NEWS,
-      rawContent:
-        "NVIDIA Corporation reported a staggering 262% year-over-year revenue increase to $26 billion in Q4, driven by unprecedented demand for its AI accelerators. Data center revenue alone reached $18.4 billion, up 409% from a year ago. CEO Jensen Huang said the results reflect 'a computing industry-wide shift toward accelerated computing and generative AI.'",
-      publishedAt: new Date("2026-06-11"),
-      companyId: nvidia.id,
-      status: SignalStatus.ANALYZED,
-    },
-    {
-      title: "NVIDIA Unveils Blackwell Ultra GPU Architecture",
-      sourceUrl: "https://example.com/nvidia-blackwell-ultra",
-      sourceType: SourceType.NEWS,
-      rawContent:
-        "At the annual GTC conference, NVIDIA unveiled its next-generation Blackwell Ultra GPU architecture, promising 4x performance improvement over the current H100 for large language model inference. The new chips will be manufactured on TSMC's 3nm process and are expected to ship in Q3 2026. Major cloud providers including AWS, Azure, and GCP have already placed orders.",
-      publishedAt: new Date("2026-06-07"),
-      companyId: nvidia.id,
-      status: SignalStatus.ANALYZED,
-    },
-    {
-      title: "NVIDIA Expands Sovereign AI Partnerships with 12 Nations",
-      sourceUrl: "https://example.com/nvidia-sovereign-ai",
-      sourceType: SourceType.NEWS,
-      rawContent:
-        "NVIDIA announced partnerships with 12 additional nations to build sovereign AI infrastructure, bringing its total government partnerships to 28. The partnerships involve deploying NVIDIA DGX systems and providing training for local AI researchers. The deals are valued at approximately $4.2 billion in aggregate.",
-      publishedAt: new Date("2026-06-05"),
-      companyId: nvidia.id,
-      status: SignalStatus.ANALYZED,
-    },
-    {
-      title: "NVIDIA CUDA Ecosystem Surpasses 5 Million Developers",
-      sourceUrl: "https://example.com/nvidia-cuda",
-      sourceType: SourceType.BLOG,
-      rawContent:
-        "NVIDIA's CUDA parallel computing platform has surpassed 5 million registered developers, the company announced in a blog post. The milestone represents 60% growth over the past year. The company attributed the growth to the explosion of AI and machine learning workloads, which rely heavily on CUDA for GPU acceleration.",
-      publishedAt: new Date("2026-06-03"),
-      companyId: nvidia.id,
-      status: SignalStatus.ANALYZED,
-    },
-    {
-      title: "NVIDIA Hiring Surge in Robotics Division",
-      sourceUrl: "https://example.com/nvidia-robotics-hiring",
-      sourceType: SourceType.JOB_POSTING,
-      rawContent:
-        "NVIDIA has posted 47 new job openings in its robotics and embodied AI division, a 300% increase from the previous quarter. Positions span computer vision, motion planning, and simulation engineering. The hiring surge suggests NVIDIA is making a serious push into the physical AI market beyond data center GPUs.",
-      publishedAt: new Date("2026-06-01"),
-      companyId: nvidia.id,
-      status: SignalStatus.ANALYZED,
-    },
-  ];
+  const companyRecords = [apple, tesla, nvidia, amd, microsoft];
+  console.log(`  ${companyRecords.length} companies ready.\n`);
 
-  for (const signal of signals) {
-    await prisma.signal.upsert({
-      where: { id: signal.sourceUrl },
-      update: {},
-      create: signal,
-    });
+  // ─── 3. Scrape RSS feeds ─────────────────────────────────────────────────
+  console.log("Step 3: Scraping RSS feeds for each company...");
+  const scraper = new RssScraper();
+
+  let totalFeedsScraped = 0;
+  let totalSignalsCreated = 0;
+  let totalDuplicatesSkipped = 0;
+  let totalFeedsFailed = 0;
+
+  interface ScrapedSignal {
+    id: string;
+    companyId: string;
+    companyName: string;
+    companySlug: string;
+    sourceUrl: string;
+    title: string;
+    rawContent: string;
   }
 
-  const allSignals = await prisma.signal.findMany({
-    where: { status: SignalStatus.ANALYZED },
-  });
+  const scrapedSignals: ScrapedSignal[] = [];
 
-  const analysisTemplates = [
-    {
-      summary:
-        "Strong financial performance driven by product ecosystem strength and services growth. Signals indicate continued investment in AI and hardware innovation.",
-      keyFacts: [
-        {
-          text: "Record quarterly revenue of $94.9 billion",
-          category: "financial",
-          confidence: 0.95,
-        },
-        {
-          text: "Services revenue reached $22.3 billion all-time high",
-          category: "financial",
-          confidence: 0.93,
-        },
-        {
-          text: "Installed base exceeds 2.2 billion active devices",
-          category: "strategic",
-          confidence: 0.88,
-        },
-      ],
-      sentiment: Sentiment.POSITIVE,
-      strategicThemes: [
-        {
-          label: "ecosystem-expansion",
-          evidence: ["Services revenue growth", "2.2B active devices"],
-        },
-        {
-          label: "ai-investment",
-          evidence: ["New ML division", "On-device AI focus"],
-        },
-      ],
-      confidence: 0.87,
-      modelUsed: "gpt-4-turbo",
-    },
-    {
-      summary:
-        "Strategic expansion into new markets with significant capital investment. Signals suggest aggressive growth strategy and competitive positioning.",
-      keyFacts: [
-        {
-          text: "New Gigafactory with 500K annual capacity",
-          category: "strategic",
-          confidence: 0.92,
-        },
-        {
-          text: "Model 2 targeting sub-$25K price point",
-          category: "market",
-          confidence: 0.85,
-        },
-      ],
-      sentiment: Sentiment.POSITIVE,
-      strategicThemes: [
-        {
-          label: "market-expansion",
-          evidence: ["Southeast Asian expansion", "Affordable EV segment"],
-        },
-        {
-          label: "manufacturing-scale",
-          evidence: ["500K capacity Gigafactory"],
-        },
-      ],
-      confidence: 0.82,
-      modelUsed: "gpt-4-turbo",
-    },
-    {
-      summary:
-        "Exceptional growth trajectory fueled by AI infrastructure demand. Company is well-positioned as the primary beneficiary of the AI computing shift.",
-      keyFacts: [
-        {
-          text: "262% YoY revenue growth to $26B",
-          category: "financial",
-          confidence: 0.97,
-        },
-        {
-          text: "Data center revenue up 409% to $18.4B",
-          category: "financial",
-          confidence: 0.96,
-        },
-        {
-          text: "Blackwell Ultra promises 4x inference performance",
-          category: "strategic",
-          confidence: 0.89,
-        },
-      ],
-      sentiment: Sentiment.POSITIVE,
-      strategicThemes: [
-        {
-          label: "ai-infrastructure-dominance",
-          evidence: ["262% revenue growth", "409% data center growth"],
-        },
-        {
-          label: "next-gen-architecture",
-          evidence: ["Blackwell Ultra", "3nm process", "4x performance"],
-        },
-      ],
-      confidence: 0.91,
-      modelUsed: "gpt-4-turbo",
-    },
-  ];
+  for (const company of companyRecords) {
+    const feedConfig = getFeedsByCompanyId(company.slug);
+    if (!feedConfig) {
+      console.log(`  [${company.name}] No feeds registered — skipping.`);
+      continue;
+    }
 
-  for (let i = 0; i < allSignals.length; i++) {
-    const signal = allSignals[i];
-    const template = analysisTemplates[i % analysisTemplates.length];
+    console.log(
+      `\n  [${company.name}] ${feedConfig.feeds.length} feed(s) registered`
+    );
 
-    await prisma.analysis.create({
-      data: {
-        signalId: signal.id,
-        agentPersona: "ANALYST",
-        summary: template.summary,
-        keyFacts: template.keyFacts,
-        sentiment: template.sentiment,
-        strategicThemes: template.strategicThemes,
-        confidence: template.confidence + (Math.random() * 0.1 - 0.05),
-        modelUsed: template.modelUsed,
-      },
-    });
+    for (const feed of feedConfig.feeds) {
+      console.log(`    -> ${feed.label} (${feed.url})`);
+      try {
+        const feedData = await scraper.scrapeFeed(feed.url);
+        if (!feedData || feedData.items.length === 0) {
+          console.log(`       No items returned.`);
+          totalFeedsFailed++;
+          continue;
+        }
+
+        totalFeedsScraped++;
+        const itemsToProcess = feedData.items.slice(0, ITEMS_PER_FEED_LIMIT);
+        console.log(
+          `       Parsed ${feedData.items.length} item(s); processing ${itemsToProcess.length}.`
+        );
+
+        for (const item of itemsToProcess) {
+          const rawContent = stripHtml(item.content || item.description || "");
+          if (!item.link || !rawContent || rawContent.length < 50) {
+            console.log(
+              `       - skip (insufficient content): "${(item.title || "").slice(0, 50)}"`
+            );
+            continue;
+          }
+
+          const contentHash = computeContentHash(item.link, rawContent);
+
+          // Dedup by contentHash
+          const existing = await prisma.signal.findUnique({
+            where: { contentHash },
+          });
+          if (existing) {
+            totalDuplicatesSkipped++;
+            continue;
+          }
+
+          // Also dedup by sourceUrl
+          const existingByUrl = await prisma.signal.findFirst({
+            where: { sourceUrl: item.link },
+          });
+          if (existingByUrl) {
+            totalDuplicatesSkipped++;
+            continue;
+          }
+
+          const sourceType: SourceType =
+            feed.sourceType === "NEWS"
+              ? SourceType.NEWS
+              : feed.sourceType === "BLOG"
+                ? SourceType.BLOG
+                : feed.sourceType === "FILING"
+                  ? SourceType.FILING
+                  : feed.sourceType === "TRANSCRIPT"
+                    ? SourceType.TRANSCRIPT
+                    : feed.sourceType === "SOCIAL"
+                      ? SourceType.SOCIAL
+                      : SourceType.NEWS;
+
+          const rawContentHash = createHash("sha256")
+            .update(rawContent)
+            .digest("hex");
+
+          const signal = await prisma.signal.create({
+            data: {
+              sourceUrl: item.link,
+              sourceType,
+              title: item.title || "Untitled",
+              rawContent,
+              contentHash,
+              publishedAt: item.pubDate,
+              companyId: company.id,
+              status: SignalStatus.PENDING,
+              scraperName: "rss-scraper",
+              verified: true,
+              dataOrigin: DataOrigin.BOOTSTRAP,
+              feedLabel: feed.label,
+              scrapeAttempts: 1,
+              rawContentHash,
+            },
+          });
+
+          totalSignalsCreated++;
+          scrapedSignals.push({
+            id: signal.id,
+            companyId: company.id,
+            companyName: company.name,
+            companySlug: company.slug,
+            sourceUrl: signal.sourceUrl,
+            title: signal.title,
+            rawContent: signal.rawContent,
+          });
+        }
+      } catch (feedError) {
+        console.log(
+          `       FAILED: ${feedError instanceof Error ? feedError.message : String(feedError)}`
+        );
+        totalFeedsFailed++;
+      }
+    }
   }
 
-  const articles = [
-    {
-      title: "Apple Signals Aggressive AI Push with New Division and Record Services Growth",
-      slug: "apple-ai-push-record-services",
-      summary:
-        "Apple's establishment of a new machine learning division, combined with record services revenue, signals a strategic pivot toward on-device AI while strengthening its ecosystem moat.",
-      body: `## Key Findings
+  console.log(
+    `\n  RSS scraping complete: ${totalFeedsScraped} feeds scraped, ${totalSignalsCreated} signals created, ${totalDuplicatesSkipped} duplicates skipped, ${totalFeedsFailed} feeds failed.\n`
+  );
 
-Apple Inc. is making decisive moves in the artificial intelligence space while simultaneously reporting record financial performance. The establishment of a dedicated machine learning division under John Giannandrea represents a significant organizational commitment to on-device AI capabilities.
+  // ─── 4. Optional dual-agent analysis ─────────────────────────────────────
+  const hasOpenAI = !!process.env.OPENAI_API_KEY;
+  const hasAnthropic = !!process.env.ANTHROPIC_API_KEY;
 
-## Evidence
+  if (!hasOpenAI && !hasAnthropic) {
+    console.log(
+      "Step 4: Skipping analysis — no OPENAI_API_KEY or ANTHROPIC_API_KEY set."
+    );
+    console.log(
+      "  To enable dual-agent analysis + article generation, set one of these in .env.local.\n"
+    );
+  } else {
+    console.log(
+      `Step 4: Running dual-agent analysis on ${scrapedSignals.length} signal(s)...`
+    );
 
-The company's Q4 revenue of $94.9 billion exceeded analyst expectations, with the services segment reaching an all-time high of $22.3 billion. This dual signal — heavy AI investment combined with services growth — suggests Apple is positioning itself as a full-stack AI platform company.
+    interface DualAgentResult {
+      signalId: string;
+      companyId: string;
+      companyName: string;
+      analyst: {
+        id: string;
+        summary: string;
+        keyFacts: Array<{ text: string }>;
+        sentiment: string;
+        strategicThemes: Array<{ label: string }>;
+        confidence: number;
+        modelUsed: string;
+      };
+      gossipGirl: {
+        id: string;
+        summary: string;
+        keyFacts: Array<{ text: string }>;
+        sentiment: string;
+        strategicThemes: Array<{ label: string }>;
+        confidence: number;
+        modelUsed: string;
+      };
+    }
 
-The hiring freeze in hardware engineering, juxtaposed with continued AI hiring, further confirms the strategic reallocation of resources toward software and intelligence capabilities.
+    const dualResults: DualAgentResult[] = [];
+    let analyzedCount = 0;
+    let analysisFailedCount = 0;
 
-## Strategic Implications
+    for (let i = 0; i < scrapedSignals.length; i++) {
+      const sig = scrapedSignals[i];
+      console.log(
+        `\n  [${i + 1}/${scrapedSignals.length}] ${sig.title.slice(0, 70)}`
+      );
 
-Apple appears to be executing a three-pronged strategy:
-1. **On-device AI**: Reduce dependence on cloud-based AI services
-2. **Ecosystem monetization**: Leverage 2.2B active devices for services revenue
-3. **Cost optimization**: Freeze hardware hiring while investing in AI talent
+      // Skip if already analyzed
+      const existingAnalyst = await prisma.analysis.findUnique({
+        where: { signalId_agentPersona: { signalId: sig.id, agentPersona: "ANALYST" } },
+      });
+      const existingGossip = await prisma.analysis.findUnique({
+        where: { signalId_agentPersona: { signalId: sig.id, agentPersona: "GOSSIP_GIRL" } },
+      });
 
-## Outlook
+      if (existingAnalyst && existingGossip) {
+        console.log("    -> Already analyzed, skipping.");
+        dualResults.push({
+          signalId: sig.id,
+          companyId: sig.companyId,
+          companyName: sig.companyName,
+          analyst: existingAnalyst as unknown as DualAgentResult["analyst"],
+          gossipGirl: existingGossip as unknown as DualAgentResult["gossipGirl"],
+        });
+        continue;
+      }
 
-We assess with **high confidence (0.87)** that Apple will announce major on-device AI features at WWDC 2027, representing a competitive response to Google and Microsoft's cloud-based AI offerings.`,
-      companyId: apple.id,
-      status: "PUBLISHED" as const,
-      publishedAt: new Date("2026-06-13"),
-      authorId: adminUser.id,
-      analysisIds: [],
-    },
-    {
-      title: "Tesla's Multi-Front Expansion: Gigafactories, Robotaxis, and Energy Storage",
-      slug: "tesla-multi-front-expansion",
-      summary:
-        "Tesla is simultaneously expanding manufacturing capacity, launching autonomous ride-hailing, and scaling energy storage — three growth vectors that could reshape the company's valuation.",
-      body: `## Key Findings
+      await prisma.signal.update({
+        where: { id: sig.id },
+        data: { status: SignalStatus.ANALYZING },
+      });
 
-Tesla is executing one of the most ambitious multi-front expansions in automotive history. The opening of the Indonesia Gigafactory, launch of the Austin robotaxi pilot, and 152% surge in energy storage deployments represent three distinct growth vectors converging simultaneously.
+      const signalInput = {
+        id: sig.id,
+        sourceUrl: sig.sourceUrl,
+        sourceType: "NEWS" as const,
+        title: sig.title,
+        rawContent: sig.rawContent,
+        publishedAt: new Date(),
+        scrapedAt: new Date(),
+        companyId: sig.companyId,
+        status: SignalStatus.ANALYZING,
+        company: {
+          id: sig.companyId,
+          name: sig.companyName,
+          slug: sig.companySlug,
+          ticker: null,
+        },
+      };
 
-## Evidence
+      try {
+        console.log("    Running Analyst agent...");
+        const analystResult = await analyzeSignalWithAgent(
+          signalInput,
+          ANALYST_CONFIG,
+          undefined,
+          hasOpenAI ? "openai" : "anthropic"
+        );
 
-The Indonesia facility targets the sub-$25,000 EV market with the next-generation Model 2, while the Austin robotaxi pilot tests Tesla's autonomous driving technology in a commercial setting. Meanwhile, the energy storage segment is growing so rapidly that CEO Elon Musk projects it could rival the automotive business within five years.
+        const analystSentimentLabel =
+          "sentiment" in analystResult.sentiment
+            ? analystResult.sentiment.sentiment
+            : "NEUTRAL";
 
-## Strategic Implications
+        await prisma.analysis.create({
+          data: {
+            id: analystResult.id,
+            signalId: sig.id,
+            agentPersona: "ANALYST",
+            summary: analystResult.summary,
+            keyFacts: analystResult.keyFacts,
+            sentiment: analystSentimentLabel,
+            sentimentData: analystResult.sentiment,
+            strategicThemes: analystResult.strategicThemes,
+            confidence: analystResult.confidence,
+            modelUsed: analystResult.modelUsed,
+          },
+        });
 
-Tesla is diversifying beyond automotive manufacturing into:
-1. **Mobility-as-a-Service**: Robotaxi fleet operations
-2. **Energy Infrastructure**: Grid-scale storage solutions
-3. **Emerging Markets**: Southeast Asian manufacturing hub
+        console.log(
+          `    -> Analyst done (confidence: ${analystResult.confidence.toFixed(2)}, sentiment: ${analystSentimentLabel})`
+        );
 
-## Outlook
+        await delay(DELAY_BETWEEN_LLM_CALLS_MS);
 
-We assess with **moderate-high confidence (0.82)** that Tesla's stock will re-rate as the market begins pricing in revenue from these three distinct business lines rather than treating Tesla as a pure-play automaker.`,
-      companyId: tesla.id,
-      status: "PUBLISHED" as const,
-      publishedAt: new Date("2026-06-14"),
-      authorId: adminUser.id,
-      analysisIds: [],
-    },
-    {
-      title: "NVIDIA's AI Dominance Deepens: 262% Revenue Growth and the Road Ahead",
-      slug: "nvidia-ai-dominance-262-growth",
-      summary:
-        "NVIDIA's extraordinary 262% revenue growth confirms its position as the undisputed leader in AI computing infrastructure, but questions about sustainability and competition loom.",
-      body: `## Key Findings
+        console.log("    Running Gossip Girl agent...");
+        const crossRefAnalyses: CrossRefAnalysis[] = [
+          {
+            id: analystResult.id,
+            agentPersona: analystResult.agentPersona,
+            summary: analystResult.summary,
+            keyFacts: analystResult.keyFacts.map((f) => ({ text: f.text })),
+            sentiment: analystSentimentLabel,
+            strategicThemes: analystResult.strategicThemes.map((t) => ({
+              label: t.label,
+            })),
+          },
+        ];
 
-NVIDIA Corporation has delivered what may be the most remarkable quarterly results in semiconductor history: 262% year-over-year revenue growth to $26 billion, with data center revenue alone up 409%. The company's Blackwell Ultra architecture promises another 4x performance leap.
+        const gossipResult = await analyzeSignalWithAgent(
+          signalInput,
+          GOSSIP_GIRL_CONFIG,
+          crossRefAnalyses,
+          hasOpenAI ? "openai" : "anthropic"
+        );
 
-## Evidence
+        const gossipSentimentLabel =
+          "surface_reading" in gossipResult.sentiment
+            ? ((
+                {
+                  "bullish-spin": "POSITIVE",
+                  "bearish-subtext": "NEGATIVE",
+                  "neutral-surface": "NEUTRAL",
+                  "mixed-signals": "NEUTRAL",
+                } as Record<string, "POSITIVE" | "NEGATIVE" | "NEUTRAL">
+              )[gossipResult.sentiment.surface_reading] ?? "NEUTRAL")
+            : "NEUTRAL";
 
-The numbers speak for themselves — $18.4 billion in data center revenue, partnerships with 28 nations for sovereign AI infrastructure, and a CUDA developer ecosystem exceeding 5 million. The hiring surge in robotics (47 new positions, 300% increase) signals expansion beyond data center GPUs.
+        await prisma.analysis.create({
+          data: {
+            id: gossipResult.id,
+            signalId: sig.id,
+            agentPersona: "GOSSIP_GIRL",
+            summary: gossipResult.summary,
+            keyFacts: gossipResult.keyFacts,
+            sentiment: gossipSentimentLabel,
+            sentimentData: gossipResult.sentiment,
+            strategicThemes: gossipResult.strategicThemes,
+            confidence: gossipResult.confidence,
+            modelUsed: gossipResult.modelUsed,
+            crossReferences: gossipResult.crossReferences ?? undefined,
+          },
+        });
 
-## Strategic Implications
+        console.log(
+          `    -> Gossip Girl done (confidence: ${gossipResult.confidence.toFixed(2)})`
+        );
 
-NVIDIA is building a multi-layered moat:
-1. **Hardware leadership**: 3nm Blackwell Ultra with 4x inference improvement
-2. **Software ecosystem**: 5M+ CUDA developers create switching costs
-3. **Government partnerships**: 28 sovereign AI deals create geopolitical lock-in
-4. **Physical AI**: Robotics hiring suggests embodied AI is the next frontier
+        await prisma.signal.update({
+          where: { id: sig.id },
+          data: { status: SignalStatus.ANALYZED },
+        });
 
-## Outlook
+        analyzedCount++;
+        dualResults.push({
+          signalId: sig.id,
+          companyId: sig.companyId,
+          companyName: sig.companyName,
+          analyst: analystResult as unknown as DualAgentResult["analyst"],
+          gossipGirl: gossipResult as unknown as DualAgentResult["gossipGirl"],
+        });
 
-We assess with **high confidence (0.91)** that NVIDIA will maintain its AI chip dominance through 2027, though competition from AMD, Intel, and custom silicon from hyperscalers will gradually erode margins. The robotics push represents the most significant long-term growth vector beyond data center.`,
-      companyId: nvidia.id,
-      status: "PUBLISHED" as const,
-      publishedAt: new Date("2026-06-14"),
-      authorId: adminUser.id,
-      analysisIds: [],
-    },
-  ];
+        if (i < scrapedSignals.length - 1) {
+          await delay(DELAY_BETWEEN_LLM_CALLS_MS);
+        }
+      } catch (analysisError) {
+        console.log(
+          `    -> ANALYSIS FAILED: ${analysisError instanceof Error ? analysisError.message : String(analysisError)}`
+        );
+        await prisma.signal.update({
+          where: { id: sig.id },
+          data: { status: SignalStatus.FAILED },
+        });
+        analysisFailedCount++;
+      }
+    }
 
-  for (const article of articles) {
-    await prisma.article.upsert({
-      where: { slug: article.slug },
-      update: {},
-      create: {
-        ...article,
-        agentPersona: "ANALYST",
-      },
-    });
+    console.log(
+      `\n  Analysis complete: ${analyzedCount} signals analyzed, ${analysisFailedCount} failed.\n`
+    );
+
+    // ─── 5. Generate dual-agent articles per company ───────────────────────
+    console.log("Step 5: Generating dual-agent articles per company...");
+    let articlesGenerated = 0;
+
+    const grouped = new Map<
+      string,
+      { companyName: string; results: DualAgentResult[] }
+    >();
+    for (const r of dualResults) {
+      if (!grouped.has(r.companyId)) {
+        grouped.set(r.companyId, { companyName: r.companyName, results: [] });
+      }
+      grouped.get(r.companyId)!.results.push(r);
+    }
+
+    for (const [companyId, group] of grouped) {
+      if (group.results.length < 2) {
+        console.log(
+          `  ${group.companyName}: Only ${group.results.length} analysis(es), need 2+ for article. Skipping.`
+        );
+        continue;
+      }
+
+      const analysesInput = group.results.map((r) => ({
+        summary: r.analyst.summary,
+        keyFacts: r.analyst.keyFacts as Array<{ text: string }>,
+        sentiment: r.analyst.sentiment,
+        strategicThemes: r.analyst.strategicThemes as Array<{ label: string }>,
+      }));
+
+      // Analyst article
+      console.log(
+        `\n  Generating Analyst article for ${group.companyName} (${group.results.length} signals)...`
+      );
+      try {
+        const gossipCrossRefForAnalyst = group.results.map((r) => ({
+          summary: r.gossipGirl.summary,
+          agentPersona: "GOSSIP_GIRL" as const,
+          keyFacts: r.gossipGirl.keyFacts.map((f) => f.text),
+        }));
+
+        const analystArticle = await generateArticleWithAgent(
+          {
+            companyId,
+            companyName: group.companyName,
+            analyses: analysesInput,
+          },
+          ANALYST_CONFIG,
+          gossipCrossRefForAnalyst,
+          hasOpenAI ? "openai" : "anthropic"
+        );
+
+        await prisma.article.create({
+          data: {
+            title: analystArticle.title,
+            slug: analystArticle.slug,
+            summary: analystArticle.summary,
+            body: analystArticle.body,
+            companyId,
+            agentPersona: "ANALYST",
+            analysisIds: group.results.map((r) => r.signalId),
+            status: "PUBLISHED",
+            authorId: adminUser.id,
+            publishedAt: new Date(),
+          },
+        });
+
+        console.log(`  -> Analyst article: "${analystArticle.title}"`);
+        articlesGenerated++;
+        await delay(DELAY_BETWEEN_LLM_CALLS_MS);
+      } catch (articleError) {
+        console.log(
+          `  -> ANALYST ARTICLE FAILED: ${articleError instanceof Error ? articleError.message : String(articleError)}`
+        );
+      }
+
+      // Gossip Girl article
+      console.log(`  Generating Gossip Girl article for ${group.companyName}...`);
+      try {
+        const gossipAnalysesInput = group.results.map((r) => ({
+          summary: r.gossipGirl.summary,
+          keyFacts: r.gossipGirl.keyFacts as Array<{ text: string }>,
+          sentiment: r.gossipGirl.sentiment,
+          strategicThemes: r.gossipGirl.strategicThemes as Array<{
+            label: string;
+          }>,
+        }));
+
+        const analystCrossRefForGossip = group.results.map((r) => ({
+          summary: r.analyst.summary,
+          agentPersona: "ANALYST" as const,
+          keyFacts: r.analyst.keyFacts.map((f) => f.text),
+        }));
+
+        const gossipArticle = await generateArticleWithAgent(
+          {
+            companyId,
+            companyName: group.companyName,
+            analyses: gossipAnalysesInput,
+          },
+          GOSSIP_GIRL_CONFIG,
+          analystCrossRefForGossip,
+          hasOpenAI ? "openai" : "anthropic"
+        );
+
+        await prisma.article.create({
+          data: {
+            title: gossipArticle.title,
+            slug: gossipArticle.slug,
+            summary: gossipArticle.summary,
+            body: gossipArticle.body,
+            companyId,
+            agentPersona: "GOSSIP_GIRL",
+            analysisIds: group.results.map((r) => r.signalId),
+            status: "PUBLISHED",
+            authorId: adminUser.id,
+            publishedAt: new Date(),
+          },
+        });
+
+        console.log(`  -> Gossip Girl article: "${gossipArticle.title}"`);
+        articlesGenerated++;
+        await delay(DELAY_BETWEEN_LLM_CALLS_MS);
+      } catch (articleError) {
+        console.log(
+          `  -> GOSSIP GIRL ARTICLE FAILED: ${articleError instanceof Error ? articleError.message : String(articleError)}`
+        );
+      }
+    }
+
+    console.log(`\n  Articles generated: ${articlesGenerated}\n`);
   }
 
-  console.log("Seeding completed successfully!");
-  console.log(`  - ${await prisma.user.count()} users`);
-  console.log(`  - ${await prisma.company.count()} companies`);
-  console.log(`  - ${await prisma.signal.count()} signals`);
-  console.log(`  - ${await prisma.analysis.count()} analyses`);
-  console.log(`  - ${await prisma.article.count()} articles`);
+  // ─── 6. Summary ──────────────────────────────────────────────────────────
+  console.log("=== Seed Complete ===");
+  console.log(`  Users:              ${await prisma.user.count()}`);
+  console.log(`  Companies:          ${await prisma.company.count()}`);
+  console.log(`  Signals (total):    ${await prisma.signal.count()}`);
+  console.log(`  Signals (bootstrap):${await prisma.signal.count({ where: { dataOrigin: DataOrigin.BOOTSTRAP } })}`);
+  console.log(`  Analyses:           ${await prisma.analysis.count()}`);
+  console.log(`  Articles:           ${await prisma.article.count()}`);
 }
 
 main()
   .catch((e) => {
-    console.error("Seeding failed:", e);
+    console.error("Seed failed:", e);
     process.exit(1);
   })
   .finally(async () => {

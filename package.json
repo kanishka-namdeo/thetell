@@ -3,16 +3,27 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently -n next,opencode -c blue,green \"next dev\" \"opencode serve --port 4096\"",
+    "dev:inngest": "docker-compose up -d inngest",
+    "dev:inngest:local": "pnpm dlx inngest-cli@latest dev -u http://localhost:3000/api/inngest",
+    "dev:inngest:stop": "docker-compose stop inngest",
+    "dev:inngest:logs": "docker-compose logs -f inngest",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "cleanup:seed": "tsx scripts/cleanup-seed-data.ts",
+    "opencode": "opencode"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",
     "@auth/prisma-adapter": "^2.11.2",
     "@base-ui/react": "^1.5.0",
+    "@huggingface/transformers": "^4.2.0",
+    "@opencode-ai/sdk": "^1.17.9",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@radix-ui/react-slot": "^1.2.5",
@@ -22,6 +33,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "dotenv": "^17.4.2",
+    "duck-duck-scrape": "^2.2.7",
     "inngest": "^4.5.1",
     "lucide-react": "^1.18.0",
     "motion": "^12.40.0",
@@ -49,17 +61,26 @@
     "@types/pg": "^8.20.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@vitest/coverage-v8": "^4.1.9",
+    "concurrently": "^10.0.3",
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.9",
+    "opencode-ai": "^1.17.9",
     "prisma": "^7.8.0",
     "tailwindcss": "^4.3.1",
     "tsx": "^4.22.4",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
       "@prisma/engines",
-      "prisma"
+      "prisma",
+      "esbuild",
+      "onnxruntime-node",
+      "protobufjs",
+      "sharp",
+      "unrs-resolver"
     ]
   },
   "prisma": {

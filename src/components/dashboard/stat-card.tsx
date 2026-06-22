@@ -3,14 +3,29 @@
 import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { LucideIcon } from "lucide-react";
+import { BarChart3, Building2, FileText, TrendingUp, Users, Activity, ShieldCheck, Server, Flag, Brain } from "lucide-react";
 import { motion, useInView } from "motion/react";
+
+type IconName = "BarChart3" | "Building2" | "FileText" | "TrendingUp" | "Users" | "Activity" | "ShieldCheck" | "Server" | "Flag" | "Brain";
+
+const ICON_MAP = {
+  BarChart3,
+  Building2,
+  FileText,
+  TrendingUp,
+  Users,
+  Activity,
+  ShieldCheck,
+  Server,
+  Flag,
+  Brain,
+};
 
 interface StatCardProps {
   title: string;
   value: string | number;
   description?: string;
-  icon: LucideIcon;
+  icon: IconName;
   trend?: {
     value: string;
     positive: boolean;
@@ -54,12 +69,13 @@ export function StatCard({
   title,
   value,
   description,
-  icon: Icon,
+  icon,
   trend,
   className,
 }: StatCardProps) {
   const numericValue = typeof value === "number" ? value : null;
   const { count, ref } = useCountUp(numericValue || 0);
+  const Icon = ICON_MAP[icon];
 
   return (
     <Card className={cn("relative overflow-hidden", className)}>
@@ -87,7 +103,7 @@ export function StatCard({
             transition={{ duration: 0.3, delay: 0.5 }}
             className={cn(
               "text-xs font-mono mt-2",
-              trend.positive ? "text-green-600" : "text-red-600"
+              trend.positive ? "text-success" : "text-destructive"
             )}
           >
             {trend.positive ? "↑" : "↓"} {trend.value}

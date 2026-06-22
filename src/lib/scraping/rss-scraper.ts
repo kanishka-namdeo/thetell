@@ -30,6 +30,10 @@ export class RssScraper extends BaseScraper {
     super(1.0, 30000, 3, 3600); // 1 hour cache TTL
   }
 
+  override get scraperName(): string {
+    return "rss-scraper";
+  }
+
   /**
    * Fetch and parse an RSS/Atom feed from a URL.
    */
