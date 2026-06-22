@@ -8,15 +8,15 @@ This version has breaking changes â€” APIs, conventions, and file structure
 
 **The Tell** is an AI system that reads public company signals and infers inner workings. It's a Next.js 16.2.9 application with integrated TypeScript AI layer.
 
-## Current State (as of 2026-06-19)
+## Current State (as of 2026-06-22)
 
 **Built:**
 - Design system (newsprint aesthetic, shadcn/ui components, typography, layout)
 - Public signal feed (casual browsing without login, replaces static landing page)
-- Public signal and article detail pages (read-only, no auth required)
+- Public signal, article, and inference detail pages (read-only, no auth required)
 - Component library (UI primitives, layout, typography, icons)
 - Project structure and configuration
-- Database layer (Prisma schema, models, migrations)
+- Database layer (Prisma schema with 27 models, migrations)
 - Signal dashboard with filtering and search
 - User authentication (NextAuth v5)
 - AI analysis engine (TypeScript, OpenAI/Anthropic)
@@ -32,11 +32,15 @@ This version has breaking changes â€” APIs, conventions, and file structure
 - **Hypothesis-driven collection system** (LLM-generated investigative questions guide targeted signal collection)
 - **Cross-signal debate engine** (dual agents debate accumulated evidence across multiple signals to refine inferences)
 - **Correlation engine with dual-agent awareness** (connects themes across signals, tracks momentum, generates strategic inferences)
-- **22 scrapers total** (core 7 + extended 11 + hypothesis-guided 3: AppStore, Domain, Conference + web search)
+- **25 scrapers total** (core 7 + extended 7 + government 6 + new 5) + 2 trackers (AppStore, Domain)
+- **NLP layer** (local Transformers.js embeddings, entity extraction, sentiment classification, keyphrase extraction, language detection, quality gate)
+- **Enrichment pipeline** (website probe, blog discovery, social discovery, ticker lookup)
+- **Reddit integration** (LLM-driven subreddit discovery, tracked subreddits, engagement metrics)
+- **Admin dashboard** (user management, system health, content moderation, analytics, audit logging, scraper management, job monitoring, pipeline view, intelligence overview)
+- **Calibration feedback loop** (weekly prediction accuracy checking via embedding similarity)
 
 **Aspirational (rules exist but features not implemented):**
 - LangGraph agent layer for multi-step analysis
-- Signal ingestion from multiple sources (news, filings, transcripts, social)
 
 ## Dual-Agent Analysis System
 
@@ -120,39 +124,79 @@ content   prompts with     sentiment,  summary,
 **Last updated**: 2026-06-22
 
 ### Signal Pipeline (data flows top-to-bottom)
-- **Ingestion**: `src/lib/scraping/registry.ts` -> 22 scrapers -> `src/lib/scraping/cache.ts`
+- **Enrichment**: `src/lib/enrichment/` (website probe, blog/social discovery, ticker lookup)
+- **URL Discovery**: `src/lib/ai/url-discovery.ts` (LLM-driven search via Serper.dev)
+- **Reddit Discovery**: `src/lib/reddit/subreddit-discovery.ts` (LLM-driven subreddit suggestions)
+- **Ingestion**: `src/lib/scraping/registry.ts` -> 25 scrapers -> `src/lib/scraping/cache.ts`
+- **NLP**: `src/lib/nlp/` (embeddings, entity extraction, sentiment, language detection, quality gate)
 - **Analysis**: `src/lib/ai/agent/pipeline.ts` -> `prompts.ts` -> `personas.ts`
-- **URL Discovery**: `src/lib/ai/url-discovery.ts`
 - **Article Gen**: `src/lib/ai/agent/article-generator.ts`
 - **Hypothesis Layer**: `src/lib/ai/hypothesis-generator.ts` -> `src/lib/inngest/hypothesis.ts`
+- **Correlation**: `src/lib/inngest/correlation.ts` (theme clustering, momentum, inference generation)
 - **Cross-Signal Debate**: `src/lib/ai/agent/cross-signal-debate.ts`
-- **Background**: `src/lib/inngest/functions.ts` -> `discovery.ts`
+- **Calibration**: `src/lib/inngest/calibration.ts` (weekly prediction accuracy)
+- **Background**: `src/lib/inngest/functions.ts` -> `discovery.ts`, `enrichment.ts`, `company-discovery.ts`, `subreddit-discovery.ts`
 
 ### Key Entry Points
 - **Public feed**: `src/app/(public)/page.tsx` -> `feed-content.tsx` -> `feed-signal-card.tsx`
+- **Public signal detail**: `src/app/(public)/signals/[id]/page.tsx` -> `signal-detail-content.tsx`
+- **Public article detail**: `src/app/(public)/articles/[id]/page.tsx`
+- **Public inference detail**: `src/app/(public)/inferences/[id]/page.tsx` -> `inference-detail-content.tsx`
 - **Dashboard**: `src/app/dashboard/layout.tsx` -> per-page components
-- **API routes**: `src/app/api/v1/{signals,articles,search}/route.ts`
-- **Inference API**: `src/app/api/v1/inferences/`
+- **Admin dashboard**: `src/app/dashboard/admin/` (users, analytics, audit, moderation, operations, intelligence)
+- **API routes**: `src/app/api/v1/{signals,articles,search,inferences,themes}/route.ts`
+- **Admin API**: `src/app/api/v1/admin/` (31 routes for content, moderation, pipelines, scrapers, users)
 - **Timeline API**: `src/app/api/v1/companies/[id]/timeline/`
 - **Correlations API**: `src/app/api/v1/signals/[id]/correlations/`
+- **Company enrichment**: `src/app/api/v1/companies/[id]/enrich/`
+- **Subreddit discovery**: `src/app/api/v1/companies/[id]/subreddits/`
 
 ### Data Layer
-- **Schema**: `prisma/schema.prisma` (7 models: User, Company, Signal, Analysis, Article, WatchedCompany, ScrapeCache)
+- **Schema**: `prisma/schema.prisma` (27 models: User, Account, Session, VerificationToken, Company, Signal, Analysis, AgentDebate, SignalTheme, Inference, InferenceCalibration, CrossSignalDebate, Article, WatchedCompany, ScrapeCache, AuditLog, SystemConfig, ModerationSettings, Job, PipelineRun, PipelineLog, TrackedSubreddit, SubredditDiscoveryLog, CompanyDataSource, CompanyEnrichmentLog, CompanyHypothesis, VerificationToken)
 - **DB access**: Prisma client via `src/lib/db.ts`
+- **Enums**: 12 enums (Role, UserStatus, SourceType [18 values], ThemeStatus, InferenceStatus, HypothesisStatus, DebateStatus, SignalStatus, Sentiment, ArticleStatus, AgentPersona, DataOrigin)
 
 ### Cross-Cutting
 - **Auth**: `src/lib/auth.ts` (NextAuth v5) - used in dashboard layout, API routes
-- **Middleware**: `src/middleware.ts` - edge auth, rate limiting, public route protection
+- **Edge Auth**: `src/lib/auth-edge.ts` - edge-compatible auth helper
+- **Proxy/Middleware**: `src/proxy.ts` - edge auth, rate limiting, public route protection (renamed from `src/middleware.ts` for Next.js 16)
 - **AI Provider**: `src/lib/ai/provider.ts` -> OpenAI/Anthropic abstraction
 - **Confidence**: `src/lib/ai/confidence.ts` + `src/lib/utils/confidence.ts`
+- **Rate Limiter**: `src/lib/rate-limiter.ts`
+- **Audit Logger**: `src/lib/audit-logger.ts`
 
-### Scrapers (22 total, in `src/lib/scraping/`)
-- **Core**: `blog-scraper.ts`, `filing-scraper.ts`, `job-scraper.ts`, `news-scraper.ts`, `rss-scraper.ts`, `social-scraper.ts`, `transcript-scraper.ts`
-- **Extended**: `academic-scraper.ts`, `cert-transparency-scraper.ts`, `congress-scraper.ts`, `courtlistener-scraper.ts`, `fda-scraper.ts`, `github-scraper.ts`, `press-release-scraper.ts`, `reddit-financial-scraper.ts`, `sam-scraper.ts`, `uspto-scraper.ts`, `wayback-scraper.ts`
-- **New**: `app-store-scraper.ts`, `domain-tracker.ts`, `conference-scraper.ts`, `web-search-scraper.ts`
+### Scrapers (25 total, in `src/lib/scraping/`)
+- **Core** (7): `blog-scraper.ts`, `filing-scraper.ts`, `job-scraper.ts`, `news-scraper.ts`, `rss-scraper.ts`, `social-scraper.ts`, `transcript-scraper.ts`
+- **Extended** (7): `academic-scraper.ts`, `github-scraper.ts`, `press-release-scraper.ts`, `reddit-financial-scraper.ts`, `wayback-scraper.ts`, `lobbying-scraper.ts`, `exec-appearance-scraper.ts`
+- **Government** (6): `congress-scraper.ts`, `courtlistener-scraper.ts`, `fda-scraper.ts`, `sam-scraper.ts`, `uspto-scraper.ts`, `cert-transparency-scraper.ts`
+- **New** (5): `app-store-scraper.ts`, `conference-scraper.ts`, `conference-agenda-scraper.ts`, `supplier-earning-scraper.ts`, `web-search-scraper.ts`
+- **Trackers** (2): `appstore-tracker.ts`, `domain-tracker.ts`
 
 ### NLP Layer (`src/lib/nlp/`)
-- `embedding-generator.ts`, `entity-extractor.ts`, `index.ts`, `keyphrase-extractor.ts`, `language-detector.ts`, `model-cache.ts`, `quality-gate.ts`, `sentiment-classifier.ts`
+- `embedding-generator.ts`, `embedding-store.ts`, `entity-extractor.ts`, `fallbacks.ts`, `index.ts`, `keyphrase-extractor.ts`, `language-detector.ts`, `model-cache.ts`, `quality-gate.ts`, `sentiment-classifier.ts`
+- Uses Transformers.js for local inference (no external API needed)
+- Provides embeddings, entity extraction, sentiment classification, keyphrase extraction, language detection, quality scoring
+
+### Enrichment Pipeline (`src/lib/enrichment/`)
+- `website-probe.ts` - Probe company websites for feeds/links
+- `blog-discovery.ts` - Discover company blogs
+- `social-discovery.ts` - Discover social media accounts
+- `ticker-lookup.ts` - SEC ticker lookup
+- `types.ts`, `index.ts`
+
+### Reddit Integration (`src/lib/reddit/`)
+- `subreddit-discovery.ts` - LLM-driven subreddit discovery per company
+
+### Background Jobs (`src/lib/inngest/`)
+- `functions.ts` - Main job definitions
+- `discovery.ts` - Scheduled signal discovery (13 steps: RSS, filings, GitHub, cert transparency, Reddit, press releases, USPTO, CourtListener, FDA, SAM.gov, Wayback, Congress, academic)
+- `correlation.ts` - Cross-signal correlation engine (theme clustering, momentum tracking, inference generation)
+- `calibration.ts` - Weekly prediction accuracy checking
+- `hypothesis.ts` - Hypothesis generation jobs
+- `enrichment.ts` - Company enrichment jobs
+- `company-discovery.ts` - Company data source discovery
+- `subreddit-discovery.ts` - Reddit subreddit discovery jobs
+- `client.ts` - Inngest client configuration
 
 ---
 

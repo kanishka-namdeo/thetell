@@ -1,6 +1,6 @@
 # Features Built
 
-**Last updated**: 2026-06-19
+**Last updated**: 2026-06-22
 
 This document tracks all features built in The Tell application. Updated automatically after each feature implementation session.
 
@@ -126,6 +126,10 @@ This document tracks all features built in The Tell application. Updated automat
 | Hypothesis Generator | Generates investigative questions from signal patterns — guides targeted signal collection instead of passive scraping | LLM-powered question generation from accumulated signals, produces hypothesis-specific scraper configurations for active intelligence gathering | `src/lib/ai/hypothesis-generator.ts` | ✅ Built |
 | Cross-Signal Debate Engine | Agents debate accumulated evidence across multiple signals — refines inferences through adversarial reasoning | Dual-agent debate system where Analyst and Gossip Girl argue for/against hypotheses using cross-signal evidence, producing more robust strategic conclusions | `src/lib/ai/agent/cross-signal-debate.ts` | ✅ Built |
 | Dynamic URL Discovery | Automatically discovers new URLs and sources for tracked companies without manual feed registration | LLM-driven search query generation + Serper.dev web search integration, with hypothesis-driven prioritization | `src/lib/scraping/web-search-scraper.ts`, `src/lib/ai/url-discovery.ts` | ✅ Built |
+| Debug Agent Page | Gives admins an AI-powered debugging assistant to diagnose scraper failures, missing signals, and pipeline errors | OpenCode-backed debug session UI with SSE reconnection, rich event rendering (markdown + tool cards), session persistence, follow-up messages, and session history | `src/app/dashboard/admin/debug/` | ✅ Built |
+| Debug Quick-Start Templates | Lets admins jump into common debug scenarios with auto-populated context instead of writing prompts from scratch | Five pre-built templates (scraper failing, company no signals, analysis error, stuck job, DB anomaly); clicking one resolves system context from the live app and fills problem + context fields | `src/app/api/v1/admin/debug/templates/route.ts`, `src/app/dashboard/admin/debug/_components/debug-templates.tsx` | ✅ Built |
+| Debug System Context Injection | Gives the debug agent rich live context automatically — no manual copy-paste of system state | On session start, auto-collects database health, scraper status, job queue state, and environment config (no secrets) and appends to the prompt sent to OpenCode | `src/lib/debug/context-collector.ts`, `src/app/api/v1/admin/debug/start/route.ts` | ✅ Built |
+| Debug Related Signals Panel | Makes debug output immediately actionable by surfacing referenced files, tables, errors, and env vars | Parses event stream for file paths, Prisma models, error messages, and config references; renders grouped badges below the event stream | `src/app/dashboard/admin/debug/_components/debug-related-signals.tsx` | ✅ Built |
 
 ## Infrastructure
 

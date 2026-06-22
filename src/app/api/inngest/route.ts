@@ -10,4 +10,4 @@ const handler = serve({
   functions: [...functions, ...companyDiscoveryFunctions, ...subredditDiscoveryFunctions, ...enrichmentFunctions],
 });
 
-export { handler as GET, handler as POST };
+export { handler as GET, handler as POST, handler as PUT };

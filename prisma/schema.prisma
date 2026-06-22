@@ -35,6 +35,7 @@ model User {
   articles Article[]
   watchedCompanies WatchedCompany[]
   auditLogs AuditLog[]
+  debugSessions DebugSession[]
 }
 
 model Account {
@@ -617,4 +618,24 @@ model CompanyEnrichmentLog {
   company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([companyId])
+}
+
+// ─── Debug Sessions ─────────────────────────────────────────────────────────
+
+model DebugSession {
+  id                String    @id @default(cuid())
+  opencodeSessionId String
+  problem           String
+  context           String?
+  status            String    @default("running") // running, completed, failed, cancelled
+  eventCount        Int       @default(0)
+  startedAt         DateTime  @default(now())
+  completedAt       DateTime?
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([status])
 }
