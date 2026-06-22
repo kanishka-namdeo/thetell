@@ -37,9 +37,10 @@ export async function GET(req: NextRequest) {
       throw new Error(`Failed to connect to event stream: ${eventRes.statusText}`);
     }
 
+    const responseBody = eventRes.body;
     const stream = new ReadableStream({
       async start(controller) {
-        const reader = eventRes.body.getReader();
+        const reader = responseBody.getReader();
         const decoder = new TextDecoder();
 
         try {

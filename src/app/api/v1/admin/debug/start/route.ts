@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { isAdmin } from "@/lib/auth-guard";
+import { prisma } from "@/lib/db";
+import { collectSystemContext, formatSystemContext } from "@/lib/debug/context-collector";
 
 const OPENCODE_URL = process.env.OPENCODE_URL || "http://localhost:4096";
 const OPENCODE_PASSWORD = process.env.OPENCODE_PASSWORD || "debug-agent-secret";
@@ -23,6 +25,15 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Collect system context automatically
+    const systemContext = await collectSystemContext();
+    const formattedSystemContext = formatSystemContext(systemContext);
+
+    // Combine user-provided context with system context
+    const combinedContext = context
+      ? `${context}\n\n${formattedSystemContext}`
+      : formattedSystemContext;
 
     const createRes = await fetch(`${OPENCODE_URL}/session`, {
       method: "POST",
@@ -53,8 +64,8 @@ export async function POST(req: NextRequest) {
           parts: [
             {
               type: "text",
-              text: context
-                ? `${problem}\n\nAdditional context:\n${context}`
+              text: combinedContext
+                ? `${problem}\n\nAdditional context:\n${combinedContext}`
                 : problem,
             },
           ],
@@ -65,6 +76,17 @@ export async function POST(req: NextRequest) {
     if (!promptRes.ok) {
       throw new Error(`Failed to send prompt: ${promptRes.statusText}`);
     }
+
+    // Persist session to database
+    await prisma.debugSession.create({
+      data: {
+        opencodeSessionId: opencodeSession.id,
+        problem,
+        context: combinedContext || null,
+        status: "running",
+        userId: session.user.id,
+      },
+    });
 
     return NextResponse.json({
       sessionId: opencodeSession.id,
