@@ -18,8 +18,12 @@ const SIMILARITY_THRESHOLD = 0.6;
 export const calibrateInferencesFunction = inngest.createFunction(
   {
     id: "calibrate-inferences",
-    triggers: [{ cron: "0 6 * * 1" }], // Monday 6 AM UTC
+    triggers: [
+      { event: "calibration/run" },
+      { cron: "0 6 * * 1" }, // Monday 6 AM UTC
+    ],
     retries: 2,
+    timeouts: { finish: "15m" },
   },
   async ({ step }) => {
     const log = logger.child({ function: "calibrate-inferences" });
@@ -72,6 +76,15 @@ export const calibrateInferencesFunction = inngest.createFunction(
                 createdAt: { gt: inference.createdAt },
                 status: "ANALYZED",
               },
+              include: {
+                cluster: {
+                  select: {
+                    id: true,
+                    label: true,
+                    clusterSummary: true,
+                  },
+                },
+              },
               orderBy: { createdAt: "desc" },
               take: 50,
             });
@@ -120,10 +133,18 @@ export const calibrateInferencesFunction = inngest.createFunction(
                       : "NEUTRAL"
                   : "NEUTRAL";
 
+              // If signal is clustered, use cluster-aggregated confidence as a weight bonus
+              const isClustered = signal.cluster !== null;
+              const clusterSummary = signal.cluster?.clusterSummary as { aggregatedConfidence?: number } | null;
+              const confidenceWeight = isClustered && clusterSummary?.aggregatedConfidence
+                ? clusterSummary.aggregatedConfidence
+                : 1.0;
+
               const entry = {
                 signalId: signal.id,
-                similarity,
+                similarity: similarity * confidenceWeight,
                 sentiment: avgSentiment,
+                isClustered,
               };
 
               // Positive sentiment for relevant signals suggests support

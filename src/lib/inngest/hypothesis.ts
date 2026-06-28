@@ -11,16 +11,27 @@ import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { generateHypotheses } from "@/lib/ai/hypothesis-generator";
 import type { RecentAnalysis, ThemeWithMomentum } from "@/lib/ai/hypothesis-generator";
+import { runWithTraceAsync } from "@/lib/ai/trace-context";
 
 export const generateHypothesesFunction = inngest.createFunction(
   {
     id: "generate-hypotheses",
-    triggers: [cron("0 3 * * 1")], // Monday 3:00 AM UTC
+    triggers: [
+      { event: "hypothesis/generate" },
+      cron("0 3 * * 1"), // Monday 3:00 AM UTC
+    ],
     retries: 2,
+    timeouts: { finish: "15m" },
   },
   async ({ step }) => {
-    const log = logger.child({ function: "generate-hypotheses" });
-    log.info("hypothesis_generation.start");
+    return runWithTraceAsync(
+      {
+        sessionId: "hypothesis-generation",
+        traceName: "generate-hypotheses",
+      },
+      async () => {
+        const log = logger.child({ function: "generate-hypotheses" });
+        log.info("hypothesis_generation.start");
 
     // Step 1: Get all companies with at least one signal
     const companies = await step.run("load-tracked-companies", async () => {
@@ -92,7 +103,7 @@ export const generateHypothesesFunction = inngest.createFunction(
               sourceType: a.signal.sourceType,
             }));
 
-            // Load current themes with momentum
+            // Load current themes with momentum and cluster data
             const themes = await prisma.signalTheme.findMany({
               where: { companyId: company.id },
               select: {
@@ -100,6 +111,13 @@ export const generateHypothesesFunction = inngest.createFunction(
                 label: true,
                 momentum: true,
                 status: true,
+                clusterSummary: true,
+                clusterArticles: {
+                  select: {
+                    summary: true,
+                    signalCount: true,
+                  },
+                },
               },
               orderBy: { momentum: "desc" },
               take: 15,
@@ -110,6 +128,11 @@ export const generateHypothesesFunction = inngest.createFunction(
               label: t.label,
               momentum: t.momentum,
               status: t.status,
+              clusterSummary: t.clusterSummary,
+              clusterArticles: t.clusterArticles.map((a) => ({
+                summary: a.summary,
+                signalCount: a.signalCount,
+              })),
             }));
 
             companyLog.info("hypothesis_generation.data_loaded", {
@@ -130,31 +153,34 @@ export const generateHypothesesFunction = inngest.createFunction(
               return { companyId: company.id, created: 0 };
             }
 
-            // Archive existing ACTIVE hypotheses for this company
-            await prisma.companyHypothesis.updateMany({
-              where: { companyId: company.id, status: "ACTIVE" },
-              data: { status: "ARCHIVED" },
-            });
-
-            // Upsert new hypotheses
-            let created = 0;
-            for (const h of hypotheses) {
-              await prisma.companyHypothesis.create({
-                data: {
-                  companyId: company.id,
-                  title: h.question,
-                  description: h.rationale,
-                  status: "ACTIVE",
-                  confidence: h.priority,
-                  evidence: JSON.stringify({
-                    sourceWeights: h.sourceWeights,
-                    priority: h.priority,
-                    generatedAt: new Date().toISOString(),
-                  }),
-                },
+            // Archive existing ACTIVE hypotheses and create new ones in a transaction
+            // to prevent data loss if creates fail midway
+            const created = await prisma.$transaction(async (tx) => {
+              await tx.companyHypothesis.updateMany({
+                where: { companyId: company.id, status: "ACTIVE" },
+                data: { status: "ARCHIVED" },
               });
-              created++;
-            }
+
+              let count = 0;
+              for (const h of hypotheses) {
+                await tx.companyHypothesis.create({
+                  data: {
+                    companyId: company.id,
+                    title: h.question,
+                    description: h.rationale,
+                    status: "ACTIVE",
+                    confidence: h.priority,
+                    evidence: JSON.stringify({
+                      sourceWeights: h.sourceWeights,
+                      priority: h.priority,
+                      generatedAt: new Date().toISOString(),
+                    }),
+                  },
+                });
+                count++;
+              }
+              return count;
+            });
 
             companyLog.info("hypothesis_generation.completed", { created });
             return { companyId: company.id, created };
@@ -181,6 +207,8 @@ export const generateHypothesesFunction = inngest.createFunction(
       companiesProcessed: companies.length,
       hypothesesCreated: totalHypotheses,
     };
+      } // close runWithTraceAsync callback
+    ); // close runWithTraceAsync
   }
 );
 

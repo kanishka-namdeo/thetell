@@ -5,38 +5,60 @@
  * for a newly created company, then triggers signal discovery scraping.
  */
 
+import { NonRetriableError } from "inngest";
 import { inngest } from "./client";
 import { enrichCompany } from "@/lib/enrichment";
 import { logger } from "@/lib/logger";
+import { runWithTraceAsync } from "@/lib/ai/trace-context";
 
 export const enrichCompanyFunction = inngest.createFunction(
   {
     id: "enrich-company",
     triggers: [{ event: "company/enrichment.requested" }],
     retries: 2,
+    timeouts: { finish: "10m" },
   },
   async ({ event, step }) => {
+    if (!event.data.companyId) throw new NonRetriableError('Missing companyId');
     const { companyId } = event.data as { companyId: string };
-    const log = logger.child({ function: "enrich-company", companyId });
+    return runWithTraceAsync(
+      {
+        sessionId: companyId,
+        traceName: "enrich-company",
+        metadata: { companyId },
+      },
+      async () => {
+        const log = logger.child({ function: "enrich-company", companyId });
 
-    log.info("enrichment_job.start");
+        log.info("enrichment_job.start");
 
-    const result = await step.run("enrich-company", async () => {
-      return await enrichCompany(companyId);
-    });
+        const result = await step.run("enrich-company", async () => {
+          return await enrichCompany(companyId);
+        });
 
-    log.info("enrichment_job.complete", { status: result.status });
+        if (!result) {
+          throw new NonRetriableError(`Company enrichment failed: ${companyId}`);
+        }
 
-    await step.run("trigger-discovery", async () => {
-      await inngest.send({
-        name: "company/discovery.requested",
-        data: { companyId, scrapers: undefined },
-      });
-    });
+        log.info("enrichment_job.complete", { status: result.status });
 
-    log.info("enrichment_job.discovery_triggered");
+        await step.run("trigger-discovery", async () => {
+          await inngest.send({
+            name: "signal/discovery.requested",
+            data: {
+              companyIds: [companyId],
+              mode: "automated",
+              hypothesisAware: true,
+              stealthFallback: false,
+            },
+          });
+        });
 
-    return { success: true, ...result };
+        log.info("enrichment_job.discovery_triggered");
+
+        return { success: true, ...result };
+      }
+    );
   }
 );
 

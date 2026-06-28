@@ -5,7 +5,7 @@
  * On-demand event trigger for single-company discovery.
  */
 
-import { cron } from "inngest";
+import { cron, NonRetriableError } from "inngest";
 import { inngest } from "./client";
 import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
@@ -16,6 +16,7 @@ export const discoverSubredditsFunction = inngest.createFunction(
     id: "discover-subreddits",
     triggers: [cron("0 4 * * 1")], // Monday 4:00 AM UTC
     retries: 2,
+    timeouts: { finish: "10m" },
   },
   async ({ step }) => {
     const log = logger.child({ function: "discover-subreddits" });
@@ -27,21 +28,24 @@ export const discoverSubredditsFunction = inngest.createFunction(
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-        const allCompanies = await prisma.company.findMany({
+        const recentLogCompanyIds = await prisma.subredditDiscoveryLog.findMany({
+          where: { createdAt: { gte: sevenDaysAgo } },
+          select: { companyId: true },
+          distinct: ["companyId"],
+        }).then(logs => logs.map(l => l.companyId));
+
+        const needingDiscovery = await prisma.company.findMany({
+          where: {
+            AND: [
+              { status: "ACTIVE" },
+              { id: { notIn: recentLogCompanyIds } },
+            ],
+          },
           select: { id: true, name: true },
+          take: 20,
         });
 
-        const needingDiscovery: Array<{ id: string; name: string }> = [];
-        for (const company of allCompanies) {
-          const latestLog = await prisma.subredditDiscoveryLog.findFirst({
-            where: { companyId: company.id },
-            orderBy: { createdAt: "desc" },
-          });
-          if (!latestLog || latestLog.createdAt < sevenDaysAgo) {
-            needingDiscovery.push({ id: company.id, name: company.name });
-          }
-        }
-        return needingDiscovery.slice(0, 20);
+        return needingDiscovery;
       }
     );
 
@@ -105,8 +109,10 @@ export const discoverSubredditsOnDemandFunction = inngest.createFunction(
     id: "discover-subreddits-on-demand",
     triggers: [{ event: "company.subreddits.discover" }],
     retries: 2,
+    timeouts: { finish: "10m" },
   },
   async ({ event, step }) => {
+    if (!event.data.companyId) throw new NonRetriableError('Missing companyId');
     const { companyId } = event.data as { companyId: string };
     const log = logger.child({ function: "discover-subreddits-on-demand", companyId });
 
