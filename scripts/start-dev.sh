@@ -22,7 +22,7 @@ echo ""
 echo "⏳ Waiting for database to be ready..."
 max_attempts=30
 attempt=0
-until docker exec the_tell-db pg_isready -U thetell_user -d the_tell > /dev/null 2>&1; do
+until docker exec the_tell-db pg_isready -U thell_user -d the_tell > /dev/null 2>&1; do
     attempt=$((attempt + 1))
     if [ $attempt -ge $max_attempts ]; then
         echo "❌ Database failed to start within timeout."

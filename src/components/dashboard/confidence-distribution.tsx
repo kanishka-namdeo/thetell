@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { ChartCard } from "@/components/charts/chart-card";
+import { logger } from "@/lib/logger";
 
 interface ConfidenceBucket {
   bucket: string;
@@ -16,14 +17,15 @@ interface ConfidenceDistributionProps {
 
 const BUCKET_COLORS = ["var(--chart-success)", "var(--neutral-500)", "var(--chart-destructive)"];
 
-const subscribe = () => () => {};
-function getClientSnapshot() { return true; }
-function getServerSnapshot() { return false; }
-
 export function ConfidenceDistribution({ companyId, days = 30 }: ConfidenceDistributionProps) {
   const [data, setData] = useState<ConfidenceBucket[]>([]);
   const [loading, setLoading] = useState(true);
-  const mounted = useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
+  const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -35,15 +37,37 @@ export function ConfidenceDistribution({ companyId, days = 30 }: ConfidenceDistr
         const res = await fetch(`/api/v1/analytics/overview?${params}`, {
           signal: controller.signal,
         });
-        if (!res.ok) throw new Error("Failed to fetch");
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({ error: "Unknown error" }));
+          logger.error("analytics.confidence.fetch.error", {
+            status: res.status,
+            statusText: res.statusText,
+            error: errorData,
+          });
+
+          if (res.status === 401) {
+            setError("Authentication required. Please sign in.");
+          } else if (res.status === 403) {
+            setError("Access denied.");
+          } else {
+            setError(`Failed to load data (${res.status})`);
+          }
+          return;
+        }
 
         const json = await res.json();
         setData(json.confidenceDistribution || []);
-      } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") return;
-        console.error("Error fetching confidence distribution:", error);
+        setError(null);
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          setLoading(false);
+          return;
+        }
+        logger.error("analytics.confidence.fetch.error", { error: String(err) });
+        setError("Failed to fetch data");
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        setLoading(false);
       }
     };
 
@@ -61,10 +85,20 @@ export function ConfidenceDistribution({ companyId, days = 30 }: ConfidenceDistr
     );
   }
 
+  if (error) {
+    return (
+      <ChartCard title="Confidence Distribution" description="Analysis confidence score breakdown">
+        <div className="h-[300px] flex items-center justify-center text-destructive text-sm">
+          {error}
+        </div>
+      </ChartCard>
+    );
+  }
+
   return (
     <ChartCard title="Confidence Distribution" description="Analysis confidence score breakdown">
-      <div className="h-[300px]">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+      <div className="w-full h-[300px]">
+        <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100}>
           <BarChart data={data}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
             <XAxis

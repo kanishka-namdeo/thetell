@@ -42,7 +42,7 @@ async function main() {
 
   const adminUser = await prisma.user.upsert({
     where: { email: "admin@thetell.com" },
-    update: {},
+    update: { passwordHash },
     create: {
       email: "admin@thetell.com",
       name: "Admin User",
@@ -54,7 +54,7 @@ async function main() {
 
   await prisma.user.upsert({
     where: { email: "analyst@thetell.com" },
-    update: {},
+    update: { passwordHash },
     create: {
       email: "analyst@thetell.com",
       name: "Test Analyst",
@@ -180,7 +180,24 @@ async function main() {
         );
 
         for (const item of itemsToProcess) {
-          const rawContent = stripHtml(item.content || item.description || "");
+          let rawContent = stripHtml(item.content || item.description || "");
+          
+          // For link-only RSS feeds (common with IR feeds), fetch the linked page content
+          if ((!rawContent || rawContent.length < 50) && item.link) {
+            try {
+              console.log(`       - fetching content from linked page: ${item.link.slice(0, 60)}...`);
+              const pageContent = await scraper.fetch(item.link);
+              if (pageContent) {
+                // Extract text content from HTML - simple approach
+                rawContent = stripHtml(pageContent);
+                // Limit to first 2000 chars to avoid huge content
+                rawContent = rawContent.slice(0, 2000);
+              }
+            } catch (fetchError) {
+              console.log(`       - failed to fetch linked page: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`);
+            }
+          }
+          
           if (!item.link || !rawContent || rawContent.length < 50) {
             console.log(
               `       - skip (insufficient content): "${(item.title || "").slice(0, 50)}"`

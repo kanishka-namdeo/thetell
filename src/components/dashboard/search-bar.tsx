@@ -2,13 +2,15 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Search, X, FileText, Building2, BarChart3 } from "lucide-react";
+import { Search, X, FileText, Building2, BarChart3, Tag } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { logger } from "@/lib/logger";
 
 interface SearchResult {
   signals: Array<{ id: string; title: string; company: { name: string } }>;
   companies: Array<{ id: string; name: string; ticker: string | null }>;
   articles: Array<{ id: string; title: string; company: { name: string } }>;
+  themes?: Array<{ id: string; label: string; company: { name: string }; signalCount: number }>;
 }
 
 export function SearchBar() {
@@ -52,7 +54,7 @@ export function SearchBar() {
       }
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
-      console.error("Search error:", err);
+      logger.error("search_bar.error", { error: String(err) });
     } finally {
       setLoading(false);
     }
@@ -74,7 +76,7 @@ export function SearchBar() {
   };
 
   const totalResults = results
-    ? results.signals.length + results.companies.length + results.articles.length
+    ? results.signals.length + results.companies.length + results.articles.length + (results.themes?.length || 0)
     : 0;
 
   return (
@@ -155,7 +157,7 @@ export function SearchBar() {
           )}
 
           {!loading && results.articles.length > 0 && (
-            <div>
+            <div className="border-b border-border">
               <div className="px-3 py-1.5 text-[11px] uppercase tracking-widest font-sans text-muted-foreground flex items-center gap-1.5">
                 <FileText className="h-3 w-3" /> Articles
               </div>
@@ -167,6 +169,25 @@ export function SearchBar() {
                 >
                   <span className="font-medium">{a.title}</span>
                   <span className="text-muted-foreground ml-2">· {a.company.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {!loading && results.themes && results.themes.length > 0 && (
+            <div>
+              <div className="px-3 py-1.5 text-[11px] uppercase tracking-widest font-sans text-muted-foreground flex items-center gap-1.5">
+                <Tag className="h-3 w-3" /> Themes
+              </div>
+              {results.themes.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => navigateTo(`/clusters/${t.id}`)}
+                  className="w-full text-left px-3 py-2 text-xs font-body hover:bg-muted transition-colors"
+                >
+                  <span className="font-medium">{t.label}</span>
+                  <span className="text-muted-foreground ml-2">· {t.company.name}</span>
+                  <span className="text-muted-foreground ml-2">· {t.signalCount} signals</span>
                 </button>
               ))}
             </div>

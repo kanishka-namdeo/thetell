@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { ChartCard } from "@/components/charts/chart-card";
+import { logger } from "@/lib/logger";
 
 interface SentimentTrendData {
   date: string;
@@ -16,16 +18,26 @@ interface SentimentTrendsProps {
   days?: number;
 }
 
-const subscribe = () => () => {};
-function getClientSnapshot() { return true; }
-function getServerSnapshot() { return false; }
-
 export function SentimentTrends({ companyId, days = 30 }: SentimentTrendsProps) {
+  const { status } = useSession();
   const [data, setData] = useState<SentimentTrendData[]>([]);
   const [loading, setLoading] = useState(true);
-  const mounted = useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
+  const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (status !== "authenticated") {
+      setLoading(status === "loading");
+      if (status === "unauthenticated") {
+        setError("Authentication required. Please sign in.");
+      }
+      return;
+    }
+
     const controller = new AbortController();
     const fetchTrends = async () => {
       try {
@@ -35,21 +47,43 @@ export function SentimentTrends({ companyId, days = 30 }: SentimentTrendsProps) 
         const res = await fetch(`/api/v1/analytics/overview?${params}`, {
           signal: controller.signal,
         });
-        if (!res.ok) throw new Error("Failed to fetch");
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({ error: "Unknown error" }));
+          logger.error("analytics.sentiment.fetch.error", {
+            status: res.status,
+            statusText: res.statusText,
+            error: errorData,
+          });
+
+          if (res.status === 401) {
+            setError("Authentication required. Please sign in.");
+          } else if (res.status === 403) {
+            setError("Access denied.");
+          } else {
+            setError(`Failed to load data (${res.status})`);
+          }
+          return;
+        }
 
         const json = await res.json();
         setData(json.sentimentTrends || []);
-      } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") return;
-        console.error("Error fetching sentiment trends:", error);
+        setError(null);
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          setLoading(false);
+          return;
+        }
+        logger.error("analytics.sentiment.fetch.error", { error: String(err) });
+        setError("Failed to fetch data");
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        setLoading(false);
       }
     };
 
     fetchTrends();
     return () => controller.abort();
-  }, [companyId, days]);
+  }, [companyId, days, status]);
 
   if (!mounted || loading) {
     return (
@@ -61,10 +95,20 @@ export function SentimentTrends({ companyId, days = 30 }: SentimentTrendsProps) 
     );
   }
 
+  if (error) {
+    return (
+      <ChartCard title="Sentiment Trends" description="Signal sentiment over time">
+        <div className="h-[300px] flex items-center justify-center text-destructive text-sm">
+          {error}
+        </div>
+      </ChartCard>
+    );
+  }
+
   return (
     <ChartCard title="Sentiment Trends" description="Signal sentiment over time">
-      <div className="h-[300px]">
-        <ResponsiveContainer width="100%" height="100%">
+      <div className="w-full h-[300px]">
+        <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100}>
           <LineChart data={data}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
             <XAxis

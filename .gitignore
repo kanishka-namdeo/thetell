@@ -47,5 +47,3 @@ prisma/migrations/
 *.output.txt
 typecheck-output.txt
 
-# opencode config (contains hardcoded API key)
-opencode.json

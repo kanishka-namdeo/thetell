@@ -10,7 +10,7 @@ import { logger } from "@/lib/logger";
 
 type PipelineTask = Parameters<typeof pipeline>[0];
 
-type BackendType = "wasm" | "webgpu";
+type BackendType = "cuda" | "dml" | "webgpu" | "cpu";
 
 /** Time in milliseconds before an idle model is unloaded (30 minutes). */
 const IDLE_TTL_MS = 30 * 60 * 1000;
@@ -38,6 +38,7 @@ interface ModelCacheStats {
     accessCount: number;
   }>;
   backend: BackendType | null;
+  dtype: string | null;
   totalAccessCount: number;
 }
 
@@ -51,7 +52,53 @@ function pipelineKey(task: PipelineTask, model: string): string {
   return `${task}::${model}`;
 }
 
-async function detectBackend(): Promise<BackendType> {
+/**
+ * Get list of supported backends from onnxruntime-node.
+ * Returns empty array if not in Node.js environment or on error.
+ */
+async function getOrtBackends(): Promise<string[]> {
+  try {
+    const ort = await import("onnxruntime-node");
+    const listFn = (ort as unknown as { listSupportedBackends?: () => Array<{ name: string }> })
+      .listSupportedBackends;
+    if (typeof listFn === "function") {
+      return listFn().map((b) => b.name);
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Check if CUDA (NVIDIA GPU) support is available via onnxruntime-node.
+ * Note: CUDA EP is only available on Linux x64.
+ */
+async function hasCudaSupport(): Promise<boolean> {
+  const backends = await getOrtBackends();
+  return backends.includes("cuda");
+}
+
+/**
+ * Check if DirectML (Windows GPU) support is available via onnxruntime-node.
+ * DML works with AMD, Intel, and NVIDIA GPUs on Windows.
+ */
+async function hasDmlSupport(): Promise<boolean> {
+  const backends = await getOrtBackends();
+  return backends.includes("dml");
+}
+
+/**
+ * Check if WebGPU support is available via onnxruntime-node or browser API.
+ */
+async function hasWebGpuSupport(): Promise<boolean> {
+  // Check onnxruntime-node backends first (Node.js 23+ with WebGPU)
+  const backends = await getOrtBackends();
+  if (backends.includes("webgpu")) {
+    return true;
+  }
+
+  // Check browser WebGPU API
   if (
     typeof globalThis.navigator !== "undefined" &&
     "gpu" in globalThis.navigator
@@ -62,16 +109,43 @@ async function detectBackend(): Promise<BackendType> {
           gpu: { requestAdapter: () => Promise<unknown> };
         }
       ).gpu.requestAdapter();
-      if (adapter) {
-        logger.info("nlp.backend.detected", { backend: "webgpu" });
-        return "webgpu";
-      }
+      return !!adapter;
     } catch {
-      // WebGPU not available, fall through to WASM
+      return false;
     }
   }
-  logger.info("nlp.backend.detected", { backend: "wasm" });
-  return "wasm";
+  return false;
+}
+
+async function detectBackend(): Promise<BackendType> {
+  // 1. Explicit env var override
+  const envDevice = process.env.NLP_DEVICE?.toLowerCase();
+  if (envDevice === "cuda" || envDevice === "dml" || envDevice === "webgpu" || envDevice === "cpu") {
+    logger.info("nlp.backend.env_override", { backend: envDevice });
+    return envDevice;
+  }
+
+  // 2. Try CUDA detection (Linux x64 only)
+  if (await hasCudaSupport()) {
+    logger.info("nlp.backend.detected", { backend: "cuda" });
+    return "cuda";
+  }
+
+  // 3. Try DirectML detection (Windows GPU - works with NVIDIA, AMD, Intel)
+  if (await hasDmlSupport()) {
+    logger.info("nlp.backend.detected", { backend: "dml" });
+    return "dml";
+  }
+
+  // 4. WebGPU (browser / Node.js 23+ with --experimental-webgpu)
+  if (await hasWebGpuSupport()) {
+    logger.info("nlp.backend.detected", { backend: "webgpu" });
+    return "webgpu";
+  }
+
+  // 5. CPU fallback
+  logger.info("nlp.backend.detected", { backend: "cpu" });
+  return "cpu";
 }
 
 function getCache(): Map<string, CachedPipeline> {
@@ -129,6 +203,10 @@ export async function getModelPipeline(
     while (cache.size >= MAX_CACHED_PIPELINES) {
       const lruEntry = findLeastRecentlyUsed(cache);
       if (!lruEntry) break;
+      const evicted = cache.get(lruEntry.key);
+      if (evicted?.instance && typeof (evicted.instance as any).dispose === "function") {
+        try { await (evicted.instance as any).dispose(); } catch { /* ignore dispose errors */ }
+      }
       cache.delete(lruEntry.key);
       logger.info("nlp.pipeline.evict.lru", { task: lruEntry.task, model: lruEntry.model });
     }
@@ -136,10 +214,28 @@ export async function getModelPipeline(
     const backend = await getBackend();
     const startTime = Date.now();
 
-    logger.info("nlp.pipeline.loading", { task, model, backend });
+    const deviceMap = {
+      cuda: "cuda",
+      dml: "dml",
+      webgpu: "webgpu",
+      cpu: "cpu",
+    } as const;
+
+    const dtypeMap = {
+      cuda: "fp32",
+      dml: "fp32",
+      webgpu: "fp32",
+      cpu: "q8",
+    } as const;
+
+    const device = deviceMap[backend];
+    const dtype = dtypeMap[backend];
+
+    logger.info("nlp.pipeline.loading", { task, model, backend, device, dtype });
 
     const instance = await pipeline(task, model, {
-      device: backend === "webgpu" ? "webgpu" : "cpu",
+      device,
+      dtype,
     });
 
     const elapsed = Date.now() - startTime;
@@ -153,7 +249,7 @@ export async function getModelPipeline(
       accessCount: 1,
     });
 
-    logger.info("nlp.pipeline.loaded", { task, model, backend, elapsedMs: elapsed });
+    logger.info("nlp.pipeline.loaded", { task, model, backend, device, dtype, elapsedMs: elapsed });
     return instance;
   })();
 
@@ -201,6 +297,9 @@ export function unloadIdleModels(): number {
   for (const [key, cached] of cache.entries()) {
     const idleMs = now - cached.lastAccessedAt;
     if (idleMs > IDLE_TTL_MS) {
+      if (cached.instance && typeof (cached.instance as any).dispose === "function") {
+        try { (cached.instance as any).dispose(); } catch { /* ignore dispose errors */ }
+      }
       cache.delete(key);
       unloaded++;
       logger.info("nlp.model.unloaded", {
@@ -243,18 +342,40 @@ export function getModelCacheStats(): ModelCacheStats {
     };
   });
 
+  const backend = globalForNlp.nlpBackend ?? null;
+  const dtypeMap: Record<BackendType, string> = {
+    cuda: "fp32",
+    dml: "fp32",
+    webgpu: "fp32",
+    cpu: "q8",
+  };
+  const dtype = backend ? dtypeMap[backend] : null;
+
   return {
     cachedModels: cache.size,
     models,
-    backend: globalForNlp.nlpBackend ?? null,
+    backend,
+    dtype,
     totalAccessCount,
   };
 }
 
-export function clearModelCache(): void {
+export async function clearModelCache(): Promise<void> {
   const cache = getCache();
   const size = cache.size;
-  cache.clear();
+
+  // Dispose all pipeline instances before clearing to free memory
+  for (const [key, cached] of cache.entries()) {
+    if (cached.instance && typeof (cached.instance as any).dispose === "function") {
+      try {
+        await (cached.instance as any).dispose();
+      } catch {
+        // Ignore dispose errors during cache clear
+      }
+    }
+    cache.delete(key);
+  }
+
   logger.info("nlp.pipeline.cache.cleared", { pipelinesCleared: size });
 }
 
@@ -263,8 +384,13 @@ export function getCachedPipelineCount(): number {
 }
 
 export function configureModelCache(): void {
-  env.cacheDir = process.env.NLP_MODEL_CACHE_DIR ?? null;
-  env.allowLocalModels = process.env.NLP_ALLOW_LOCAL_MODELS === "true";
+// Configure model cache based on environment variables
+// Only override defaults if explicitly set
+if (process.env.NLP_MODEL_CACHE_DIR) {
+  env.cacheDir = process.env.NLP_MODEL_CACHE_DIR;
+}
+  // Default to true — local models should be used unless explicitly disabled
+  env.allowLocalModels = process.env.NLP_ALLOW_LOCAL_MODELS !== "false";
   env.allowRemoteModels = process.env.NLP_ALLOW_REMOTE_MODELS !== "false";
 
   logger.info("nlp.cache.configured", {
@@ -272,4 +398,19 @@ export function configureModelCache(): void {
     allowLocal: env.allowLocalModels,
     allowRemote: env.allowRemoteModels,
   });
+}
+
+// Schedule idle model unloading every 5 minutes
+if (typeof globalThis.setInterval !== "undefined") {
+  const unloadTimer = setInterval(() => {
+    try {
+      unloadIdleModels();
+    } catch (error) {
+      logger.error("nlp.idle.unload.error", { error: String(error) });
+    }
+  }, 5 * 60 * 1000);
+  // unref() prevents timer from keeping process alive
+  if (typeof unloadTimer.unref === "function") {
+    unloadTimer.unref();
+  }
 }

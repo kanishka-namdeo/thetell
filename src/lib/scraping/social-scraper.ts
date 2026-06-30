@@ -1,11 +1,12 @@
 /**
- * Social media scraper for public X/Twitter posts (via Nitter) and Reddit posts.
- * X/Twitter scraping is fragile — includes robust fallback to multiple Nitter instances and RSS.
+ * Social media scraper for public posts across X/Twitter, Reddit, Hacker News, and Mastodon.
+ * X/Twitter scraping is delegated to TwitterScraper (oEmbed + RSSHub + syndication fallback).
  */
 
 import * as cheerio from "cheerio";
 import { logger } from "@/lib/logger";
 import { BaseScraper } from "./base-scraper";
+import { TwitterScraper } from "./twitter-scraper";
 
 export interface SocialPostData {
   url: string;
@@ -22,23 +23,26 @@ export interface SocialPostData {
   metadata: Record<string, string>;
 }
 
-const NITTER_INSTANCES = [
-  "https://nitter.privacydev.net",
-  "https://nitter.poast.org",
-  "https://nitter.net",
-  "https://nitter.1d4.us",
-];
-
 const REDDIT_BASE = "https://www.reddit.com";
 const HN_API_BASE = "https://hacker-news.firebaseio.com/v0";
-const MASTODON_INSTANCES = ["mastodon.social", "techhub.social"];
-const NITTER_STATUS_URL = "https://status.d4.d3r1.net/api/v1/instances";
+// Expanded list of Mastodon instances for better coverage of corporate signals
+// Each instance only sees what it has federated, so we need multiple instances
+// Source: Industry research on Mastodon for corporate intelligence
+const MASTODON_INSTANCES = [
+  "mastodon.social",      // Flagship (largest, ~281K+ users)
+  "fosstodon.org",        // FOSS/tech focus
+  "hachyderm.io",         // IT professionals
+  "mas.to",               // General tech
+  "infosec.exchange",     // Security professionals
+  "techhub.social",       // Tech (already tracked)
+];
 
 export class SocialScraper extends BaseScraper {
-  private dynamicNitterInstances: string[] | null = null;
+  private twitterScraper: TwitterScraper;
 
   constructor() {
     super(1.0, 30000, 3, 86400, true);
+    this.twitterScraper = new TwitterScraper();
   }
 
   override get scraperName(): string {
@@ -47,7 +51,7 @@ export class SocialScraper extends BaseScraper {
 
   /**
    * Scrape a social media post from a URL.
-   * Supports X/Twitter (via Nitter), Reddit, Hacker News, and Mastodon.
+   * Supports X/Twitter (via TwitterScraper), Reddit, Hacker News, and Mastodon.
    */
   async scrapePost(url: string): Promise<SocialPostData | null> {
     const parsed = new URL(url);
@@ -97,256 +101,22 @@ export class SocialScraper extends BaseScraper {
   }
 
   /**
-   * Get the list of Nitter instances to try, fetching dynamic instances
-   * from a community-maintained status page and merging with the static list.
-   */
-  private async getNitterInstances(): Promise<string[]> {
-    if (this.dynamicNitterInstances) {
-      return this.dynamicNitterInstances;
-    }
-
-    try {
-      const text = await this.fetch(NITTER_STATUS_URL);
-      if (text) {
-        const data = JSON.parse(text) as Array<{ url?: string; available?: boolean }>;
-        const healthy = data
-          .filter((inst) => inst.available && inst.url)
-          .map((inst) => inst.url!.replace(/\/+$/, ""));
-
-        if (healthy.length > 0) {
-          this.dynamicNitterInstances = [...new Set([...healthy, ...NITTER_INSTANCES])];
-          logger.info("Loaded dynamic Nitter instances", {
-            count: this.dynamicNitterInstances.length,
-          });
-          return this.dynamicNitterInstances;
-        }
-      }
-    } catch (error) {
-      logger.debug("Failed to fetch dynamic Nitter instances", {
-        error: String(error),
-      });
-    }
-
-    this.dynamicNitterInstances = NITTER_INSTANCES;
-    return NITTER_INSTANCES;
-  }
-
-  /**
-   * Scrape a Twitter/X post with a multi-layered fallback chain:
-   * 1. Nitter HTML (dynamic instances)
-   * 2. Nitter RSS (dynamic instances)
-   * 3. Twitter/X embed page (last resort, limited data)
+   * Scrape a Twitter/X post by delegating to TwitterScraper.
+   * TwitterScraper uses a multi-layer fallback: oEmbed -> RSSHub -> syndication API.
    */
   private async scrapeTwitterPost(url: string): Promise<SocialPostData | null> {
-    const tweetId = this.extractTweetId(url);
-    const username = this.extractUsername(url);
-
-    if (!tweetId) {
-      logger.warn("Could not extract tweet ID from URL", { url });
-      return null;
-    }
-
-    const instances = await this.getNitterInstances();
-
-    // Layer 1: Try each Nitter instance for HTML
-    for (const instance of instances) {
-      try {
-        const nitterUrl = `${instance}/${username}/status/${tweetId}`;
-        const html = await this.fetch(nitterUrl);
-
-        if (html === null) continue;
-
-        const result = this.parseNitterHtml(html, url, username);
-        if (result) {
-          logger.info("Scraped tweet via Nitter HTML", {
-            url,
-            instance,
-            author: result.author,
-          });
-          return {
-            ...result,
-            metadata: { ...result.metadata, source: "nitter-html" },
-          };
-        }
-      } catch (error) {
-        logger.debug("Nitter instance failed", {
-          url,
-          instance,
-          error: String(error),
-        });
-        continue;
-      }
-    }
-
-    // Layer 2: Try Nitter RSS feed
-    const rssResult = await this.scrapeTwitterRss(url, username, tweetId, instances);
-    if (rssResult) {
-      logger.info("Scraped tweet via Nitter RSS", { url });
-      return rssResult;
-    }
-
-    // Layer 3: Twitter/X embed page (last resort)
-    const embedResult = await this.scrapeTwitterEmbed(url, username, tweetId);
-    if (embedResult) {
-      logger.info("Scraped tweet via Twitter embed", { url });
-      return embedResult;
-    }
-
-    logger.error("All Twitter scraping methods failed", { url });
-    return null;
-  }
-
-  /**
-   * Fallback: scrape Twitter post via Nitter RSS feed.
-   */
-  private async scrapeTwitterRss(
-    url: string,
-    username: string,
-    tweetId: string,
-    instances: string[],
-  ): Promise<SocialPostData | null> {
-    for (const instance of instances) {
-      try {
-        const rssUrl = `${instance}/${username}/rss`;
-        const xml = await this.fetch(rssUrl);
-        if (xml === null) continue;
-
-        const $ = cheerio.load(xml, { xmlMode: true });
-        const matchingItem = $("item").toArray().find((el) => {
-          const link = $(el).find("link").text();
-          return link.includes(tweetId);
-        });
-
-        if (!matchingItem) continue;
-
-        const title = $(matchingItem).find("title").text().trim();
-        const description = $(matchingItem).find("description").text().trim();
-        const pubDate = $(matchingItem).find("pubDate").text().trim();
-        const creator = $(matchingItem).find("dc\\:creator, creator").text().trim();
-
-        const engagement = this.extractRssEngagement(description);
-
-        const bodyText = cheerio.load(description).text().trim() || title;
-
-        if (!bodyText) continue;
-
-        return {
-          url,
-          platform: "twitter",
-          author: creator || `@${username}`,
-          authorUrl: `https://x.com/${username}`,
-          bodyText,
-          publishedAt: pubDate ? new Date(pubDate) : null,
-          engagement,
-          metadata: { source: "nitter-rss", tweetId },
-        };
-      } catch (error) {
-        logger.debug("Nitter RSS failed", { instance, error: String(error) });
-        continue;
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Last-resort fallback: scrape Twitter/X embed page.
-   * Twitter's publish embed endpoint returns an oEmbed JSON response
-   * with the tweet text and author metadata.
-   */
-  private async scrapeTwitterEmbed(
-    url: string,
-    username: string,
-    tweetId: string,
-  ): Promise<SocialPostData | null> {
-    try {
-      const oembedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(url)}&dnt=true`;
-      const text = await this.fetch(oembedUrl);
-      if (text === null) return null;
-
-      const data = JSON.parse(text) as {
-        html?: string;
-        author_name?: string;
-        author_url?: string;
-      };
-
-      if (!data.html) return null;
-
-      const $ = cheerio.load(data.html);
-      const bodyText = $("p").text().trim();
-      if (!bodyText) return null;
-
-      const author = data.author_name || `@${username}`;
-      const authorUrl = data.author_url || `https://x.com/${username}`;
-
-      return {
-        url,
-        platform: "twitter",
-        author,
-        authorUrl,
-        bodyText,
-        publishedAt: null,
-        engagement: { likes: null, retweets: null, replies: null },
-        metadata: { source: "twitter-oembed", tweetId },
-      };
-    } catch (error) {
-      logger.debug("Twitter oEmbed failed", { url, error: String(error) });
-      return null;
-    }
-  }
-
-  private parseNitterHtml(
-    html: string,
-    originalUrl: string,
-    username: string,
-  ): SocialPostData | null {
-    const $ = cheerio.load(html);
-
-    const tweetContent = $(".tweet-content, .main-tweet .tweet-content").first();
-    if (!tweetContent.length) return null;
-
-    const bodyText = tweetContent.text().trim();
-    if (!bodyText) return null;
-
-    // Author
-    const authorEl = $(".main-tweet .fullname, .main-tweet .username").first();
-    const author = authorEl.text().trim() || `@${username}`;
-
-    // Date
-    const timestamp = $(".main-tweet .tweet-date time").first();
-    let publishedAt: Date | null = null;
-    const datetime = timestamp.attr("datetime");
-    if (datetime) {
-      publishedAt = new Date(datetime);
-    } else {
-      const titleAttr = timestamp.attr("title");
-      if (titleAttr) publishedAt = new Date(titleAttr);
-    }
-
-    // Engagement metrics
-    const likesText = $(".tweet-stat .tweet-heart, .main-tweet .icon-heart").closest(".tweet-stat").find(".tweet-stat-value").first().text();
-    const retweetsText = $(".main-tweet .icon-retweet").closest(".tweet-stat").find(".tweet-stat-value").first().text();
-    const repliesText = $(".main-tweet .icon-reply").closest(".tweet-stat").find(".tweet-stat-value").first().text();
-
-    const likes = likesText ? this.parseCount(likesText) : null;
-    const retweets = retweetsText ? this.parseCount(retweetsText) : null;
-    const replies = repliesText ? this.parseCount(repliesText) : null;
-
-    // Tweet ID
-    const tweetId = this.extractTweetId(originalUrl);
+    const result = await this.twitterScraper.scrapeTweet(url);
+    if (!result) return null;
 
     return {
-      url: originalUrl,
+      url: result.url,
       platform: "twitter",
-      author,
-      authorUrl: `https://x.com/${username}`,
-      bodyText,
-      publishedAt,
-      engagement: { likes, retweets, replies },
-      metadata: {
-        source: "nitter",
-        ...(tweetId ? { tweetId } : {}),
-      },
+      author: result.author,
+      authorUrl: result.authorUrl,
+      bodyText: result.bodyText,
+      publishedAt: result.publishedAt,
+      engagement: result.engagement,
+      metadata: result.metadata,
     };
   }
 
@@ -617,7 +387,7 @@ export class SocialScraper extends BaseScraper {
    * Search Hacker News for stories mentioning a company.
    * Uses the Algolia HN search API (free, no auth required).
    */
-  async searchHackerNews(query: string, limit: number = 10): Promise<Array<{
+  async searchHackerNews(query: string, limit: number = 30): Promise<Array<{
     storyId: string;
     title: string;
     url: string;
@@ -732,7 +502,7 @@ export class SocialScraper extends BaseScraper {
    * Search Mastodon for posts mentioning a company.
    * Searches across multiple public instances.
    */
-  async searchMastodon(query: string, limit: number = 20): Promise<Array<{
+  async searchMastodon(query: string, limit: number = 50): Promise<Array<{
     statusId: string;
     instance: string;
     url: string;
@@ -810,55 +580,148 @@ export class SocialScraper extends BaseScraper {
   }
 
   /**
-   * Check health of a Nitter instance by attempting to fetch its homepage.
-   * Returns true if the instance responds within timeout.
+   * Scrape Mastodon posts by hashtag from multiple instances.
+   * Uses the public hashtag timeline endpoint (no auth required).
+   * More reliable than search for public data.
    */
-  async checkNitterInstanceHealth(instanceUrl: string): Promise<boolean> {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+  async scrapeMastodonHashtag(
+    hashtag: string,
+    limit: number = 50,
+  ): Promise<SocialPostData[]> {
+    const results: SocialPostData[] = [];
 
-      const response = await fetch(instanceUrl, {
-        method: "HEAD",
-        headers: { "User-Agent": BaseScraper.USER_AGENT },
-        signal: controller.signal,
-      });
+    // Normalize hashtag (remove leading #)
+    const cleanHashtag = hashtag.replace(/^#/, "");
 
-      clearTimeout(timeoutId);
-      // Consume body to release connection
-      await response.body?.cancel();
-      return response.ok;
-    } catch {
-      return false;
+    for (const instance of MASTODON_INSTANCES) {
+      if (results.length >= limit) break;
+
+      try {
+        const apiUrl = `https://${instance}/api/v1/timelines/tag/${encodeURIComponent(cleanHashtag)}?limit=${Math.min(limit - results.length, 20)}`;
+        const text = await this.fetch(apiUrl);
+        if (text === null) continue;
+
+        const statuses = JSON.parse(text) as Array<{
+          id: string;
+          content: string;
+          url: string;
+          created_at: string;
+          account: {
+            username: string;
+            acct: string;
+            display_name: string;
+            url: string;
+          };
+          favourites_count: number;
+          reblogs_count: number;
+          replies_count: number;
+        }>;
+
+        for (const status of statuses) {
+          if (!status.id || !status.content || !status.url) continue;
+
+          const plainContent = cheerio.load(status.content).text().trim();
+          if (!plainContent) continue;
+
+          results.push({
+            url: status.url,
+            platform: "mastodon",
+            author: status.account.display_name || status.account.username || "[anonymous]",
+            authorUrl: status.account.url || `https://${instance}/@${status.account.acct.split("@")[0]}`,
+            bodyText: plainContent,
+            publishedAt: status.created_at ? new Date(status.created_at) : null,
+            engagement: {
+              likes: status.favourites_count ?? null,
+              retweets: status.reblogs_count ?? null,
+              replies: status.replies_count ?? null,
+            },
+            metadata: {
+              source: "mastodon-hashtag-timeline",
+              instance,
+              statusId: status.id,
+              authorAcct: status.account.acct,
+            },
+          });
+        }
+      } catch (error) {
+        logger.debug("Mastodon hashtag scrape failed for instance", {
+          instance,
+          hashtag: cleanHashtag,
+          error: String(error),
+        });
+        continue;
+      }
     }
+
+    return results.slice(0, limit);
   }
 
   /**
-   * Get healthy Nitter instances by filtering the dynamic list.
-   * Checks health in parallel and returns only responsive instances.
+   * Scrape the federated public timeline from a Mastodon instance.
+   * Gets posts from across the network (not just local).
+   * No auth required for public federated timeline.
    */
-  async getHealthyNitterInstances(): Promise<string[]> {
-    const instances = await this.getNitterInstances();
+  async scrapeMastodonPublicTimeline(
+    instance: string,
+    limit: number = 50,
+  ): Promise<SocialPostData[]> {
+    const results: SocialPostData[] = [];
 
-    // Check health in parallel
-    const healthChecks = await Promise.all(
-      instances.map(async (instance) => ({
+    try {
+      const apiUrl = `https://${instance}/api/v1/timelines/public?local=false&limit=${limit}`;
+      const text = await this.fetch(apiUrl);
+      if (text === null) return [];
+
+      const statuses = JSON.parse(text) as Array<{
+        id: string;
+        content: string;
+        url: string;
+        created_at: string;
+        account: {
+          username: string;
+          acct: string;
+          display_name: string;
+          url: string;
+        };
+        favourites_count: number;
+        reblogs_count: number;
+        replies_count: number;
+      }>;
+
+      for (const status of statuses) {
+        if (!status.id || !status.content || !status.url) continue;
+
+        const plainContent = cheerio.load(status.content).text().trim();
+        if (!plainContent) continue;
+
+        results.push({
+          url: status.url,
+          platform: "mastodon",
+          author: status.account.display_name || status.account.username || "[anonymous]",
+          authorUrl: status.account.url || `https://${instance}/@${status.account.acct.split("@")[0]}`,
+          bodyText: plainContent,
+          publishedAt: status.created_at ? new Date(status.created_at) : null,
+          engagement: {
+            likes: status.favourites_count ?? null,
+            retweets: status.reblogs_count ?? null,
+            replies: status.replies_count ?? null,
+          },
+          metadata: {
+            source: "mastodon-public-timeline",
+            instance,
+            statusId: status.id,
+            authorAcct: status.account.acct,
+          },
+        });
+      }
+    } catch (error) {
+      logger.debug("Mastodon public timeline scrape failed", {
         instance,
-        healthy: await this.checkNitterInstanceHealth(instance),
-      }))
-    );
+        error: String(error),
+      });
+    }
 
-    const healthy = healthChecks
-      .filter((check) => check.healthy)
-      .map((check) => check.instance);
-
-    logger.info("Nitter instance health check complete", {
-      total: instances.length,
-      healthy: healthy.length,
-      healthyInstances: healthy,
-    });
-
-    return healthy.length > 0 ? healthy : instances; // Fallback to all if none healthy
+    return results;
   }
 
   private extractHackerNewsId(url: string): string | null {

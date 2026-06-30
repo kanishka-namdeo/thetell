@@ -75,7 +75,7 @@ export class UspScraper extends BaseScraper {
    */
   async scrapeByAssignee(
     assigneeName: string,
-    limit: number = 20,
+    limit: number = 50,
   ): Promise<UsptoSignal[]> {
     if (!this.isConfigured) {
       logger.warn("uspto.scraper.skipped", {
@@ -190,7 +190,7 @@ export class UspScraper extends BaseScraper {
         });
 
         if (response.ok) {
-          const text = await response.text();
+          const text = await this.readBodyWithLimit(response);
           await this.cache.set(url, text);
           return text;
         }
@@ -208,10 +208,12 @@ export class UspScraper extends BaseScraper {
             attempt,
           });
 
+          await response.body?.cancel();
           await new Promise((r) => setTimeout(r, waitTime));
           continue;
         }
 
+        await response.body?.cancel();
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       } catch (error) {
         lastError = error as Error;

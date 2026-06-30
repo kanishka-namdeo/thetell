@@ -96,7 +96,8 @@ export function CompanyForm({ initialData, mode }: CompanyFormProps) {
       }
 
       const company = await res.json();
-      router.push(`/dashboard/companies/${company.id}`);
+      const discoveryParam = mode === "create" ? "?discovery=queued" : "";
+      router.push(`/dashboard/companies/${company.id}${discoveryParam}`);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");

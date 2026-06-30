@@ -141,6 +141,82 @@ export class CongressScraper extends BaseScraper {
   }
 
   /**
+   * Fetch a URL with the Congress.gov API key in the X-Api-Key header.
+   */
+  private async fetchWithApiKey(url: string): Promise<string | null> {
+    if (!this.apiKey) return null;
+
+    const cached = await this.cache.get(url);
+    if (cached !== null) {
+      return cached;
+    }
+
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      await this.rateLimiter.wait();
+
+      try {
+        const response = await fetch(url, {
+          headers: {
+            "User-Agent": BaseScraper.USER_AGENT,
+            "X-Api-Key": this.apiKey,
+            Accept: "application/json",
+          },
+          signal: AbortSignal.timeout(this.timeout),
+          redirect: "follow",
+        });
+
+        if (response.ok) {
+          const text = await this.readBodyWithLimit(response);
+          await this.cache.set(url, text);
+          return text;
+        }
+
+        if (response.status === 429 || response.status === 503) {
+          const retryAfter = response.headers.get("Retry-After");
+          const waitTime = retryAfter
+            ? parseInt(retryAfter, 10) * 1000
+            : Math.min(2 ** attempt * 1000, 60000);
+
+          logger.warn("congress.rate.limited", {
+            url,
+            status: response.status,
+            waitTime: waitTime / 1000,
+            attempt,
+          });
+
+          await response.body?.cancel();
+          await new Promise((r) => setTimeout(r, waitTime));
+          continue;
+        }
+
+        await response.body?.cancel();
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      } catch (error) {
+        lastError = error as Error;
+        const waitTime = Math.min(2 ** attempt * 1000, 60000);
+
+        logger.warn("congress.request.error", {
+          url,
+          error: String(error),
+          attempt,
+        });
+
+        if (attempt < this.maxRetries) {
+          await new Promise((r) => setTimeout(r, waitTime));
+        }
+      }
+    }
+
+    logger.error("congress.fetch.failed", {
+      url,
+      error: lastError?.message ?? "Unknown error",
+    });
+    return null;
+  }
+
+  /**
    * Search for bills by keyword.
    * Returns an array of CongressSignal objects.
    */
@@ -150,11 +226,11 @@ export class CongressScraper extends BaseScraper {
       return [];
     }
 
-    const { query, congress, fromDateTime, toDateTime, limit = 20, offset = 0 } = options;
+    const { query, congress, fromDateTime, toDateTime, limit = 50, offset = 0 } = options;
     
     const params = new URLSearchParams({
       query,
-      limit: String(Math.min(limit, 50)),
+      limit: String(Math.min(limit, 100)),
       offset: String(offset),
     });
 
@@ -168,11 +244,11 @@ export class CongressScraper extends BaseScraper {
       params.set("toDateTime", toDateTime);
     }
 
-    const url = `${CONGRESS_API_BASE}/bill?${params.toString()}&api_key=${this.apiKey}`;
+    const url = `${CONGRESS_API_BASE}/bill?${params.toString()}`;
     
     logger.info("Searching Congress.gov bills", { query, congress, limit });
 
-    const text = await this.fetch(url);
+    const text = await this.fetchWithApiKey(url);
     if (!text) {
       return [];
     }
@@ -224,11 +300,11 @@ export class CongressScraper extends BaseScraper {
       return null;
     }
 
-    const url = `${CONGRESS_API_BASE}/${congress}/${billType}/${billNumber}?api_key=${this.apiKey}`;
+    const url = `${CONGRESS_API_BASE}/${congress}/${billType}/${billNumber}`;
     
     logger.debug("Fetching bill details", { congress, billType, billNumber });
 
-    const text = await this.fetch(url);
+    const text = await this.fetchWithApiKey(url);
     if (!text) {
       return null;
     }
@@ -255,11 +331,11 @@ export class CongressScraper extends BaseScraper {
       return [];
     }
 
-    const { query, congress, limit = 20, offset = 0 } = options;
+    const { query, congress, limit = 50, offset = 0 } = options;
     
     const params = new URLSearchParams({
       query,
-      limit: String(Math.min(limit, 50)),
+      limit: String(Math.min(limit, 100)),
       offset: String(offset),
     });
 
@@ -267,11 +343,11 @@ export class CongressScraper extends BaseScraper {
       params.set("congress", String(congress));
     }
 
-    const url = `${CONGRESS_API_BASE}/committee-report?${params.toString()}&api_key=${this.apiKey}`;
+    const url = `${CONGRESS_API_BASE}/committee-report?${params.toString()}`;
     
     logger.info("Searching Congress.gov committee reports", { query, congress, limit });
 
-    const text = await this.fetch(url);
+    const text = await this.fetchWithApiKey(url);
     if (!text) {
       return [];
     }
@@ -300,11 +376,11 @@ export class CongressScraper extends BaseScraper {
       return [];
     }
 
-    const { query, congress, fromDateTime, toDateTime, limit = 20, offset = 0 } = options;
+    const { query, congress, fromDateTime, toDateTime, limit = 50, offset = 0 } = options;
     
     const params = new URLSearchParams({
       query,
-      limit: String(Math.min(limit, 50)),
+      limit: String(Math.min(limit, 100)),
       offset: String(offset),
     });
 
@@ -318,11 +394,11 @@ export class CongressScraper extends BaseScraper {
       params.set("toDateTime", toDateTime);
     }
 
-    const url = `${CONGRESS_API_BASE}/congressional-record?${params.toString()}&api_key=${this.apiKey}`;
+    const url = `${CONGRESS_API_BASE}/congressional-record?${params.toString()}`;
     
     logger.info("Searching Congressional Record", { query, congress, limit });
 
-    const text = await this.fetch(url);
+    const text = await this.fetchWithApiKey(url);
     if (!text) {
       return [];
     }

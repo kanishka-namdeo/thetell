@@ -6,6 +6,9 @@ export async function GET(req: Request) {
   const requestId = crypto.randomUUID();
   const log = logger.child({ requestId, route: "themes" });
 
+  // NOTE: This route is public (read-only). Auth is enforced by proxy.ts middleware
+  // via PUBLIC_API_GET_PATTERNS which applies rate limiting and bot detection.
+
   try {
     const { searchParams } = new URL(req.url);
     const limit = Math.min(Number(searchParams.get("limit")) || 20, 100);

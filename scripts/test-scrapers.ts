@@ -26,6 +26,7 @@ import { CourtListenerScraper } from '../src/lib/scraping/courtlistener-scraper'
 import { UspScraper } from '../src/lib/scraping/uspto-scraper';
 import { SamScraper } from '../src/lib/scraping/sam-scraper';
 import { CongressScraper } from '../src/lib/scraping/congress-scraper';
+import { MastodonScraper } from '../src/lib/scraping/mastodon-scraper';
 
 interface TestResult {
   name: string;
@@ -208,7 +209,23 @@ async function main() {
     return `${signals.length} NBER papers from Crossref`;
   });
 
-  // ─── 17-18. API Key Required Scrapers ────────────────────────────
+  // ─── 17. Social Scraper (Mastodon) ───────────────────────────────
+  await testScraper('Social Scraper (Mastodon)', async () => {
+    const scraper = new SocialScraper();
+    const results = await scraper.searchMastodon('technology');
+    if (results.length === 0) throw new Error('No Mastodon results');
+    return `${results.length} posts found across ${new Set(results.map(r => r.instance)).size} instances`;
+  });
+
+  // ─── 18. Mastodon Scraper (Dedicated) ────────────────────────────
+  await testScraper('Mastodon Scraper', async () => {
+    const scraper = new MastodonScraper();
+    const signals = await scraper.scrape(['aapl']);
+    if (signals.length === 0) throw new Error('No Mastodon signals found');
+    return `${signals.length} signals from ${scraper.getTrackedInstances().length} instances`;
+  });
+
+  // ─── 19. API Key Required Scrapers ───────────────────────────────
   skipScraper('USPTO Scraper', 'Requires USPTO_API_KEY');
   skipScraper('CourtListener Scraper', 'Requires COURT_LISTENER_API_KEY');
   skipScraper('SAM Scraper', 'Requires SAM_API_KEY');

@@ -15,6 +15,7 @@ import {
 import { ConfidenceBand } from "@/components/dashboard/confidence-band";
 import { MomentumIndicator } from "@/components/dashboard/momentum-indicator";
 import { CrossSignalDebateView } from "@/components/dashboard/cross-signal-debate";
+import { EvidenceChain } from "@/components/dashboard/evidence-chain";
 import { SignupPrompt } from "../../_components/signup-prompt";
 import { ShareButton } from "@/components/dashboard/share-button";
 import { cn } from "@/lib/utils";
@@ -83,10 +84,34 @@ export async function InferenceDetailContent({ id }: { id: string }) {
             title: true,
             sourceType: true,
             scrapedAt: true,
+            analyses: {
+              select: {
+                confidence: true,
+                sentiment: true,
+                agentPersona: true,
+              },
+              take: 1,
+            },
           },
           orderBy: { scrapedAt: "desc" },
         })
       : [];
+
+  // Build evidence chain from supporting signals
+  const evidenceChain = signals
+    .filter((s) => supportingIds.includes(s.id))
+    .map((signal) => {
+      const analysis = signal.analyses[0];
+      return {
+        signalId: signal.id,
+        signalTitle: signal.title,
+        sourceType: signal.sourceType,
+        scrapedAt: signal.scrapedAt,
+        confidence: analysis?.confidence || 0,
+        sentiment: analysis?.sentiment || "NEUTRAL",
+        agentPersona: analysis?.agentPersona || "ANALYST",
+      };
+    });
 
   const sourceTypesInvolved = Array.isArray(inference.sourceTypesInvolved)
     ? (inference.sourceTypesInvolved as string[])
@@ -217,6 +242,17 @@ export async function InferenceDetailContent({ id }: { id: string }) {
               )}
             </CardContent>
           </Card>
+        )}
+
+        {/* Evidence Chain */}
+        {evidenceChain.length > 0 && (
+          <div className="mb-6">
+            <EvidenceChain
+              items={evidenceChain}
+              inferenceTitle={inference.title}
+              inferenceConfidence={inference.confidence}
+            />
+          </div>
         )}
 
         {/* Cross-Signal Debate */}

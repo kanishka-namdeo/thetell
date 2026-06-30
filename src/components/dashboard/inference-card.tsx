@@ -70,6 +70,10 @@ interface InferenceCardProps {
     } | null;
     crossSignalDebate?: CrossSignalDebateSummary | null;
     debate?: StructuredDebate | null;
+    cluster?: {
+      id: string;
+      label: string;
+    } | null;
   };
   supportingSignalCount?: number;
   className?: string;
@@ -132,10 +136,14 @@ export function InferenceCard({
   return (
     <Card
       className={cn(
-        "border-2 border-foreground hover:border-accent transition-colors",
+        "border-2 border-foreground hover:border-accent transition-colors relative",
         className
       )}
     >
+      {/* Prediction indicator */}
+      <div className="absolute -top-3 left-4 bg-background border border-foreground px-2 py-0.5 text-xs font-mono uppercase tracking-wider">
+        Prediction
+      </div>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
@@ -144,6 +152,23 @@ export function InferenceCard({
                 {inference.company.name}
                 {inference.company.ticker && ` (${inference.company.ticker})`}
               </Badge>
+              <Badge variant="secondary" className="text-[11px] gap-1">
+                <Layers className="h-3 w-3" />
+                {signalCount} signals
+              </Badge>
+              {sourceTypes.length > 0 && (
+                <Badge variant="outline" className="text-[11px]">
+                  {sourceTypes.length} sources
+                </Badge>
+              )}
+              {inference.cluster && (
+                <Link href={`/clusters/${inference.cluster.id}`}>
+                  <Badge variant="accent" className="text-[11px] gap-1 hover:opacity-80">
+                    <Layers className="h-3 w-3" />
+                    {inference.cluster.label}
+                  </Badge>
+                </Link>
+              )}
               <Badge variant={statusVariants[inference.status]}>
                 {statusLabels[inference.status]}
               </Badge>

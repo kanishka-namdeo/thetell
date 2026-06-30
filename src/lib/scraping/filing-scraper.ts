@@ -336,7 +336,7 @@ export class FilingScraper extends BaseScraper {
     const filings = data.filings as Record<string, unknown> | undefined;
     if (filings?.recent) {
       const recent = filings.recent as Record<string, string[]>;
-      const count = Math.min(recent.accessionNumber?.length || 0, 40);
+      const count = Math.min(recent.accessionNumber?.length || 0, 80);
 
       for (let i = 0; i < count; i++) {
         const accessionNumber = recent.accessionNumber[i];

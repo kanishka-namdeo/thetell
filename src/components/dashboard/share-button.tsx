@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Share2, Check } from "lucide-react";
+import { logger } from "@/lib/logger";
 
 interface ShareButtonProps {
   className?: string;
@@ -25,7 +26,7 @@ export function ShareButton({ className }: ShareButtonProps) {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       timeoutRef.current = setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error("Failed to copy:", err);
+      logger.error("clipboard.share.failed", { error: String(err) });
     }
   };
 

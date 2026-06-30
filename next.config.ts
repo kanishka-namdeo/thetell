@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
+  // Externalize packages that use Node.js-specific APIs (WASM, native bindings, etc.)
+  // Also externalize deepagents and langchain to avoid Turbopack "expression is too dynamic" errors
+  serverExternalPackages: ["deepagents", "langchain", "@langchain", "fasttext.wasm.js"],
+  
   async headers() {
     return [
       {

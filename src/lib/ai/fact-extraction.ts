@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 import { logger } from "@/lib/logger";
-import { getProvider } from "./provider";
+import { getProviderWithFailover } from "./provider";
 import { buildFactExtractionPrompt } from "./prompts";
 import { FactExtractionResultSchema, type FactExtractionResult } from "./types";
 import type { ProviderName } from "./provider";
@@ -16,7 +16,7 @@ export async function extractFacts(
   providerName: ProviderName = "openai",
   model?: string
 ): Promise<FactExtractionResult> {
-  const provider = getProvider(providerName);
+  const { provider } = getProviderWithFailover(providerName);
   const messages = buildFactExtractionPrompt(text);
 
   logger.debug("analysis.fact_extraction.start", {
@@ -45,7 +45,7 @@ export async function extractFactsWithPrompt<T extends z.ZodTypeAny>(
   temperature: number = 0.3,
   model?: string
 ): Promise<z.infer<T>> {
-  const provider = getProvider(providerName);
+  const { provider } = getProviderWithFailover(providerName);
 
   logger.debug("analysis.fact_extraction.custom.start", {
     provider: providerName,

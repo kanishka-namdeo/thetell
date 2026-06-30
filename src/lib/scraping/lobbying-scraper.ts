@@ -14,7 +14,7 @@ export interface LobbyingDisclosure {
   issue: string;
   amount: number | null;
   period: string;
-  filedAt: Date;
+  filedAt: Date | null;
 }
 
 export class LobbyingScraper extends BaseScraper {
@@ -90,8 +90,8 @@ export class LobbyingScraper extends BaseScraper {
     return parseInt(match[1].replace(/,/g, ""), 10);
   }
 
-  private parseDate(text: string): Date {
+  private parseDate(text: string): Date | null {
     const date = new Date(text);
-    return isNaN(date.getTime()) ? new Date() : date;
+    return isNaN(date.getTime()) ? null : date;
   }
 }

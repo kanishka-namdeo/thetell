@@ -12,7 +12,6 @@ async function main() {
   const inference = await prisma.inference.findFirst({
     where: {
       debate: {
-        analystClaim: { not: 'No claim provided' },
         analystClaim: { not: '' },
       }
     },

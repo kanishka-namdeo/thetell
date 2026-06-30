@@ -4,7 +4,7 @@
  */
 
 import { logger } from "@/lib/logger";
-import { getProvider } from "../provider";
+import { getProviderWithFailover } from "../provider";
 import { buildDebatePrompt } from "./prompts";
 import { AgentDebateSchema, type AgentDebate } from "./types";
 import type { AgentAnalysis } from "./types";
@@ -35,7 +35,7 @@ export async function generateDebate(
 
   log.info("debate.generation.start");
 
-  const provider = getProvider(providerName);
+  const { provider } = getProviderWithFailover(providerName);
 
   // Prepare analysis summaries for the debate prompt
   const analystSummary = {

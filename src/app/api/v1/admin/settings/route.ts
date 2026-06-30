@@ -5,6 +5,7 @@ import { logger } from "@/lib/logger";
 import { requireAdmin } from "@/lib/auth-guard";
 import { logAuditEvent } from "@/lib/audit-logger";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 
 const UpdateSchema = z.object({
   discovery: z
@@ -60,6 +61,23 @@ const UpdateSchema = z.object({
       enabled: z.boolean(),
     })
     .optional(),
+  moderation: z
+    .object({
+      enabled: z.boolean().optional(),
+      autoApproveConfidenceThreshold: z.number().min(0).max(1).optional().nullable(),
+      autoApproveSources: z.array(z.string()).optional().nullable(),
+      notificationEmail: z.string().email().optional().nullable(),
+      notifyOnNewContent: z.boolean().optional(),
+    })
+    .optional(),
+  cluster: z
+    .object({
+      clusterRoutingEnabled: z.boolean(),
+      clusterMatchThreshold: z.number().min(0.5).max(0.95),
+      clusterArticleAutoRegenerate: z.boolean(),
+      clusterAnalysisModel: z.string().min(1),
+    })
+    .optional(),
 });
 
 async function getOrCreateConfig() {
@@ -68,6 +86,22 @@ async function getOrCreateConfig() {
     config = await prisma.systemConfig.create({ data: {} });
   }
   return config;
+}
+
+async function getOrCreateModerationSettings() {
+  let settings = await prisma.moderationSettings.findFirst();
+  if (!settings) {
+    settings = await prisma.moderationSettings.create({
+      data: {
+        enabled: false,
+        autoApproveConfidenceThreshold: null,
+        autoApproveSources: Prisma.JsonNull,
+        notificationEmail: null,
+        notifyOnNewContent: false,
+      },
+    });
+  }
+  return settings;
 }
 
 export async function GET() {
@@ -85,47 +119,59 @@ export async function GET() {
 
     log.info("admin.settings.get.start");
 
-    const config = await getOrCreateConfig();
+    const [config, moderationSettings] = await Promise.all([
+      getOrCreateConfig(),
+      getOrCreateModerationSettings(),
+    ]);
 
     const response = {
-      discovery: {
-        schedule: config.discoverySchedule,
-        enabled: config.discoveryEnabled,
+      system: {
+        discovery: {
+          schedule: config.discoverySchedule,
+          enabled: config.discoveryEnabled,
+        },
+        ai: {
+          defaultProvider: config.defaultAiProvider,
+          analystModel: config.analystModel,
+          gossipGirlModel: config.gossipGirlModel,
+        },
+        thresholds: {
+          minConfidenceForPublication: config.minConfidenceForPublication,
+          minQualityScore: config.minQualityScore,
+        },
+        features: {
+          semanticDeduplication: config.semanticDeduplication,
+          languageDetection: config.languageDetection,
+          qualityGate: config.qualityGate,
+        },
+        rateLimiting: {
+          requestsPerMinute: config.requestsPerMinute,
+          burstLimit: config.burstLimit,
+        },
+        email: {
+          configured: config.emailConfigured,
+          from: config.emailFrom,
+          smtpHost: config.emailSmtpHost,
+          smtpPort: config.emailSmtpPort,
+        },
+        correlation: {
+          enabled: config.correlationWindowSize > 0,
+          windowSize: config.correlationWindowSize,
+          minSignals: config.minSignalsForCorrelation,
+          confidenceThreshold: config.correlationConfidenceThreshold,
+        },
+        calibration: {
+          enabled: true,
+        },
+        cluster: {
+          clusterRoutingEnabled: config.clusterRoutingEnabled,
+          clusterMatchThreshold: config.clusterMatchThreshold,
+          clusterArticleAutoRegenerate: config.clusterArticleAutoRegenerate,
+          clusterAnalysisModel: config.clusterAnalysisModel,
+        },
+        updatedAt: config.updatedAt,
       },
-      ai: {
-        defaultProvider: config.defaultAiProvider,
-        analystModel: config.analystModel,
-        gossipGirlModel: config.gossipGirlModel,
-      },
-      thresholds: {
-        minConfidenceForPublication: config.minConfidenceForPublication,
-        minQualityScore: config.minQualityScore,
-      },
-      features: {
-        semanticDeduplication: config.semanticDeduplication,
-        languageDetection: config.languageDetection,
-        qualityGate: config.qualityGate,
-      },
-      rateLimiting: {
-        requestsPerMinute: config.requestsPerMinute,
-        burstLimit: config.burstLimit,
-      },
-      email: {
-        configured: config.emailConfigured,
-        from: config.emailFrom,
-        smtpHost: config.emailSmtpHost,
-        smtpPort: config.emailSmtpPort,
-      },
-      correlation: {
-        enabled: config.correlationWindowSize > 0,
-        windowSize: config.correlationWindowSize,
-        minSignals: config.minSignalsForCorrelation,
-        confidenceThreshold: config.correlationConfidenceThreshold,
-      },
-      calibration: {
-        enabled: true,
-      },
-      updatedAt: config.updatedAt,
+      moderation: moderationSettings,
     };
 
     log.info("admin.settings.get.success");
@@ -221,11 +267,44 @@ export async function PATCH(request: NextRequest) {
     if (parsed.data.calibration) {
       changes.calibration = parsed.data.calibration;
     }
+    if (parsed.data.cluster) {
+      data.clusterRoutingEnabled = parsed.data.cluster.clusterRoutingEnabled;
+      data.clusterMatchThreshold = parsed.data.cluster.clusterMatchThreshold;
+      data.clusterArticleAutoRegenerate = parsed.data.cluster.clusterArticleAutoRegenerate;
+      data.clusterAnalysisModel = parsed.data.cluster.clusterAnalysisModel;
+      changes.cluster = parsed.data.cluster;
+    }
 
     const updated = await prisma.systemConfig.update({
       where: { id: current.id },
       data,
     });
+
+    // Handle moderation settings if provided
+    let moderationSettings = await getOrCreateModerationSettings();
+    if (parsed.data.moderation) {
+      const moderationData: Record<string, unknown> = {};
+      if (parsed.data.moderation.enabled !== undefined) {
+        moderationData.enabled = parsed.data.moderation.enabled;
+      }
+      if (parsed.data.moderation.autoApproveConfidenceThreshold !== undefined) {
+        moderationData.autoApproveConfidenceThreshold = parsed.data.moderation.autoApproveConfidenceThreshold;
+      }
+      if (parsed.data.moderation.autoApproveSources !== undefined) {
+        moderationData.autoApproveSources = parsed.data.moderation.autoApproveSources;
+      }
+      if (parsed.data.moderation.notificationEmail !== undefined) {
+        moderationData.notificationEmail = parsed.data.moderation.notificationEmail;
+      }
+      if (parsed.data.moderation.notifyOnNewContent !== undefined) {
+        moderationData.notifyOnNewContent = parsed.data.moderation.notifyOnNewContent;
+      }
+      moderationSettings = await prisma.moderationSettings.update({
+        where: { id: moderationSettings.id },
+        data: moderationData,
+      });
+      changes.moderation = parsed.data.moderation;
+    }
 
     const userId = session?.user?.id;
     if (userId) {
@@ -242,44 +321,53 @@ export async function PATCH(request: NextRequest) {
     log.info("admin.settings.update.success", { changedSections: Object.keys(changes) });
 
     const response = {
-      discovery: {
-        schedule: updated.discoverySchedule,
-        enabled: updated.discoveryEnabled,
+      system: {
+        discovery: {
+          schedule: updated.discoverySchedule,
+          enabled: updated.discoveryEnabled,
+        },
+        ai: {
+          defaultProvider: updated.defaultAiProvider,
+          analystModel: updated.analystModel,
+          gossipGirlModel: updated.gossipGirlModel,
+        },
+        thresholds: {
+          minConfidenceForPublication: updated.minConfidenceForPublication,
+          minQualityScore: updated.minQualityScore,
+        },
+        features: {
+          semanticDeduplication: updated.semanticDeduplication,
+          languageDetection: updated.languageDetection,
+          qualityGate: updated.qualityGate,
+        },
+        rateLimiting: {
+          requestsPerMinute: updated.requestsPerMinute,
+          burstLimit: updated.burstLimit,
+        },
+        email: {
+          configured: updated.emailConfigured,
+          from: updated.emailFrom,
+          smtpHost: updated.emailSmtpHost,
+          smtpPort: updated.emailSmtpPort,
+        },
+        correlation: {
+          enabled: updated.correlationWindowSize > 0,
+          windowSize: updated.correlationWindowSize,
+          minSignals: updated.minSignalsForCorrelation,
+          confidenceThreshold: updated.correlationConfidenceThreshold,
+        },
+        calibration: {
+          enabled: true,
+        },
+        cluster: {
+          clusterRoutingEnabled: updated.clusterRoutingEnabled,
+          clusterMatchThreshold: updated.clusterMatchThreshold,
+          clusterArticleAutoRegenerate: updated.clusterArticleAutoRegenerate,
+          clusterAnalysisModel: updated.clusterAnalysisModel,
+        },
+        updatedAt: updated.updatedAt,
       },
-      ai: {
-        defaultProvider: updated.defaultAiProvider,
-        analystModel: updated.analystModel,
-        gossipGirlModel: updated.gossipGirlModel,
-      },
-      thresholds: {
-        minConfidenceForPublication: updated.minConfidenceForPublication,
-        minQualityScore: updated.minQualityScore,
-      },
-      features: {
-        semanticDeduplication: updated.semanticDeduplication,
-        languageDetection: updated.languageDetection,
-        qualityGate: updated.qualityGate,
-      },
-      rateLimiting: {
-        requestsPerMinute: updated.requestsPerMinute,
-        burstLimit: updated.burstLimit,
-      },
-      email: {
-        configured: updated.emailConfigured,
-        from: updated.emailFrom,
-        smtpHost: updated.emailSmtpHost,
-        smtpPort: updated.emailSmtpPort,
-      },
-      correlation: {
-        enabled: updated.correlationWindowSize > 0,
-        windowSize: updated.correlationWindowSize,
-        minSignals: updated.minSignalsForCorrelation,
-        confidenceThreshold: updated.correlationConfidenceThreshold,
-      },
-      calibration: {
-        enabled: true,
-      },
-      updatedAt: updated.updatedAt,
+      moderation: moderationSettings,
     };
 
     return NextResponse.json(response);

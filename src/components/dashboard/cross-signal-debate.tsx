@@ -111,11 +111,11 @@ export function CrossSignalDebateView({
                 <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-1">
                   Evidence
                 </p>
-                <ul className="space-y-1">
+                <ul className="space-y-2">
                   {analyst.evidence.map((evidence, idx) => (
                     <li
                       key={idx}
-                      className="text-xs font-body text-foreground border-l-2 border-agent-analyst pl-2"
+                      className="text-xs font-body text-foreground border-l-2 border-agent-analyst pl-2 break-words whitespace-normal leading-relaxed"
                     >
                       {evidence}
                     </li>
@@ -155,11 +155,11 @@ export function CrossSignalDebateView({
                 <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-1">
                   Evidence
                 </p>
-                <ul className="space-y-1">
+                <ul className="space-y-2">
                   {gossipGirl.evidence.map((evidence, idx) => (
                     <li
                       key={idx}
-                      className="text-xs font-body text-foreground border-l-2 border-agent-gossip pl-2"
+                      className="text-xs font-body text-foreground border-l-2 border-agent-gossip pl-2 break-words whitespace-normal leading-relaxed"
                     >
                       {evidence}
                     </li>
@@ -239,11 +239,11 @@ export function CrossSignalDebateView({
                       <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1">
                         Evidence
                       </p>
-                      <ul className="space-y-1">
+                      <ul className="space-y-2">
                         {contention.evidence.map((ev, j) => (
                           <li
                             key={j}
-                            className="text-xs font-body text-muted-foreground"
+                            className="text-xs font-body text-muted-foreground break-words whitespace-normal leading-relaxed"
                           >
                             • {ev}
                           </li>

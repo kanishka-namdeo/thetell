@@ -24,6 +24,7 @@ export interface CompanyWithCounts {
   websiteUrl: string | null;
   createdAt: string;
   updatedAt: string;
+  isWatched?: boolean;
   _count: {
     signals: number;
     articles: number;
@@ -53,6 +54,9 @@ export interface SignalWithRelations {
     ticker: string | null;
   };
   analyses: AnalysisData[];
+  cluster?: { id: string; label: string } | null;
+  inferences?: Array<{ id: string }>;
+  themes?: Array<{ id: string; label: string }>;
 }
 
 export interface AnalysisData {

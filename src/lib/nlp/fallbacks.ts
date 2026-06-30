@@ -40,6 +40,7 @@ export function getNlpFeatureFlags() {
     embeddings: isFlagEnabled("NLP_EMBEDDINGS"),
     keyphrases: isFlagEnabled("NLP_KEYPHRASES"),
     languageDetect: isFlagEnabled("NLP_LANGUAGE_DETECT"),
+    device: process.env.NLP_DEVICE ?? "auto",
   };
 }
 

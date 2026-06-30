@@ -8,9 +8,11 @@ import { z } from "zod";
 const QuerySchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(20),
   cursor: z.string().optional(),
+  status: z.string().optional(),
   sourceType: z.string().optional(),
   confidence: z.coerce.number().min(0).max(1).optional(),
   sentiment: z.enum(["POSITIVE", "NEGATIVE", "NEUTRAL"]).optional(),
+  clusterId: z.string().optional(),
   sortBy: z.enum(["scrapedAt", "confidence", "createdAt"]).default("scrapedAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
@@ -21,6 +23,9 @@ export async function GET(request: NextRequest) {
 
   try {
     const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
     if (!requireAdmin(session)) {
       return NextResponse.json(
         { error: "forbidden", message: "Admin access required" },
@@ -33,9 +38,11 @@ export async function GET(request: NextRequest) {
 
     log.info("admin.moderation.signals.list.start", { query });
 
-    const where: Record<string, unknown> = {
-      status: { in: ["PENDING", "ANALYZING"] },
-    };
+    const where: Record<string, unknown> = {};
+
+    if (query.status) {
+      where.status = query.status;
+    }
 
     if (query.sourceType) {
       where.sourceType = query.sourceType;
@@ -52,6 +59,10 @@ export async function GET(request: NextRequest) {
       where.analyses = { some: analysesWhere };
     }
 
+    if (query.clusterId) {
+      where.clusterId = query.clusterId;
+    }
+
     const orderBy: Record<string, string> = {
       [query.sortBy]: query.sortOrder,
     };
@@ -63,6 +74,9 @@ export async function GET(request: NextRequest) {
       include: {
         company: true,
         analyses: true,
+        cluster: {
+          select: { id: true, label: true, status: true },
+        },
       },
       orderBy,
     });

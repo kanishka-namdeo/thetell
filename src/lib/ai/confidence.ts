@@ -68,6 +68,37 @@ export interface ConfidenceParams {
   agentPersona?: AgentPersona;
   entities?: ExtractedEntities;
   engagement?: { score?: number; comments?: number };
+  sourceMatchesPreference?: boolean;
+  publishedAt?: Date | null;
+}
+
+/**
+ * Calculate recency decay multiplier based on signal publication date.
+ * Older signals receive lower confidence scores for current strategic inference.
+ *
+ * @param publishedAt - Publication date of the signal (null = no penalty)
+ * @param sourceType - Source type for type-specific decay curves
+ * @returns Multiplier between 0.65 and 1.0
+ */
+function calculateRecencyMultiplier(publishedAt: Date | null | undefined, sourceType?: SourceType): number {
+  if (!publishedAt) return 1.0;
+
+  const now = new Date();
+  const ageInDays = (now.getTime() - publishedAt.getTime()) / (1000 * 60 * 60 * 24);
+
+  // Wayback Machine snapshots are inherently historical — use gentler decay
+  if (sourceType === "WEB_ARCHIVE") {
+    if (ageInDays < 30) return 1.0;
+    if (ageInDays < 180) return 0.95;
+    if (ageInDays < 365) return 0.90;
+    return 0.85;
+  }
+
+  if (ageInDays < 7) return 1.0;      // < 7 days: no decay
+  if (ageInDays < 30) return 0.95;    // 7-30 days: slight decay
+  if (ageInDays < 90) return 0.85;    // 30-90 days: moderate decay
+  if (ageInDays < 365) return 0.75;   // 90-365 days: significant decay
+  return 0.65;                        // > 1 year: heavy decay
 }
 
 /**
@@ -85,6 +116,29 @@ export function calculateEngagementBoost(engagement?: { score?: number; comments
   const commentBoost = Math.min(1.3, 1 + Math.log10(comments + 1) * 0.05);
 
   return scoreBoost * commentBoost;
+}
+
+/**
+ * Calculate URL path specificity for wayback signals.
+ * Rewards detailed paths with meaningful segments over bare domains.
+ */
+function calculateUrlSpecificity(content: string): number {
+  const hasDetailedPaths = content.includes('/') && content.length > 100;
+  if (!hasDetailedPaths) return 0.3;
+  
+  const pathSegments = (content.match(/\//g) || []).length;
+  return Math.min(1.0, pathSegments / 10);
+}
+
+/**
+ * Detect if content includes page type labels.
+ * Wayback snapshots often include page type metadata.
+ */
+function detectPageTypeInContent(content: string): boolean {
+  return content.includes('page') || 
+         content.includes('Homepage') ||
+         content.includes('Pricing') ||
+         content.includes('Product');
 }
 
 /**
@@ -156,7 +210,14 @@ export function calculateConfidence(params: ConfidenceParams): number {
   // Content quality score (based on length and specificity)
   // Optimal range: 500-5000 characters
   let contentScore: number;
-  if (contentLength < 100) {
+  
+  // Wayback Machine signals use different scoring - reward URL specificity and page metadata
+  if (sourceType === "WEB_ARCHIVE") {
+    const urlSpecificity = calculateUrlSpecificity(content || "");
+    const pageTypeDetected = detectPageTypeInContent(content || "");
+    const significantChange = (content || "").includes("Significant: Yes") ? 1.0 : 0.7;
+    contentScore = urlSpecificity * 0.4 + (pageTypeDetected ? 1.0 : 0.5) * 0.3 + significantChange * 0.3;
+  } else if (contentLength < 100) {
     contentScore = 0.3;
   } else if (contentLength < 500) {
     contentScore = 0.6;
@@ -208,13 +269,15 @@ export function calculateConfidence(params: ConfidenceParams): number {
       factScore * 0.35 +
       themeScore * 0.25;
   } else if (agentPersona === "GOSSIP_GIRL") {
-    // Gossip Girl: tell clarity (llmConfidence) 35%, source novelty 20%, behavioral pattern (fact density) 25%, narrative coherence (theme evidence) 20%
+    // Gossip Girl: tell clarity 40%, behavioral pattern density 25%, source credibility 20%, narrative coherence 15%
+    // Note: Uses tell_strength from sentiment as "tell clarity" — this measures how revealing the subtext is,
+    // not analytical confidence. Behavioral pattern density measures how many tells were found.
     const behavioralPatternScore = Math.min(1.0, facts.length / 10);
     composite =
-      llmConfidence * 0.35 +
-      sourceScore * 0.20 +
+      llmConfidence * 0.40 +
       behavioralPatternScore * 0.25 +
-      themeScore * 0.20;
+      sourceScore * 0.20 +
+      themeScore * 0.15;
   } else {
     // Default (backward compat)
     const weights = {
@@ -237,6 +300,15 @@ export function calculateConfidence(params: ConfidenceParams): number {
     const boost = calculateEngagementBoost(engagement);
     composite *= boost;
   }
+
+  // Apply preference boost when agent's sourcePreferences match the signal's source type
+  if (params.sourceMatchesPreference) {
+    composite *= 1.15;
+  }
+
+  // Apply recency decay based on publication date
+  const recencyMultiplier = calculateRecencyMultiplier(params.publishedAt, sourceType);
+  composite *= recencyMultiplier;
 
   // Clamp to [0.0, 1.0]
   return Math.max(0.0, Math.min(1.0, composite));

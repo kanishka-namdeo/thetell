@@ -72,7 +72,7 @@ export async function probeWebsite(websiteUrl: string): Promise<DiscoveredFeed[]
           feeds.push({
             url: absoluteUrl,
             label,
-            sourceType: type.includes("atom") ? "RSS" : "RSS",
+            sourceType: type.includes("atom") ? "ATOM" : "RSS",
             confidence: 0.95,
             discoveryMethod: "website-probe",
           });

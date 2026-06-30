@@ -64,6 +64,7 @@ interface AnalysisCardComponentProps {
     sentiment: unknown;
     strategicThemes: unknown;
     confidence: number;
+    sourceMatchPreference?: boolean | null;
   };
   categoryLabels: Record<string, string>;
   tellTypeLabels: Record<string, string>;
@@ -190,9 +191,16 @@ export function AnalysisCardComponent({
     >
       <CardHeader>
         <div className="flex items-start justify-between gap-4 mb-3">
-          <Badge variant={isAnalyst ? "analyst" : "gossip"}>
-            {isAnalyst ? "The Analyst" : "Gossip Girl"}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={isAnalyst ? "analyst" : "gossip"}>
+              {isAnalyst ? "The Analyst" : "Gossip Girl"}
+            </Badge>
+            {analysis.sourceMatchPreference && (
+              <Badge variant="outline" className="text-[10px]">
+                Preferred Source
+              </Badge>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             {isGossip ? (
               <ConfidenceBand confidence={analysis.confidence} label="Tell Strength" />

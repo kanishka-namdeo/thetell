@@ -84,6 +84,8 @@ Name the exact trigger that requires human input. "Ask if you're unsure" adds co
 - Time-sensitive info — becomes outdated
 - Blanket "ask when uncertain" — adds constraint load on every action
 
+**Good example**: `.cursor/skills/over-engineering-review/SKILL.md` — single workflow (complexity review), dense trigger terms ("over-engineering", "delete", "simplify"), output format specified (one line per finding), scope boundaries clear (complexity only, not correctness/security).
+
 ## Security
 
 Skills influence planning, tool usage, and command execution. Treat as privileged instructions. Never assume network access or elevated permissions. Require explicit approval for sensitive actions.

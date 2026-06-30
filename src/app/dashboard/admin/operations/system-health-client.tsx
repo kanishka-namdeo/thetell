@@ -27,8 +27,12 @@ import {
   CircleDot,
   ArrowRight,
   Timer,
+  Radar,
 } from "lucide-react";
 import Link from "next/link";
+import { PipelineChatModal } from "@/components/admin/pipeline-chat-modal";
+import { CorrelationClient } from "./correlation-client";
+import { logger } from "@/lib/logger";
 
 interface ScraperStatus {
   name: string;
@@ -59,6 +63,15 @@ interface Metrics {
   pendingSignals: number;
   failedSignals: number;
   totalProcessed: number;
+  cluster?: {
+    clusteredSignals: number;
+    standaloneSignals: number;
+    activeClusters: number;
+    totalClusters: number;
+    avgClusterSize: number;
+    clusterArticles: number;
+    llmCallsSaved: number;
+  };
 }
 
 interface JobStatus {
@@ -115,12 +128,12 @@ export function SystemHealthClient() {
       setData(json);
       setError(null);
       setLastRefresh(new Date());
-      setCountdown(30);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setIsLoading(false);
+      setCountdown(30);
     }
   }, []);
 
@@ -186,6 +199,46 @@ export function SystemHealthClient() {
           </CardContent>
         </Card>
       )}
+
+      {/* Pipeline Orchestrator Card */}
+      <Card className="border-2 border-foreground">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Radar className="h-4 w-4" />
+              <CardTitle className="text-base">Pipeline Orchestrator</CardTitle>
+            </div>
+            <Badge variant="outline" className="text-xs">
+              Real-time discovery
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground mb-3">
+            Discover and configure data sources for any company using AI-powered MCP servers.
+            Watch the discovery process in real-time with full transparency.
+          </p>
+          <PipelineChatModal
+            trigger={
+              <span
+                className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 cursor-pointer"
+                role="button"
+                tabIndex={0}
+              >
+                <Radar className="h-3 w-3" />
+                Launch Orchestrator
+              </span>
+            }
+            onApply={(result) => {
+              logger.debug("system_health.sources_applied", { result });
+              // Optionally refresh the page or show a toast
+            }}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Signal Clustering */}
+      <CorrelationClient />
 
       {/* Metrics Overview */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -416,6 +469,46 @@ export function SystemHealthClient() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Cluster Metrics */}
+      {data?.metrics.cluster && (
+        <Card className="border-2 border-foreground">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Radar className="h-4 w-4" />
+                Cluster Analysis
+              </CardTitle>
+              <Badge variant="outline" className="text-xs">
+                {data.metrics.cluster.activeClusters} active
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-widest font-sans text-muted-foreground mb-1">Clustered Signals</p>
+                <p className="text-2xl font-serif font-bold">{data.metrics.cluster.clusteredSignals}</p>
+                <p className="text-xs text-muted-foreground">{data.metrics.cluster.standaloneSignals} standalone</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-widest font-sans text-muted-foreground mb-1">Total Clusters</p>
+                <p className="text-2xl font-serif font-bold">{data.metrics.cluster.totalClusters}</p>
+                <p className="text-xs text-muted-foreground">avg {data.metrics.cluster.avgClusterSize} signals each</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-widest font-sans text-muted-foreground mb-1">Cluster Articles</p>
+                <p className="text-2xl font-serif font-bold">{data.metrics.cluster.clusterArticles}</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-widest font-sans text-muted-foreground mb-1">LLM Calls Saved</p>
+                <p className="text-2xl font-serif font-bold text-success">{data.metrics.cluster.llmCallsSaved.toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">vs full dual-agent analysis</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Recent Errors */}
       <Card className="border-2 border-foreground">

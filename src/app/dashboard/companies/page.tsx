@@ -5,10 +5,18 @@ import { useCompanies } from "@/hooks/use-companies";
 import { CompanyCard } from "@/components/dashboard/company-card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Building2, Plus } from "lucide-react";
+import { Building2, Plus, Bookmark } from "lucide-react";
+import { useState, useMemo } from "react";
 
 export default function CompaniesPage() {
   const { data: companies, loading, hasMore, loadMore } = useCompanies({ limit: 20 });
+  const [showWatchedOnly, setShowWatchedOnly] = useState(false);
+
+  // Filter companies based on watched status
+  const filteredCompanies = useMemo(() => {
+    if (!showWatchedOnly) return companies;
+    return companies.filter((c) => c.isWatched);
+  }, [companies, showWatchedOnly]);
 
   if (loading) {
     return (
@@ -49,13 +57,25 @@ export default function CompaniesPage() {
         </Link>
       </div>
 
+      {/* Filters */}
+      <div className="flex items-center gap-2">
+        <Button
+          variant={showWatchedOnly ? "default" : "outline"}
+          size="sm"
+          onClick={() => setShowWatchedOnly(!showWatchedOnly)}
+        >
+          <Bookmark className="h-3 w-3 mr-1" />
+          {showWatchedOnly ? "Watched Only" : "All Companies"}
+        </Button>
+      </div>
+
       {/* Results Count */}
       <p className="text-xs font-mono text-muted-foreground">
-        {companies.length} compan{companies.length !== 1 ? "ies" : "y"} found
+        {filteredCompanies.length} compan{filteredCompanies.length !== 1 ? "ies" : "y"} found
       </p>
 
       {/* Company Grid */}
-      {companies.length === 0 ? (
+      {filteredCompanies.length === 0 ? (
         <div className="text-center py-12 border border-foreground">
           <Building2 className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
           <p className="text-sm uppercase tracking-widest font-sans text-muted-foreground mb-2">
@@ -71,7 +91,7 @@ export default function CompaniesPage() {
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {companies.map((company) => (
+            {filteredCompanies.map((company) => (
               <CompanyCard
                 key={company.id}
                 id={company.id}
@@ -81,6 +101,7 @@ export default function CompaniesPage() {
                 description={company.description}
                 signalCount={company._count.signals}
                 articleCount={company._count.articles}
+                isWatched={company.isWatched}
               />
             ))}
           </div>

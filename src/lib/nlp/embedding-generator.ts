@@ -9,7 +9,7 @@
  * Dimensions: 384
  */
 
-import { getModelPipeline } from "./model-cache";
+import { nlpPool } from "./nlp-pool";
 import { logger } from "@/lib/logger";
 
 export const EMBEDDING_DIMENSIONS = 384;
@@ -47,16 +47,16 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   }
 
   try {
-    const extractor = await getModelPipeline(
-      "feature-extraction",
-      "Xenova/all-MiniLM-L6-v2",
+    // Use worker pool for inference with timeout
+    const dispatchPromise = nlpPool.dispatch<number[]>({
+      type: "embedding",
+      model: "Xenova/all-MiniLM-L6-v2",
+      text: truncatedText,
+    });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("NLP dispatch timeout after 30s")), 30000)
     );
-
-    // Run feature extraction — returns a tensor
-    const output = await (extractor as (text: string, opts: { pooling: string; normalize: boolean }) => Promise<{ data: Float32Array }>)(truncatedText, { pooling: "mean", normalize: true });
-
-    // Convert tensor to plain number array
-    const embedding: number[] = Array.from(output.data as Float32Array);
+    const embedding = await Promise.race([dispatchPromise, timeoutPromise]);
 
     const elapsed = Date.now() - startTime;
     logger.debug("nlp.embedding.generated", {

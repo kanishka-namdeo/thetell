@@ -28,7 +28,7 @@ This project will use Docker to run infrastructure services while the Next.js ap
 │  ┌──────────▼──────────┐                               │
 │  │  Postgres           │                               │
 │  │  Container          │                               │
-│  │  (localhost:5432)   │                               │
+│  │  (localhost:5433)   │                               │
 │  └─────────────────────┘                               │
 └─────────────────────────────────────────────────────────┘
 ```

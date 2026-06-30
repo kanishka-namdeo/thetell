@@ -55,6 +55,7 @@ async function getSentimentTrends(where: Prisma.AnalysisWhereInput, days: number
       analyzedAt: true,
     },
     orderBy: { analyzedAt: "asc" },
+    take: 10000,
   });
 
   const trends: { date: string; positive: number; negative: number; neutral: number }[] = [];
@@ -84,6 +85,7 @@ async function getConfidenceDistribution(where: Prisma.AnalysisWhereInput) {
   const analyses = await prisma.analysis.findMany({
     where,
     select: { confidence: true },
+    take: 10000,
   });
 
   const buckets = {

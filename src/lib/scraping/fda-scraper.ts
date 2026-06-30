@@ -61,7 +61,7 @@ export class FdaScraper extends BaseScraper {
    */
   async scrapeDrugEvents(
     companyName: string,
-    limit: number = 20,
+    limit: number = 50,
   ): Promise<FdaSignal[]> {
     logger.info("fda.drugEvents.start", { companyName, limit });
 
@@ -87,7 +87,7 @@ export class FdaScraper extends BaseScraper {
    */
   async scrapeDeviceClearances(
     companyName: string,
-    limit: number = 20,
+    limit: number = 50,
   ): Promise<FdaSignal[]> {
     logger.info("fda.devices.start", { companyName, limit });
 

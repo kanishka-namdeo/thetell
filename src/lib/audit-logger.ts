@@ -3,6 +3,18 @@ import { logger } from "@/lib/logger";
 import type { NextRequest } from "next/server";
 import type { Prisma } from "@prisma/client";
 
+/**
+ * Audit action constants for type-safe audit logging.
+ * Use these constants instead of string literals to ensure consistency.
+ */
+export const AUDIT_ACTIONS = {
+  // Cluster operations
+  CLUSTER_SIGNAL_ASSIGNED: "cluster.signal_assigned",
+  CLUSTER_SUMMARY_UPDATED: "cluster.summary_updated",
+  CLUSTER_ARTICLE_GENERATED: "cluster.article_generated",
+  CLUSTER_ARTICLE_SKIPPED: "cluster.article_skipped",
+} as const;
+
 interface AuditLogParams {
   userId: string;
   action: string;

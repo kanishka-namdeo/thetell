@@ -10,6 +10,7 @@ import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
 
 const DEFAULT_TTL = 86400; // 24 hours in seconds
+const MAX_CACHE_SIZE = 1000; // Prevent unbounded cache growth
 
 export class TTLCache<T = unknown> {
   private defaultTtl: number;
@@ -47,6 +48,7 @@ export class TTLCache<T = unknown> {
   /**
    * Store a value with an optional custom TTL (in seconds).
    * No-op if the database is unavailable.
+   * Evicts oldest entries if cache exceeds MAX_CACHE_SIZE.
    */
   async set(key: string, value: T, ttl?: number): Promise<void> {
     const effectiveTtl = ttl ?? this.defaultTtl;
@@ -54,6 +56,18 @@ export class TTLCache<T = unknown> {
     const content = JSON.stringify(value);
 
     try {
+      // Check cache size and evict oldest entries if needed
+      const count = await prisma.scrapeCache.count();
+      if (count >= MAX_CACHE_SIZE) {
+        const oldest = await prisma.scrapeCache.findFirst({
+          orderBy: { createdAt: "asc" },
+          select: { url: true },
+        });
+        if (oldest) {
+          await prisma.scrapeCache.delete({ where: { url: oldest.url } });
+        }
+      }
+
       await prisma.scrapeCache.upsert({
         where: { url: key },
         update: { content, expiresAt },

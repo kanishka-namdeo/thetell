@@ -4,7 +4,7 @@
  */
 
 import { logger } from "@/lib/logger";
-import { getProvider } from "./provider";
+import { getProviderWithFailover } from "./provider";
 import {
   buildArticleHeadlinePrompt,
   buildArticleSummaryPrompt,
@@ -68,7 +68,7 @@ export async function generateArticle(
   });
 
   try {
-    const provider = getProvider(providerName);
+    const { provider } = getProviderWithFailover(providerName);
 
     // Extract summaries and themes for headline generation
     const summaries = input.analyses.map((a) => a.summary);

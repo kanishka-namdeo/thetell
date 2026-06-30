@@ -34,7 +34,7 @@ $attempt = 0
 do {
     $attempt++
     Start-Sleep -Seconds 1
-    $result = docker exec the_tell-db pg_isready -U thetell_user -d the_tell 2>&1
+    $result = docker exec the_tell-db pg_isready -U thell_user -d the_tell 2>&1
     $ready = $result -match "accepting connections"
 } while (-not $ready -and $attempt -lt $maxAttempts)
 

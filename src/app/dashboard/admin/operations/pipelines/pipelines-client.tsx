@@ -26,8 +26,10 @@ import {
   Loader2,
   CircleDot,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type PipelineStatus = "completed" | "running" | "failed" | "never_run";
+type SessionStatus = "running" | "completed" | "failed" | "cancelled";
 
 interface PipelineSummary {
   scraperName: string;
@@ -52,6 +54,30 @@ interface PipelinesData {
   timestamp: string;
 }
 
+interface SessionUser {
+  name: string | null;
+  email: string | null;
+}
+
+interface PipelineSession {
+  id: string;
+  sessionId: string;
+  companyName: string;
+  companyId: string | null;
+  status: SessionStatus;
+  startedAt: string;
+  completedAt: string | null;
+  error: string | null;
+  user: SessionUser;
+  discoveredSourcesCount: number;
+}
+
+interface SessionsData {
+  sessions: PipelineSession[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
 const REFRESH_INTERVAL = 30_000;
 
 function formatRelativeTime(dateStr: string | null): string {
@@ -61,6 +87,17 @@ function formatRelativeTime(dateStr: string | null): string {
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
   return `${Math.floor(diff / 86_400_000)}d ago`;
+}
+
+function formatDateTime(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  const date = new Date(dateStr);
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function StatusDot({ status }: { status: PipelineStatus }) {
@@ -83,6 +120,24 @@ function StatusDot({ status }: { status: PipelineStatus }) {
   }
 }
 
+function SessionStatusBadge({ status }: { status: SessionStatus }) {
+  const config = {
+    running: { icon: Loader2, className: "bg-info/10 text-info border-info", label: "Running" },
+    completed: { icon: CheckCircle2, className: "bg-success/10 text-success border-success", label: "Completed" },
+    failed: { icon: XCircle, className: "bg-destructive/10 text-destructive border-destructive", label: "Failed" },
+    cancelled: { icon: CircleDot, className: "bg-muted text-muted-foreground border-muted", label: "Cancelled" },
+  }[status];
+
+  const Icon = config.icon;
+
+  return (
+    <Badge variant="outline" className={cn("flex items-center gap-1.5", config.className)}>
+      <Icon className={cn("h-3 w-3", status === "running" && "animate-spin")} />
+      {config.label}
+    </Badge>
+  );
+}
+
 function ActiveCount({ pipelines }: { pipelines: PipelineSummary[] }) {
   const active = pipelines.filter(
     (p) => p.status === "completed" || p.status === "running"
@@ -95,6 +150,13 @@ function ActiveCount({ pipelines }: { pipelines: PipelineSummary[] }) {
   );
 }
 
+const SESSION_STATUS_TABS = [
+  { value: "", label: "All" },
+  { value: "running", label: "Running" },
+  { value: "completed", label: "Completed" },
+  { value: "failed", label: "Failed" },
+];
+
 export function PipelinesClient() {
   const router = useRouter();
   const [data, setData] = useState<PipelinesData | null>(null);
@@ -104,6 +166,12 @@ export function PipelinesClient() {
   const [countdown, setCountdown] = useState(30);
   const [search, setSearch] = useState("");
   const controllerRef = useRef<AbortController | null>(null);
+
+  const [sessions, setSessions] = useState<SessionsData | null>(null);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [sessionStatusFilter, setSessionStatusFilter] = useState("");
+  const sessionsControllerRef = useRef<AbortController | null>(null);
 
   const fetchData = useCallback(async () => {
     controllerRef.current?.abort();
@@ -125,6 +193,27 @@ export function PipelinesClient() {
     }
   }, []);
 
+  const fetchSessions = useCallback(async () => {
+    sessionsControllerRef.current?.abort();
+    const controller = new AbortController();
+    sessionsControllerRef.current = controller;
+    try {
+      const params = new URLSearchParams({ limit: "20" });
+      if (sessionStatusFilter) params.set("status", sessionStatusFilter);
+
+      const res = await fetch(`/api/v1/admin/pipelines/sessions?${params}`, { signal: controller.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json: SessionsData = await res.json();
+      setSessions(json);
+      setSessionsError(null);
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      setSessionsError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, [sessionStatusFilter]);
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData();
@@ -142,6 +231,12 @@ export function PipelinesClient() {
     }, 1000);
     return () => clearInterval(tick);
   }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchSessions();
+    return () => sessionsControllerRef.current?.abort();
+  }, [fetchSessions]);
 
   const filtered = useMemo(() => {
     if (!data?.companies) return [];
@@ -315,6 +410,89 @@ export function PipelinesClient() {
           Never run
         </span>
       </div>
+
+      {/* Discovery Sessions */}
+      <Card className="border-2 border-foreground">
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <CardTitle className="text-base">Discovery Sessions</CardTitle>
+            <div className="flex gap-2">
+              {SESSION_STATUS_TABS.map((tab) => (
+                <Button
+                  key={tab.value}
+                  variant={sessionStatusFilter === tab.value ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSessionStatusFilter(tab.value)}
+                >
+                  {tab.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {sessionsLoading && !sessions ? (
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-14 w-full" />
+              ))}
+            </div>
+          ) : sessionsError ? (
+            <div className="flex items-center gap-2 text-destructive py-10">
+              <AlertTriangle className="h-4 w-4" />
+              <p className="text-sm font-medium">Failed to load sessions: {sessionsError}</p>
+            </div>
+          ) : !sessions?.sessions.length ? (
+            <div className="text-center py-10">
+              <Clock className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+              <p className="text-sm text-muted-foreground">No sessions found</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Company</TableHead>
+                    <TableHead>User</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Started</TableHead>
+                    <TableHead>Completed</TableHead>
+                    <TableHead className="text-right">Sources</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sessions.sessions.map((session) => (
+                    <TableRow
+                      key={session.id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() =>
+                        router.push(`/dashboard/admin/operations/pipelines/sessions/${session.sessionId}`)
+                      }
+                    >
+                      <TableCell className="font-medium">{session.companyName}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {session.user.name || session.user.email || "—"}
+                      </TableCell>
+                      <TableCell>
+                        <SessionStatusBadge status={session.status} />
+                      </TableCell>
+                      <TableCell className="text-sm font-mono whitespace-nowrap">
+                        {formatDateTime(session.startedAt)}
+                      </TableCell>
+                      <TableCell className="text-sm font-mono whitespace-nowrap">
+                        {formatDateTime(session.completedAt)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {session.discoveredSourcesCount}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

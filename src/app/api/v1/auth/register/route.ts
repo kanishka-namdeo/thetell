@@ -3,6 +3,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { prisma } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 const registerSchema = z.object({
   name: z
@@ -72,20 +73,17 @@ export async function POST(request: Request) {
     // In production, send email with verification link
     // For development, log the link (never log in production)
     if (process.env.NODE_ENV === "development") {
-      console.log(
-        `[Registration] Verification token generated for ${email}`
-      );
+      logger.debug("register.verification_token_generated", { email });
     }
 
     return NextResponse.json(
       {
         message: "Account created. Check your email to verify your account.",
-        userId: user.id,
       },
       { status: 201 }
     );
   } catch (error) {
-    console.error("[Register] Unexpected error:", error);
+    logger.error("register.unexpected_error", { error: String(error) });
     return NextResponse.json(
       { error: "internal_error", message: "An unexpected error occurred" },
       { status: 500 }

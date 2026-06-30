@@ -158,6 +158,15 @@ export const SCRAPER_REGISTRY: ScraperRegistryEntry[] = [
     icon: "Calendar",
     enabled: true,
   },
+  {
+    name: "stealth-browser",
+    displayName: "Stealth Browser (CloakBrowser)",
+    sourceType: "NEWS",
+    description: "Bypasses bot protection for sites that block HTTP requests",
+    platformName: "CloakBrowser",
+    icon: "Shield",
+    enabled: true,
+  },
 ];
 
 /**

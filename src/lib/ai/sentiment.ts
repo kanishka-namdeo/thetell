@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 import { logger } from "@/lib/logger";
-import { getProvider } from "./provider";
+import { getProviderWithFailover } from "./provider";
 import { buildSentimentPrompt } from "./prompts";
 import { SentimentResultSchema, type SentimentResult, type LLMMessage } from "./types";
 import type { ProviderName } from "./provider";
@@ -15,7 +15,7 @@ export async function classifySentiment(
   providerName: ProviderName = "openai",
   model?: string
 ): Promise<SentimentResult> {
-  const provider = getProvider(providerName);
+  const { provider } = getProviderWithFailover(providerName);
   const messages = buildSentimentPrompt(text);
 
   logger.debug("analysis.sentiment.start", {
@@ -45,7 +45,7 @@ export async function classifySentimentWithPrompt<T extends z.ZodTypeAny>(
   temperature: number = 0.3,
   model?: string
 ): Promise<z.infer<T>> {
-  const provider = getProvider(providerName);
+  const { provider } = getProviderWithFailover(providerName);
 
   logger.debug("analysis.sentiment.custom.start", {
     provider: providerName,

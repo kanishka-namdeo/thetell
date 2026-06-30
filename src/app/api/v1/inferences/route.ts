@@ -12,6 +12,7 @@ const QuerySchema = z.object({
   companyId: z.string().nullable().default(null),
   status: z.enum(VALID_STATUSES).nullable().default(null),
   sortBy: z.enum(["confidence", "createdAt"]).default("confidence"),
+  includeEvidenceChain: z.coerce.boolean().default(false),
 });
 
 export async function GET(req: NextRequest) {
@@ -29,9 +30,9 @@ export async function GET(req: NextRequest) {
 
     const rawParams = Object.fromEntries(req.nextUrl.searchParams.entries());
     const parsed = QuerySchema.parse(rawParams);
-    const { limit, cursor, companyId, status, sortBy } = parsed;
+    const { limit, cursor, companyId, status, sortBy, includeEvidenceChain } = parsed;
 
-    log.info("api.request.start", { method: "GET", path: "/api/v1/inferences", companyId, status, limit, sortBy });
+    log.info("api.request.start", { method: "GET", path: "/api/v1/inferences", companyId, status, limit, sortBy, includeEvidenceChain });
 
     const where: Record<string, unknown> = {};
     if (companyId) where.companyId = companyId;
@@ -59,8 +60,47 @@ export async function GET(req: NextRequest) {
     });
 
     const hasMore = items.length > limit;
-    const results = hasMore ? items.slice(0, limit) : items;
+    let results = hasMore ? items.slice(0, limit) : items;
     const nextCursor = hasMore ? results[results.length - 1]?.id : null;
+
+    if (includeEvidenceChain) {
+      results = await Promise.all(
+        results.map(async (inference) => {
+          const supportingIds = (inference.supportingSignalIds as string[]) || [];
+          if (supportingIds.length === 0) {
+            return { ...inference, evidenceChain: [] };
+          }
+
+          const signals = await prisma.signal.findMany({
+            where: { id: { in: supportingIds } },
+            select: {
+              id: true,
+              title: true,
+              sourceType: true,
+              analyses: {
+                select: {
+                  keyFacts: true,
+                  confidence: true,
+                },
+              },
+            },
+          });
+
+          const evidenceChain = signals.map((signal) => {
+            const analysis = signal.analyses[0];
+            return {
+              signalId: signal.id,
+              signalTitle: signal.title,
+              sourceType: signal.sourceType,
+              facts: analysis?.keyFacts || [],
+              confidence: analysis?.confidence || 0,
+            };
+          });
+
+          return { ...inference, evidenceChain };
+        })
+      );
+    }
 
     log.info("api.request.success", { count: results.length, hasMore });
     return NextResponse.json({ items: results, nextCursor, hasMore });

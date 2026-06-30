@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { ConfidenceBadge } from "./confidence-badge";
 import { SentimentIndicator } from "./sentiment-indicator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Layers, ArrowUp, MessageSquare, Globe, Database, User, AlertTriangle, BadgeCheck } from "lucide-react";
+import { Layers, ArrowUp, MessageSquare, Globe, Database, User, AlertTriangle, BadgeCheck, Brain } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SignalTableProps {
@@ -33,6 +33,7 @@ interface SignalTableProps {
     analyses: Array<{ sentiment: string; confidence: number; agentPersona?: string }>;
     inferences?: Array<{ id: string }>;
     themes?: Array<{ id: string; label: string }>;
+    cluster?: { id: string; label: string } | null;
   }>;
   loading?: boolean;
 }
@@ -131,7 +132,9 @@ export function SignalTable({ signals, loading }: SignalTableProps) {
           <col className="w-[90px]" />
           <col className="w-[120px]" />
           <col className="w-[120px]" />
+          <col className="w-[120px]" />
           <col className="w-[60px]" />
+          <col className="w-[80px]" />
           <col className="w-[80px]" />
           <col className="w-[70px]" />
         </colgroup>
@@ -141,10 +144,12 @@ export function SignalTable({ signals, loading }: SignalTableProps) {
             <TableHead className="hidden md:table-cell">Company</TableHead>
             <TableHead className="hidden lg:table-cell">Source</TableHead>
             <TableHead className="hidden lg:table-cell">Status</TableHead>
+            <TableHead className="hidden xl:table-cell">Progress</TableHead>
             <TableHead>Analyst</TableHead>
             <TableHead>Gossip Girl</TableHead>
             <TableHead className="hidden xl:table-cell">Inf</TableHead>
             <TableHead className="hidden xl:table-cell">Themes</TableHead>
+            <TableHead className="hidden xl:table-cell">Cluster</TableHead>
             <TableHead className="hidden sm:table-cell">Date</TableHead>
           </TableRow>
         </TableHeader>
@@ -164,6 +169,7 @@ export function SignalTable({ signals, loading }: SignalTableProps) {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.2 }}
+                  className="border-b border-foreground transition-colors hover:bg-muted/50"
                 >
                   <TableCell>
                     <Link
@@ -220,6 +226,24 @@ export function SignalTable({ signals, loading }: SignalTableProps) {
                       {statusLabels[signal.status] || signal.status}
                     </Badge>
                   </TableCell>
+                  <TableCell className="hidden xl:table-cell">
+                    <div className="flex items-center gap-1">
+                      {signal.status === "ANALYZED" && inferenceCount > 0 ? (
+                        <Badge variant="accent" className="text-xs">
+                          <Brain className="h-3 w-3 mr-1" />
+                          Insights Ready
+                        </Badge>
+                      ) : signal.status === "ANALYZED" ? (
+                        <Badge variant="outline" className="text-xs">
+                          Analysis Ready
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="text-xs">
+                          Processing
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell>
                     {analystAnalysis ? (
                       <div className="flex flex-col items-start gap-1">
@@ -261,6 +285,22 @@ export function SignalTable({ signals, loading }: SignalTableProps) {
                       <Badge variant="outline" className="text-xs">
                         {themeCount} theme{themeCount !== 1 ? "s" : ""}
                       </Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="hidden xl:table-cell">
+                    {signal.cluster ? (
+                      <Link
+                        href={`/clusters/${signal.cluster.id}`}
+                        className="text-xs hover:underline"
+                        title={signal.cluster.label}
+                      >
+                        <Badge variant="accent" className="text-xs gap-1">
+                          <Layers className="h-3 w-3" />
+                          Cluster
+                        </Badge>
+                      </Link>
                     ) : (
                       <span className="text-xs text-muted-foreground">—</span>
                     )}

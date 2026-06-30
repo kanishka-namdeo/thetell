@@ -9,6 +9,9 @@ export async function GET(
   const requestId = crypto.randomUUID();
   const log = logger.child({ requestId, route: "GET /api/v1/articles/[id]" });
 
+  // NOTE: This route is public (read-only). Auth is enforced by proxy.ts middleware
+  // via PUBLIC_API_GET_PATTERNS which applies rate limiting and bot detection.
+
   try {
     const { id } = await params;
 

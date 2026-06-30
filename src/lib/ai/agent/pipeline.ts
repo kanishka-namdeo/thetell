@@ -8,7 +8,7 @@ import { extractFactsWithPrompt } from "../fact-extraction";
 import { classifySentimentWithPrompt } from "../sentiment";
 import { identifyThemesWithPrompt } from "../themes";
 import { calculateConfidence } from "../confidence";
-import { getProvider } from "../provider";
+import { getProviderWithFailover } from "../provider";
 import {
   buildAgentFactExtractionPrompt,
   buildAgentSentimentPrompt,
@@ -21,6 +21,7 @@ import { z } from "zod";
 import type { ProviderName } from "../provider";
 import type { SourceType } from "../types";
 import type { AgentConfig, AgentPersona, AgentAnalysis, AgentFact, AgentTheme, AnalystFact, AnalystTheme, AnalystSentiment, GossipFact, GossipTheme, GossipSentiment } from "./types";
+import { isPreferredSourceType } from "./personas";
 import {
   AgentSummarySchema,
   AnalystFactSchema,
@@ -34,6 +35,7 @@ import type { Fact, StrategicTheme } from "../types";
 import { classifySentimentLocal } from "@/lib/nlp";
 import { extractEntities } from "@/lib/nlp";
 import { extractKeyPhrases } from "@/lib/nlp";
+import { validateFacts, DEFAULT_CONFIG } from "../hallucination-guard";
 
 export interface AgentAnalysisInput {
   id: string;
@@ -162,7 +164,7 @@ export async function analyzeSignalWithAgent(
       ...localEntities.monetary.map(e => `${e} (amount)`),
     ].join(", ");
 
-    // Build source context for SOCIAL signals
+    // Build source context for SOCIAL and WEB_ARCHIVE signals
     const sourceContext = buildSourceContext(
       signal.sourceType,
       signal.metadata,
@@ -172,7 +174,7 @@ export async function analyzeSignalWithAgent(
 
     const [factsResult, llmSentimentResult, themesResult] = await Promise.all([
       extractFactsWithPrompt(
-        buildAgentFactExtractionPrompt(signal.rawContent, agentConfig, entityContext, sourceContext),
+        buildAgentFactExtractionPrompt(signal.rawContent, agentConfig, entityContext, sourceContext, signal.publishedAt),
         z.object({ facts: z.array(factSchema) }),
         providerName,
         agentConfig.temperature,
@@ -180,14 +182,14 @@ export async function analyzeSignalWithAgent(
       ),
       // Always run LLM sentiment (needed for Gossip Girl, and fallback for Analyst)
       classifySentimentWithPrompt(
-        buildAgentSentimentPrompt(signal.rawContent, agentConfig, entityContext, localSentiment, sourceContext),
+        buildAgentSentimentPrompt(signal.rawContent, agentConfig, entityContext, localSentiment, sourceContext, signal.publishedAt),
         sentimentSchema,
         providerName,
         agentConfig.temperature,
         model
       ),
       identifyThemesWithPrompt(
-        buildAgentThemesPrompt(signal.rawContent, agentConfig, entityContext, sourceContext),
+        buildAgentThemesPrompt(signal.rawContent, agentConfig, entityContext, sourceContext, signal.publishedAt),
         z.object({ themes: z.array(themeSchema) }),
         providerName,
         agentConfig.temperature,
@@ -250,12 +252,33 @@ export async function analyzeSignalWithAgent(
       }
     }
 
-    const provider = getProvider(providerName);
+    // Hallucination guard: validate facts have valid source_sentence attribution
+    const factsValidation = validateFacts(
+      facts,
+      signal.rawContent,
+      { ...DEFAULT_CONFIG, verboseLogging: true },
+      signal.sourceType
+    );
+
+    if (factsValidation.invalidFacts.length > 0) {
+      log.warn("agent.pipeline.hallucination_guard_rejected_facts", {
+        persona: agentConfig.persona,
+        rejectedCount: factsValidation.invalidFacts.length,
+        groundingScore: factsValidation.groundingScore,
+        rejectedReasons: factsValidation.invalidFacts.map((f) => f.reason),
+      });
+    }
+
+    // Use only validated facts going forward
+    facts = factsValidation.validFacts;
+
+    const { provider } = getProviderWithFailover(providerName);
     const companyName = signal.company?.name ?? "the company";
     const summaryMessages = buildAgentSummaryPrompt(
       signal.rawContent,
       companyName,
-      agentConfig
+      agentConfig,
+      signal.publishedAt
     );
     const summaryResult = await provider.completeStructured(
       summaryMessages,
@@ -263,15 +286,11 @@ export async function analyzeSignalWithAgent(
       { model, temperature: agentConfig.temperature }
     );
 
-    const modelUsed = model ?? (providerName === "openai" ? "gpt-4o" : "claude-3-5-sonnet");
+    const modelUsed = model ?? process.env.FAST_MODEL ?? "unknown";
     
     // Convert agent-specific facts to generic Fact[] for confidence calculation.
-    // NOTE: For GossipFact, `tell_strength` is mapped to `confidence` but these are
-    // semantically different — Analyst `confidence` is the fact's reliability score,
-    // while Gossip Girl `tell_strength` measures how revealing the tell is. This mapping
-    // is a temporary approximation until agent-specific confidence scoring is implemented.
-    // TODO(agent-specific-confidence): Replace with persona-aware confidence calculation
-    // that treats tell_strength and confidence as distinct signals (Fix 2).
+    // For GossipFact, `tell_strength` is used as a behavioral pattern signal (not confidence).
+    // The confidence calculation is persona-aware and treats these differently.
     const genericFacts: Fact[] = facts.map((f: AgentFact) => {
       if ("category" in f) {
         // AnalystFact
@@ -282,7 +301,7 @@ export async function analyzeSignalWithAgent(
           source_sentence: f.source_sentence,
         };
       } else {
-        // GossipFact — tell_strength used as proxy for confidence (see note above)
+        // GossipFact — tell_strength contributes to behavioral pattern density score
         return {
           text: f.text,
           category: "strategic" as const,
@@ -316,6 +335,16 @@ export async function analyzeSignalWithAgent(
       ? (sentimentResult as AnalystSentiment).confidence
       : (sentimentResult as GossipSentiment).tell_strength;
 
+    // Hybrid agent routing: boost confidence when agent's sourcePreferences match signal source
+    const sourceMatchesPreference = isPreferredSourceType(signal.sourceType, agentConfig);
+
+    log.info("agent.pipeline.preference_match", {
+      sourceType: signal.sourceType,
+      agentPersona: agentConfig.persona,
+      matches: sourceMatchesPreference,
+      confidenceBoost: sourceMatchesPreference ? "1.15x" : "none",
+    });
+
     // Task 3.7: Pass NER results to confidence calculation
     const confidence = calculateConfidence({
       sourceType: signal.sourceType,
@@ -326,6 +355,8 @@ export async function analyzeSignalWithAgent(
       llmConfidence,
       agentPersona: agentConfig.persona,
       entities: localEntities,
+      sourceMatchesPreference,
+      publishedAt: signal.publishedAt,
     });
 
     const crossReferences = crossRefAnalyses?.length
@@ -370,6 +401,7 @@ export async function analyzeSignalWithAgent(
         crossReferences,
         modelUsed,
         analyzedAt: new Date(),
+        sourceMatchPreference: sourceMatchesPreference,
       };
     } else {
       const gossipFacts = facts as GossipFact[];
@@ -398,6 +430,7 @@ export async function analyzeSignalWithAgent(
         crossReferences,
         modelUsed,
         analyzedAt: new Date(),
+        sourceMatchPreference: sourceMatchesPreference,
       };
     }
   } catch (error) {

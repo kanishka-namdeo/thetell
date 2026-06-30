@@ -11,12 +11,13 @@ import { SafeMarkdown } from "@/components/dashboard/safe-markdown";
 export const dynamic = "force-dynamic";
 
 interface ArticleDetailPageProps {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export default async function ArticleDetailPage({ params }: ArticleDetailPageProps) {
+  const { id } = await params;
   const article = await prisma.article.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       company: true,
       author: {

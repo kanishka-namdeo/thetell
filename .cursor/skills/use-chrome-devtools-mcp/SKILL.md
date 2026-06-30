@@ -96,12 +96,12 @@ This returns page IDs and URLs. Use the correct `pageId` for all subsequent call
 CallMcpTool(server="user-chrome-devtools", toolName="navigate_page", arguments={
   "pageId": 1,
   "type": "url",
-  "url": "http://localhost:3000/login"
+  "url": "http://localhost:3000/sign-in"
 })
 
 // Or create new page
 CallMcpTool(server="user-chrome-devtools", toolName="new_page", arguments={
-  "url": "http://localhost:3000/login"
+  "url": "http://localhost:3000/sign-in"
 })
 ```
 

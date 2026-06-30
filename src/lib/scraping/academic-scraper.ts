@@ -140,7 +140,7 @@ export class AcademicScraper extends BaseScraper {
    * Search OpenAlex for academic works by keyword or author affiliation.
    */
   async searchOpenAlex(options: AcademicSearchOptions): Promise<AcademicSignal[]> {
-    const { query, authorAffiliation, fromYear, toYear, limit = 20, offset = 0 } = options;
+    const { query, authorAffiliation, fromYear, toYear, limit = 50, offset = 0 } = options;
 
     const params = new URLSearchParams({
       "per-page": String(Math.min(limit, 200)),
@@ -198,7 +198,7 @@ export class AcademicScraper extends BaseScraper {
    * Search Semantic Scholar for papers by keyword or author affiliation.
    */
   async searchSemanticScholar(options: AcademicSearchOptions): Promise<AcademicSignal[]> {
-    const { query, authorAffiliation, year, fromYear, toYear, limit = 20, offset = 0 } = options;
+    const { query, authorAffiliation, year, fromYear, toYear, limit = 50, offset = 0 } = options;
 
     const params = new URLSearchParams({
       query: query || "",
@@ -258,7 +258,7 @@ export class AcademicScraper extends BaseScraper {
    * NBER papers have DOI prefix 10.3386.
    */
   async searchNBER(options: AcademicSearchOptions): Promise<AcademicSignal[]> {
-    const { query, fromYear, toYear, limit = 20, offset = 0 } = options;
+    const { query, fromYear, toYear, limit = 50, offset = 0 } = options;
 
     const params = new URLSearchParams({
       "query": query || "",

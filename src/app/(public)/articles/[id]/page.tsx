@@ -16,20 +16,62 @@ interface ArticleDetailPageProps {
 export default async function ArticleDetailPage({ params }: ArticleDetailPageProps) {
   const { id } = await params;
 
+  // Try fetching as per-signal article first
   const article = await prisma.article.findUnique({
     where: { id },
     include: { company: true },
   });
 
-  if (!article || article.status !== "PUBLISHED") {
-    notFound();
+  // If found and published, render as per-signal article
+  if (article && article.status === "PUBLISHED") {
+    return <PerSignalArticleDetail article={article} />;
   }
 
+  // If not found, try fetching as cluster article
+  const clusterArticle = await prisma.clusterArticle.findUnique({
+    where: { id },
+    include: {
+      company: true,
+      theme: {
+        include: {
+          clusteredSignals: {
+            include: {
+              analyses: {
+                select: { keyFacts: true, agentPersona: true },
+              },
+            },
+            orderBy: { scrapedAt: "desc" },
+          },
+        },
+      },
+    },
+  });
+
+  if (clusterArticle && clusterArticle.status === "PUBLISHED") {
+    return <ClusterArticleDetail clusterArticle={clusterArticle} />;
+  }
+
+  notFound();
+}
+
+// Per-signal article detail (existing logic)
+async function PerSignalArticleDetail({ article }: { article: any }) {
   // Fetch analyses associated with this article
   const analysisIds = Array.isArray(article.analysisIds) ? article.analysisIds : [];
   const analyses = analysisIds.length > 0
     ? await prisma.analysis.findMany({
         where: { id: { in: analysisIds as string[] } },
+        select: {
+          id: true,
+          signalId: true,
+          agentPersona: true,
+          sentiment: true,
+          sentimentData: true,
+          keyFacts: true,
+          strategicThemes: true,
+          summary: true,
+          sourceMatchPreference: true,
+        },
       })
     : [];
 
@@ -109,8 +151,7 @@ export default async function ArticleDetailPage({ params }: ArticleDetailPagePro
 
   return (
     <Section>
-        {/* Container width increased for overall page, prose text self-constrained above */}
-        <Container className="max-w-4xl">
+      <Container className="max-w-4xl">
         {/* Back Link */}
         <Link href="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6">
           <ArrowLeft className="h-4 w-4" />
@@ -119,7 +160,7 @@ export default async function ArticleDetailPage({ params }: ArticleDetailPagePro
 
         {/* Article Header */}
         <div className="border-b-4 border-foreground pb-6 mb-6">
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
             <Badge variant="outline">
               {article.company.name}
             </Badge>
@@ -128,6 +169,11 @@ export default async function ArticleDetailPage({ params }: ArticleDetailPagePro
             >
               {article.agentPersona === "ANALYST" ? "The Analyst" : "Gossip Girl"}
             </Badge>
+            {analyses.some((a) => a.sourceMatchPreference) && (
+              <Badge variant="secondary" className="text-xs">
+                Preferred Source
+              </Badge>
+            )}
           </div>
           <Headline level={1} size="hero" className="mb-4">
             {article.title}
@@ -171,6 +217,157 @@ export default async function ArticleDetailPage({ params }: ArticleDetailPagePro
         {/* Article Content */}
         <div className="prose prose-neutral max-w-none [&>p]:max-w-[65ch] [&>p]:leading-relaxed [&>p]:mx-auto">
           <SafeMarkdown content={article.body} />
+        </div>
+
+        {/* Signup Prompt */}
+        <SignupPrompt />
+      </Container>
+    </Section>
+  );
+}
+
+// Cluster article detail (new)
+async function ClusterArticleDetail({ clusterArticle }: { clusterArticle: any }) {
+  const publishedDate = clusterArticle.publishedAt
+    ? new Date(clusterArticle.publishedAt).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    : null;
+
+  // Extract top facts from all signals in the cluster
+  const allFacts: Array<{ text: string; signalId: string; signalTitle: string }> = [];
+  for (const signal of clusterArticle.theme.clusteredSignals) {
+    for (const analysis of signal.analyses) {
+      const keyFacts = Array.isArray(analysis.keyFacts) ? analysis.keyFacts : [];
+      for (const fact of keyFacts) {
+        if (fact && typeof fact === "object" && "text" in fact) {
+          allFacts.push({
+            text: (fact as { text: string }).text,
+            signalId: signal.id,
+            signalTitle: signal.title,
+          });
+        }
+      }
+    }
+  }
+
+  // Limit to top 8 facts
+  const displayFacts = allFacts.slice(0, 8);
+
+  return (
+    <Section>
+      <Container className="max-w-4xl">
+        {/* Back Link */}
+        <Link href="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6">
+          <ArrowLeft className="h-4 w-4" />
+          Back to Feed
+        </Link>
+
+        {/* Article Header */}
+        <div className="border-b-4 border-foreground pb-6 mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <Badge variant="outline">
+              {clusterArticle.company.name}
+            </Badge>
+            <Badge
+              variant={clusterArticle.agentPersona === "ANALYST" ? "default" : "accent"}
+            >
+              {clusterArticle.agentPersona === "ANALYST" ? "The Analyst" : "Gossip Girl"}
+            </Badge>
+            <Badge variant="secondary">
+              Cluster Article
+            </Badge>
+            <Badge variant="outline">
+              Built from {clusterArticle.signalCount} signal{clusterArticle.signalCount !== 1 ? "s" : ""}
+            </Badge>
+          </div>
+          <Headline level={1} size="hero" className="mb-4">
+            {clusterArticle.title}
+          </Headline>
+          <div className="flex flex-wrap items-center gap-3">
+            {publishedDate && <Metadata>{publishedDate}</Metadata>}
+            <Link
+              href={`/clusters/${clusterArticle.theme.id}`}
+              className="inline-flex items-center gap-1 text-sm text-foreground hover:text-muted-foreground transition-colors"
+            >
+              View Cluster
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+            <div className="ml-auto">
+              <ShareButton />
+            </div>
+          </div>
+        </div>
+
+        {/* Source Signals */}
+        {clusterArticle.theme.clusteredSignals.length > 0 && (
+          <Card className="mb-8 border-l-4 border-l-primary bg-muted/30">
+            <CardHeader>
+              <CardTitle className="text-lg">Source Signals</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {clusterArticle.theme.clusteredSignals.slice(0, 10).map((signal: any) => (
+                  <Link
+                    key={signal.id}
+                    href={`/signals/${signal.id}`}
+                    className="block p-3 border border-border hover:bg-muted/50 transition-colors rounded"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{signal.title}</p>
+                        <Metadata>
+                          {new Date(signal.scrapedAt).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </Metadata>
+                      </div>
+                      <Badge variant="outline" className="text-xs">
+                        {signal.sourceType}
+                      </Badge>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Key Facts Provenance */}
+        {displayFacts.length > 0 && (
+          <Card className="mb-8 border-l-4 border-l-accent bg-muted/30">
+            <CardHeader>
+              <CardTitle className="text-lg">Key Facts</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-3">
+                {displayFacts.map((fact, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span className="text-accent mt-1">•</span>
+                    <div className="flex-1">
+                      <span>{fact.text}</span>
+                      <div className="mt-1">
+                        <Link
+                          href={`/signals/${fact.signalId}`}
+                          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          From: {fact.signalTitle}
+                        </Link>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Article Content */}
+        <div className="prose prose-neutral max-w-none [&>p]:max-w-[65ch] [&>p]:leading-relaxed [&>p]:mx-auto">
+          <SafeMarkdown content={clusterArticle.body} />
         </div>
 
         {/* Signup Prompt */}

@@ -5,8 +5,15 @@ import { cn } from "@/lib/utils";
 import { Playfair_Display, Lora, Inter, JetBrains_Mono, Geist } from "next/font/google";
 import "./globals.css";
 
+let metadataBase: URL;
+try {
+  metadataBase = new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000");
+} catch {
+  metadataBase = new URL("http://localhost:3000");
+}
+
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
+  metadataBase,
   title: {
     default: "The Tell",
     template: "%s | The Tell",

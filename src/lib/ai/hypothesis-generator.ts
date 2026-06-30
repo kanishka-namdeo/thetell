@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod";
-import { getProvider } from "./provider";
+import { getProviderWithFailover } from "./provider";
 import { logger } from "@/lib/logger";
 
 // ─── Zod Schemas ────────────────────────────────────────────────────────────
@@ -64,6 +64,11 @@ export interface ThemeWithMomentum {
   label: string;
   momentum: number;
   status: string;
+  clusterSummary?: unknown;
+  clusterArticles?: Array<{
+    summary: string;
+    signalCount: number;
+  }>;
 }
 
 // ─── Generator ──────────────────────────────────────────────────────────────
@@ -90,7 +95,7 @@ export async function generateHypotheses(
     return [];
   }
 
-  const provider = getProvider("openai");
+  const { provider } = getProviderWithFailover("openai");
 
   // Build a compact summary of recent analyses for the prompt
   const analysisSummary = recentAnalyses.slice(0, 15).map((a) => ({
@@ -101,15 +106,36 @@ export async function generateHypotheses(
     confidence: Math.round(a.confidence * 100) / 100,
   }));
 
-  // Build theme momentum summary
+  // Build theme momentum summary, enriched with cluster context when present
   const themeSummary = themes
     .filter((t) => t.momentum > 0 || t.status !== "FADING")
     .slice(0, 10)
-    .map((t) => ({
-      label: t.label,
-      momentum: Math.round(t.momentum * 100) / 100,
-      status: t.status,
-    }));
+    .map((t) => {
+      const clusterSummary = t.clusterSummary as {
+        summary?: string;
+        keyInsights?: string[];
+        signalCount?: number;
+        aggregatedConfidence?: number;
+      } | null;
+
+      return {
+        label: t.label,
+        momentum: Math.round(t.momentum * 100) / 100,
+        status: t.status,
+        cluster: clusterSummary
+          ? {
+              signalCount: clusterSummary.signalCount ?? 0,
+              summary: clusterSummary.summary?.slice(0, 300),
+              keyInsights: clusterSummary.keyInsights?.slice(0, 3),
+              aggregatedConfidence: clusterSummary.aggregatedConfidence,
+            }
+          : undefined,
+        clusterArticles: t.clusterArticles?.slice(0, 2).map((a) => ({
+          summary: a.summary.slice(0, 200),
+          signalCount: a.signalCount,
+        })),
+      };
+    });
 
   const messages = [
     {

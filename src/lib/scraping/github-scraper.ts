@@ -181,7 +181,7 @@ export class GitHubScraper extends BaseScraper {
     repoFullName: string,
     token?: string
   ): Promise<z.infer<typeof GitHubReleaseSchema>[] | null> {
-    const url = `${this.apiBase}/repos/${repoFullName}/releases?per_page=10`;
+    const url = `${this.apiBase}/repos/${repoFullName}/releases?per_page=30`;
     const text = await this.fetchWithAuth(url, token);
     if (!text) return null;
 
@@ -204,7 +204,7 @@ export class GitHubScraper extends BaseScraper {
     org: string,
     token?: string
   ): Promise<z.infer<typeof GitHubEventSchema>[] | null> {
-    const url = `${this.apiBase}/orgs/${org}/events?per_page=30`;
+    const url = `${this.apiBase}/orgs/${org}/events?per_page=100`;
     const text = await this.fetchWithAuth(url, token);
     if (!text) return null;
 
@@ -256,7 +256,7 @@ export class GitHubScraper extends BaseScraper {
         });
 
         if (response.ok) {
-          const text = await response.text();
+          const text = await this.readBodyWithLimit(response);
           await this.cache.set(url, text);
           return text;
         }

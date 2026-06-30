@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -97,7 +98,6 @@ export function SubredditsClient({ companies }: SubredditsClientProps) {
   const [subreddits, setSubreddits] = useState<TrackedSubreddit[]>([]);
   const [discoveryLog, setDiscoveryLog] = useState<DiscoveryLog | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isDiscovering, setIsDiscovering] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [newSubreddit, setNewSubreddit] = useState("");
   const [isAdding, setIsAdding] = useState(false);
@@ -140,23 +140,6 @@ export function SubredditsClient({ companies }: SubredditsClientProps) {
     fetchSubreddits();
     return () => controllerRef.current?.abort();
   }, [fetchSubreddits]);
-
-  async function handleDiscover() {
-    if (selectedCompanyId === "all") return;
-    setIsDiscovering(true);
-    try {
-      const res = await fetch(
-        `/api/v1/companies/${selectedCompanyId}/subreddits/discover`,
-        { method: "POST" }
-      );
-      if (!res.ok) throw new Error("Discovery failed");
-      toast.success("Discovery started — results will appear after refresh");
-    } catch {
-      toast.error("Failed to trigger discovery");
-    } finally {
-      setIsDiscovering(false);
-    }
-  }
 
   async function handleAdd() {
     if (selectedCompanyId === "all" || !newSubreddit.trim()) return;
@@ -237,6 +220,38 @@ export function SubredditsClient({ companies }: SubredditsClientProps) {
 
   return (
     <div className="space-y-6">
+      {/* Info Banner */}
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950">
+        <div className="flex gap-3">
+          <svg
+            className="h-5 w-5 flex-shrink-0 text-blue-600 dark:text-blue-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <div className="text-sm text-blue-800 dark:text-blue-200">
+            <p className="font-medium">Discovery operations moved</p>
+            <p className="mt-1">
+              Subreddit discovery is now managed from the{" "}
+              <Link
+                href="/dashboard/admin/control-center"
+                className="font-medium underline hover:text-blue-900 dark:hover:text-blue-100"
+              >
+                Control Center
+              </Link>
+              . You can still manually add and manage subreddits here.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Controls */}
       <Card className="border-2 border-foreground">
         <CardContent className="pt-6">
@@ -317,25 +332,6 @@ export function SubredditsClient({ companies }: SubredditsClientProps) {
                     </div>
                   </DialogContent>
                 </Dialog>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleDiscover}
-                  disabled={isDiscovering}
-                >
-                  {isDiscovering ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                      Discovering...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="h-4 w-4 mr-1" />
-                      Run Discovery
-                    </>
-                  )}
-                </Button>
               </div>
             )}
           </div>

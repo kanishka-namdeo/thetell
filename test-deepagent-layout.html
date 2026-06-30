@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeepAgent Layout Test</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f5f5;
+    }
+    
+    .chat-container {
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 10rem);
+      background: white;
+      border: 2px solid #333;
+      margin: 2rem;
+    }
+    
+    .header {
+      padding: 1rem;
+      border-bottom: 1px solid #ddd;
+      background: #fafafa;
+    }
+    
+    .chat-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    
+    .message-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    
+    .message {
+      max-width: 75%;
+      padding: 0.75rem 1rem;
+      border-radius: 0.5rem;
+      line-height: 1.5;
+    }
+    
+    .message.user {
+      align-self: flex-end;
+      background: #000;
+      color: white;
+    }
+    
+    .message.assistant {
+      align-self: flex-start;
+      background: #f0f0f0;
+      border: 1px solid #ddd;
+    }
+    
+    .input-bar {
+      border-top: 1px solid #ddd;
+      padding: 1rem;
+      background: white;
+      flex-shrink: 0;
+    }
+    
+    .input-bar textarea {
+      width: 100%;
+      padding: 0.75rem;
+      border: 1px solid #ddd;
+      border-radius: 0.5rem;
+      resize: none;
+      font-family: inherit;
+    }
+    
+    .test-info {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: #333;
+      color: white;
+      padding: 1rem;
+      border-radius: 0.5rem;
+      font-size: 0.875rem;
+      z-index: 1000;
+    }
+  </style>
+</head>
+<body>
+  <div class="test-info">
+    <strong>Layout Test</strong><br>
+    Messages: <span id="msgCount">0</span><br>
+    Container Height: <span id="containerHeight">0</span>px<br>
+    Message List Height: <span id="messageListHeight">0</span>px<br>
+    Input Bar Position: <span id="inputBarPos">0</span>px
+  </div>
+  
+  <div class="chat-container">
+    <div class="header">
+      <strong>DeepAgent Chat</strong>
+    </div>
+    
+    <div class="chat-content">
+      <div class="message-list" id="messageList">
+        <!-- Messages will be added here -->
+      </div>
+      
+      <div class="input-bar">
+        <textarea placeholder="Ask DeepAgent anything..." rows="1"></textarea>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    const messages = [
+      { role: 'user', content: 'What is the current state of the project?' },
+      { role: 'assistant', content: 'The project is actively under development with multiple features being built. The core signal pipeline is operational, processing data from various sources including news, filings, and social media.' },
+      { role: 'user', content: 'Can you analyze the recent signals?' },
+      { role: 'assistant', content: 'Recent signals show increased activity in the tech sector, with several companies announcing new AI initiatives. There are also notable patterns in hiring trends suggesting expansion plans.' },
+      { role: 'user', content: 'What are the main themes emerging?' },
+      { role: 'assistant', content: 'Three main themes are emerging: 1) AI/ML adoption acceleration, 2) Supply chain diversification strategies, and 3) Focus on sustainable operations. These themes appear across multiple signal types.' },
+      { role: 'user', content: 'Show me the top inferences' },
+      { role: 'assistant', content: 'Top inferences include: Company X is likely planning a major product launch in Q2 based on hiring patterns and patent filings. Company Y appears to be exploring new markets based on recent partnerships and executive statements.' },
+      { role: 'user', content: 'What companies are showing the most activity?' },
+      { role: 'assistant', content: 'The most active companies are: 1) TechCorp with 47 signals this week, 2) InnovateInc with 38 signals, and 3) FutureSystems with 31 signals. All show significant strategic movement.' },
+      { role: 'user', content: 'Summarize the key findings' },
+      { role: 'assistant', content: 'Key findings: The market is showing strong signals of transformation in AI adoption. Companies are investing heavily in new capabilities, with particular focus on automation and data analytics. Strategic partnerships are increasing, suggesting consolidation trends.' },
+      { role: 'user', content: 'What should I focus on next?' },
+      { role: 'assistant', content: 'I recommend focusing on: 1) The emerging AI regulation signals from government sources, 2) Cross-industry partnership patterns that suggest new business models, and 3) Hiring trends in specific technical roles that indicate strategic priorities.' }
+    ];
+    
+    const messageList = document.getElementById('messageList');
+    const msgCount = document.getElementById('msgCount');
+    const containerHeight = document.getElementById('containerHeight');
+    const messageListHeight = document.getElementById('messageListHeight');
+    const inputBarPos = document.getElementById('inputBarPos');
+    
+    // Add messages
+    messages.forEach((msg, idx) => {
+      const div = document.createElement('div');
+      div.className = `message ${msg.role}`;
+      div.innerHTML = `<strong>${msg.role === 'user' ? 'You' : 'Assistant'}:</strong> ${msg.content}`;
+      messageList.appendChild(div);
+    });
+    
+    // Update stats
+    msgCount.textContent = messages.length;
+    
+    function updateStats() {
+      const container = document.querySelector('.chat-container');
+      const inputBar = document.querySelector('.input-bar');
+      
+      containerHeight.textContent = container.clientHeight;
+      messageListHeight.textContent = messageList.clientHeight;
+      inputBarPos.textContent = inputBar.getBoundingClientRect().top;
+    }
+    
+    updateStats();
+    window.addEventListener('resize', updateStats);
+    
+    // Scroll to bottom
+    messageList.scrollTop = messageList.scrollHeight;
+    
+    console.log('Test loaded with', messages.length, 'messages');
+    console.log('Container height:', container.clientHeight);
+    console.log('Message list height:', messageList.clientHeight);
+    console.log('Input bar should be at bottom, not below messages');
+  </script>
+</body>
+</html>

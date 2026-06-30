@@ -111,7 +111,7 @@ export class WebSearchScraper {
     }
 
     const endpoint = searchType === "news" ? "/news/search" : "/web/search";
-    const url = `${BRAVE_BASE_URL}${endpoint}`;
+    const url = `${BRAVE_BASE_URL}${endpoint}?q=${encodeURIComponent(query)}`;
 
     const response = await fetch(url, {
       method: "GET",

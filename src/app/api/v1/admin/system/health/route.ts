@@ -7,7 +7,7 @@ import { getAllScrapers, getApiKeyRequiredScrapers } from "@/lib/scraping/regist
 
 function maskApiKey(value: string | undefined): string {
   if (!value) return "Not configured";
-  if (value.length <= 8) return `${value.slice(0, 2)}...`;
+  if (value.length <= 8) return "****";
   return `${value.slice(0, 3)}...${value.slice(-3)}`;
 }
 
@@ -72,6 +72,10 @@ export async function GET() {
       // Calibration metrics
       totalCalibrations,
       correctCalibrations,
+      // Cluster metrics
+      clusteredSignals,
+      activeClusters,
+      clusterArticles,
     ] = await Promise.all([
       prisma.signal.count(),
       prisma.article.count(),
@@ -89,8 +93,8 @@ export async function GET() {
       }),
       prisma.inference.count({ where: { status: "CONFIRMED" } }),
       prisma.inference.count({ where: { status: "REFUTED" } }),
-      prisma.job.findFirst({
-        where: { type: "correlate-signals", status: "completed" },
+      prisma.pipelineRun.findFirst({
+        where: { scraperName: "correlation", status: "completed" },
         orderBy: { completedAt: "desc" },
       }),
       // Calibration metrics
@@ -100,12 +104,22 @@ export async function GET() {
       prisma.inferenceCalibration.count({
         where: { wasCorrect: true },
       }),
+      // Cluster metrics
+      prisma.signal.count({ where: { clusterId: { not: null } } }),
+      prisma.signalTheme.count({
+        where: { status: { in: ["EMERGING", "ACCELERATING"] } },
+      }),
+      prisma.clusterArticle.count(),
     ]);
 
     const totalProcessed = totalSignals - pendingSignals - failedSignals;
     const errorRate = totalSignals > 0 ? (failedSignals / totalSignals) * 100 : 0;
     const calibrationAccuracy =
       totalCalibrations > 0 ? (correctCalibrations / totalCalibrations) * 100 : null;
+    const standaloneSignals = totalSignals - clusteredSignals;
+    const avgClusterSize = activeClusters > 0 ? Math.round((clusteredSignals / activeClusters) * 10) / 10 : 0;
+    // Each clustered signal saves ~10 LLM calls (14 full vs 4 lightweight)
+    const llmCallsSaved = clusteredSignals * 10;
 
     const metrics = {
       signalsPerHour: recentSignals,
@@ -133,6 +147,16 @@ export async function GET() {
         totalCalibrations,
         correctCalibrations,
         accuracy: calibrationAccuracy,
+      },
+      // Cluster metrics
+      cluster: {
+        clusteredSignals,
+        standaloneSignals,
+        activeClusters,
+        totalClusters: totalThemes,
+        avgClusterSize,
+        clusterArticles,
+        llmCallsSaved,
       },
     };
 

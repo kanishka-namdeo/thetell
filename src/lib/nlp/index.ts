@@ -1,6 +1,11 @@
 // NLP Module — Local model inference for The Tell pipeline
 // See: Local NLP Model Integration Plan
 
+import { configureModelCache } from "./model-cache";
+
+// Apply Transformers.js environment configuration at module load time
+configureModelCache();
+
 // Model cache and configuration
 export {
   getModelPipeline,
@@ -52,3 +57,6 @@ export {
   extractKeyPhrasesWithFallback,
   detectLanguageWithFallback,
 } from "./fallbacks";
+
+// Worker thread pool
+export { nlpPool } from "./nlp-pool";

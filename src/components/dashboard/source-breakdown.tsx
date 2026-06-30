@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
 import { ChartCard } from "@/components/charts/chart-card";
+import { logger } from "@/lib/logger";
 
 interface SourceBreakdownData {
   sourceType: string;
@@ -32,14 +33,15 @@ const SOURCE_LABELS: Record<string, string> = {
   JOB_POSTING: "Job Posting",
 };
 
-const subscribe = () => () => {};
-function getClientSnapshot() { return true; }
-function getServerSnapshot() { return false; }
-
 export function SourceBreakdown({ companyId, days = 30 }: SourceBreakdownProps) {
   const [data, setData] = useState<SourceBreakdownData[]>([]);
   const [loading, setLoading] = useState(true);
-  const mounted = useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
+  const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -51,15 +53,38 @@ export function SourceBreakdown({ companyId, days = 30 }: SourceBreakdownProps) 
         const res = await fetch(`/api/v1/analytics/overview?${params}`, {
           signal: controller.signal,
         });
-        if (!res.ok) throw new Error("Failed to fetch");
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({ error: "Unknown error" }));
+          logger.error("analytics.source_breakdown.fetch.error", {
+            status: res.status,
+            statusText: res.statusText,
+            error: errorData,
+          });
+
+          // Handle authentication errors specifically
+          if (res.status === 401) {
+            setError("Authentication required. Please sign in.");
+          } else if (res.status === 403) {
+            setError("Access denied.");
+          } else {
+            setError(`Failed to load data (${res.status})`);
+          }
+          return;
+        }
 
         const json = await res.json();
         setData(json.sourceBreakdown || []);
-      } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") return;
-        console.error("Error fetching source breakdown:", error);
+        setError(null);
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          setLoading(false);
+          return;
+        }
+        logger.error("analytics.source_breakdown.fetch.error", { error: String(err) });
+        setError("Failed to fetch data");
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        setLoading(false);
       }
     };
 
@@ -77,6 +102,16 @@ export function SourceBreakdown({ companyId, days = 30 }: SourceBreakdownProps) 
     );
   }
 
+  if (error) {
+    return (
+      <ChartCard title="Signal Sources" description="Signals by source type">
+        <div className="h-[300px] flex items-center justify-center text-destructive text-sm">
+          {error}
+        </div>
+      </ChartCard>
+    );
+  }
+
   const chartData = data.map((d) => ({
     ...d,
     name: SOURCE_LABELS[d.sourceType] || d.sourceType,
@@ -84,8 +119,8 @@ export function SourceBreakdown({ companyId, days = 30 }: SourceBreakdownProps) 
 
   return (
     <ChartCard title="Signal Sources" description="Signals by source type">
-      <div className="h-[300px]">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+      <div className="w-full h-[300px]">
+        <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100}>
           <PieChart>
             <Pie
               data={chartData}

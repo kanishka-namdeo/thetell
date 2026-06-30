@@ -63,6 +63,31 @@ When the decision tree says SUBAGENT, dispatch `Task` subagents:
 - Quick WebSearch: "[library] breaking changes 2025 2026"
 - If found: update plan, notify user
 
+### 3. Dependency Completeness Check
+
+**Critical: Verify all external dependencies are actually integrated, not just referenced.**
+
+For each external service or API the feature requires:
+
+| Check | Action if Missing |
+|-------|-------------------|
+| **API keys configured?** Check `.env.example` for required keys | Block implementation — require key setup first |
+| **SDK/client installed?** Check `package.json` for required packages | Block implementation — require `pnpm add` first |
+| **Service integrated?** Check codebase for existing integration (e.g., email sender, SMS provider) | If missing: flag as **production blocker** — either implement the integration or mark feature as dev-only |
+| **Database schema ready?** Check Prisma schema for required models/fields | Block implementation — require migration first |
+
+**Examples of missing dependencies that must be caught:**
+- Auth feature requires email sending → check for email service (SendGrid, Resend, SES) integration
+- Scraping feature requires proxy rotation → check for proxy service configuration
+- Payment feature requires Stripe → check for Stripe SDK and webhook handler
+- File upload feature requires storage → check for S3/Blob storage integration
+
+**Rule**: If a critical path dependency (auth, payments, communications) has no integration in the codebase, either:
+1. **Implement the integration first** as a prerequisite task, OR
+2. **Explicitly mark the feature as dev-only** with a clear TODO for production integration
+
+Never silently skip a critical dependency by logging to console in dev — this creates production blockers.
+
 ---
 
 ## Incremental Verification
@@ -107,6 +132,30 @@ pnpm run build
 - All plan steps completed
 - All acceptance criteria met
 - No TODOs or incomplete sections
+
+### 2b. TODO Comment Audit
+
+**Scan all modified files for TODO/FIXME comments:**
+
+```powershell
+# Check for TODOs without ticket references in modified files
+git diff --name-only HEAD | ForEach-Object {
+  Select-String -Path $_ -Pattern "//\s*(TODO|FIXME)\s*\([^)]*\)\s*:" -AllMatches
+}
+```
+
+**For each TODO found:**
+| Pattern | Action |
+|---------|--------|
+| `TODO:` without ticket reference | Add ticket reference (e.g., `TODO(PROJ-123):`) or implement the missing piece |
+| `TODO: Replace with real` or `TODO: implement` | Flag as incomplete — either complete the implementation or create a tracked ticket |
+| `FIXME:` without explanation | Add context or fix the issue |
+| Comments saying "temporary", "placeholder", "stub", "mock" | Verify it's intentional (dev-only) or replace with production implementation |
+
+**Rule**: No TODO without a ticket reference may be committed to production code. Either:
+1. Add a ticket reference (e.g., `TODO(PROJ-123): description`)
+2. Complete the implementation
+3. Remove the TODO and accept the current approach as intentional
 
 ### 3. Web Final Check
 - Search: "[implemented feature] best practices 2026"

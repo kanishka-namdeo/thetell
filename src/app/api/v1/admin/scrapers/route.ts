@@ -23,13 +23,14 @@ export async function GET() {
     const allScrapers = getAllScrapers();
 
     // Group signals by scraperName to get counts
-    const allSignals = await prisma.signal.findMany({
-      select: { scraperName: true },
+    const signalCounts = await prisma.signal.groupBy({
+      by: ["scraperName"],
+      _count: { id: true },
     });
     const countMap = new Map<string, number>();
-    for (const signal of allSignals) {
-      if (signal.scraperName) {
-        countMap.set(signal.scraperName, (countMap.get(signal.scraperName) ?? 0) + 1);
+    for (const sc of signalCounts) {
+      if (sc.scraperName) {
+        countMap.set(sc.scraperName, sc._count.id);
       }
     }
 

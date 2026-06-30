@@ -129,7 +129,7 @@ pnpm run dev:inngest:local
 The database connection string is in `.env.local`:
 
 ```env
-DATABASE_URL=postgresql://thetell_user:thetell_password@localhost:5433/the_tell
+DATABASE_URL=postgresql://thell_user:thell_password@localhost:5433/the_tell
 ```
 
 ### Common Operations
@@ -190,13 +190,12 @@ See `.env.example` for all available options.
 # 1. Start infrastructure (Postgres + Inngest)
 docker-compose up -d
 
-# 2. Start Next.js + OpenCode server (both run together)
+# 2. Start Next.js dev server
 pnpm dev
 
 # 3. Open browser
 # App: http://localhost:3000
 # Inngest UI: http://localhost:8288
-# OpenCode server: http://localhost:4096 (headless, for SDK integration)
 # Prisma Studio: pnpm prisma studio
 
 # 4. When done, stop infrastructure
@@ -205,11 +204,7 @@ docker-compose stop
 
 ### What `pnpm dev` Does
 
-The `dev` script runs two processes in parallel:
-- **Next.js dev server** on port 3000 (the app)
-- **OpenCode serve** on port 4096 (headless debug agent server)
-
-Your app can connect to the OpenCode server via the SDK at `http://localhost:4096` to use it as a debug agent, code reviewer, or for automated analysis tasks.
+The `dev` script starts the Next.js dev server on port 3000.
 
 ### Running Tests
 
@@ -295,20 +290,6 @@ pnpm install
 # Restart dev server
 pnpm dev
 ```
-
-## OpenCode
-
-OpenCode is installed locally as a dev dependency (not globally). It's available via:
-
-```bash
-# Run via pnpm script
-pnpm opencode
-
-# Or via pnpm exec
-pnpm exec opencode
-```
-
-The `opencode/` directory contains agent configuration and context for debugging.
 
 ## Additional Resources
 

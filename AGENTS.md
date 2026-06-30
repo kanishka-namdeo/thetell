@@ -8,7 +8,7 @@ This version has breaking changes â€” APIs, conventions, and file structure
 
 **The Tell** is an AI system that reads public company signals and infers inner workings. It's a Next.js 16.2.9 application with integrated TypeScript AI layer.
 
-## Current State (as of 2026-06-22)
+## Current State (as of 2026-06-25)
 
 **Built:**
 - Design system (newsprint aesthetic, shadcn/ui components, typography, layout)
@@ -36,7 +36,8 @@ This version has breaking changes â€” APIs, conventions, and file structure
 - **NLP layer** (local Transformers.js embeddings, entity extraction, sentiment classification, keyphrase extraction, language detection, quality gate)
 - **Enrichment pipeline** (website probe, blog discovery, social discovery, ticker lookup)
 - **Reddit integration** (LLM-driven subreddit discovery, tracked subreddits, engagement metrics)
-- **Admin dashboard** (user management, system health, content moderation, analytics, audit logging, scraper management, job monitoring, pipeline view, intelligence overview)
+- **Unified dashboard** (simplified 4-item navigation: Overview with Analytics/Articles tabs, Signals, Companies with Watchlist filter, Strategic Insights; Profile + Settings merged)
+- **Admin dashboard** (simplified 7-item navigation: Overview, Control Center with pipeline triggers, Content moderation, Intelligence, System monitoring, DeepAgent, Settings)
 - **Calibration feedback loop** (weekly prediction accuracy checking via embedding similarity)
 
 **Aspirational (rules exist but features not implemented):**
@@ -121,31 +122,41 @@ content   prompts with     sentiment,  summary,
 
 ## Module Map
 
-**Last updated**: 2026-06-22
+**Last updated**: 2026-06-27
 
 ### Signal Pipeline (data flows top-to-bottom)
+- **Unified Discovery**: `src/lib/inngest/signal-discovery.ts` (handles both manual and automated discovery for all companies/scrapers, triggered by `signal/discovery.requested` event)
+- **Cron Trigger**: `src/lib/inngest/discovery.ts` (daily 2 AM UTC cron that sends unified discovery event)
 - **Enrichment**: `src/lib/enrichment/` (website probe, blog/social discovery, ticker lookup)
 - **URL Discovery**: `src/lib/ai/url-discovery.ts` (LLM-driven search via Serper.dev)
 - **Reddit Discovery**: `src/lib/reddit/subreddit-discovery.ts` (LLM-driven subreddit suggestions)
 - **Ingestion**: `src/lib/scraping/registry.ts` -> 25 scrapers -> `src/lib/scraping/cache.ts`
 - **NLP**: `src/lib/nlp/` (embeddings, entity extraction, sentiment, language detection, quality gate)
+- **Cluster Triage**: `src/lib/nlp/cluster-triage.ts` (pre-analysis cluster matching using embedding similarity)
+- **Analysis Router**: `src/lib/ai/agent/analysis-router.ts` (routes signals to cluster vs standalone analysis paths)
 - **Analysis**: `src/lib/ai/agent/pipeline.ts` -> `prompts.ts` -> `personas.ts`
+- **Cluster Analysis**: `src/lib/ai/agent/cluster-analysis.ts` (lightweight analysis for clustered signals with cluster context)
+- **Cluster Update**: `src/lib/ai/agent/cluster-update.ts` (cluster summary merger with fact/theme deduplication)
 - **Article Gen**: `src/lib/ai/agent/article-generator.ts`
+- **Cluster Article Gen**: `src/lib/ai/agent/cluster-article-generator.ts` (synthesis article generation from multiple signals)
 - **Hypothesis Layer**: `src/lib/ai/hypothesis-generator.ts` -> `src/lib/inngest/hypothesis.ts`
 - **Correlation**: `src/lib/inngest/correlation.ts` (theme clustering, momentum, inference generation)
 - **Cross-Signal Debate**: `src/lib/ai/agent/cross-signal-debate.ts`
 - **Calibration**: `src/lib/inngest/calibration.ts` (weekly prediction accuracy)
-- **Background**: `src/lib/inngest/functions.ts` -> `discovery.ts`, `enrichment.ts`, `company-discovery.ts`, `subreddit-discovery.ts`
+- **Background**: `src/lib/inngest/functions.ts` -> `signal-discovery.ts`, `discovery.ts` (cron), `enrichment.ts`, `subreddit-discovery.ts`
 
 ### Key Entry Points
 - **Public feed**: `src/app/(public)/page.tsx` -> `feed-content.tsx` -> `feed-signal-card.tsx`
 - **Public signal detail**: `src/app/(public)/signals/[id]/page.tsx` -> `signal-detail-content.tsx`
 - **Public article detail**: `src/app/(public)/articles/[id]/page.tsx`
 - **Public inference detail**: `src/app/(public)/inferences/[id]/page.tsx` -> `inference-detail-content.tsx`
-- **Dashboard**: `src/app/dashboard/layout.tsx` -> per-page components
-- **Admin dashboard**: `src/app/dashboard/admin/` (users, analytics, audit, moderation, operations, intelligence)
+- **Dashboard**: `src/app/dashboard/layout.tsx` -> 4-item navigation (Overview, Signals, Companies, Strategic Insights)
+- **Admin dashboard**: `src/app/dashboard/admin/` -> 7-item navigation (Overview, Control Center, Content, Intelligence, System, DeepAgent, Settings)
+- **Control Center**: `src/app/dashboard/admin/control-center/page.tsx` -> `ControlCenterClient.tsx` (pipeline visualization with 6 stages and manual triggers)
 - **API routes**: `src/app/api/v1/{signals,articles,search,inferences,themes}/route.ts`
-- **Admin API**: `src/app/api/v1/admin/` (31 routes for content, moderation, pipelines, scrapers, users)
+- **Cluster API**: `src/app/api/v1/clusters/[id]/route.ts` (cluster detail endpoint with evidence chain), `src/app/api/v1/clusters/[themeId]/articles/route.ts` (cluster article management)
+- **Admin API**: `src/app/api/v1/admin/` (consolidated routes for content, moderation, pipelines, scrapers, users)
+- **Control Center API**: `src/app/api/v1/admin/control-center/route.ts` (aggregated pipeline status for all 6 stages)
 - **Timeline API**: `src/app/api/v1/companies/[id]/timeline/`
 - **Correlations API**: `src/app/api/v1/signals/[id]/correlations/`
 - **Company enrichment**: `src/app/api/v1/companies/[id]/enrich/`
@@ -189,12 +200,12 @@ content   prompts with     sentiment,  summary,
 
 ### Background Jobs (`src/lib/inngest/`)
 - `functions.ts` - Main job definitions
-- `discovery.ts` - Scheduled signal discovery (13 steps: RSS, filings, GitHub, cert transparency, Reddit, press releases, USPTO, CourtListener, FDA, SAM.gov, Wayback, Congress, academic)
+- `signal-discovery.ts` - Unified signal discovery (handles both manual and automated discovery for all companies/scrapers, consolidates Pipeline Orchestrator and Re-Discover flows)
+- `discovery.ts` - Cron trigger (daily 2 AM UTC) that sends unified discovery event
 - `correlation.ts` - Cross-signal correlation engine (theme clustering, momentum tracking, inference generation)
 - `calibration.ts` - Weekly prediction accuracy checking
 - `hypothesis.ts` - Hypothesis generation jobs
 - `enrichment.ts` - Company enrichment jobs
-- `company-discovery.ts` - Company data source discovery
 - `subreddit-discovery.ts` - Reddit subreddit discovery jobs
 - `client.ts` - Inngest client configuration
 
@@ -261,7 +272,7 @@ The `.cursor/` directory contains 34 rules and 16 skills that guide agent behavi
 
 ### Skills (`.cursor/skills/`)
 
-**Domain skills** (12):
+**Domain skills** (11):
 - `adding-signal-source/` - Add new signal source types to the pipeline
 - `api-design/` - Next.js Route Handler patterns, request/response schemas, versioning
 - `article-generation/` - Transform analysis into news-style articles
@@ -269,7 +280,6 @@ The `.cursor/` directory contains 34 rules and 16 skills that guide agent behavi
 - `langgraph-orchestration/` - LangGraph.js workflows, state machines, cross-signal inference
 - `llm-abstraction/` - Provider-agnostic LLM interface (OpenAI/Anthropic)
 - `monorepo-deployment/` - Next.js deployment patterns
-- `opencode-sdk/` - OpenCode SDK integration, custom agents/tools, automation
 - `pydanticai-agents/` - PydanticAI structured outputs and multi-provider LLM
 - `signal-analysis/` - Extract insights from raw public signals
 - `testing-strategies/` - Test non-deterministic systems (LLM, scraping)

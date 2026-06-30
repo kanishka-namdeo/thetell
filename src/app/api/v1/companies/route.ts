@@ -3,7 +3,6 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { inngest } from "@/lib/inngest/client";
-import { enrichCompany } from "@/lib/enrichment";
 import { requireAdmin } from "@/lib/auth-guard";
 import { z } from "zod";
 
@@ -39,6 +38,10 @@ export async function GET(request: NextRequest) {
         _count: {
           select: { signals: true, articles: true },
         },
+        watchedBy: {
+          where: { userId: session.user.id },
+          select: { id: true },
+        },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -47,8 +50,15 @@ export async function GET(request: NextRequest) {
     const items = hasMore ? companies.slice(0, limit) : companies;
     const nextCursor = hasMore ? items[items.length - 1].id : null;
 
+    // Add isWatched field to each company
+    const itemsWithWatched = items.map((company) => ({
+      ...company,
+      isWatched: company.watchedBy.length > 0,
+      watchedBy: undefined, // Remove the watchedBy array from response
+    }));
+
     return NextResponse.json({
-      items,
+      items: itemsWithWatched,
       nextCursor,
       hasMore,
     });
@@ -123,17 +133,14 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Fire-and-forget: run enrichment directly in the background
-    enrichCompany(company.id).then((result) => {
-      logger.info("enrichment.auto_complete", {
-        companyId: company.id,
-        status: result.status,
-        feedsFound: result.feeds.length,
-        socialsFound: result.socials.length,
-        blogsFound: result.blogs.length,
-      });
+    // Trigger enrichment via Inngest (which will chain to signal discovery)
+    inngest.send({
+      name: "company/enrichment.requested",
+      data: { companyId: company.id },
+    }).then(() => {
+      logger.info("enrichment.auto_queued", { companyId: company.id });
     }).catch((err) => {
-      logger.error("enrichment.auto_failed", { error: String(err), companyId: company.id });
+      logger.error("enrichment.auto_queue_failed", { error: String(err), companyId: company.id });
     });
 
     // Fire-and-forget: trigger subreddit discovery via Inngest

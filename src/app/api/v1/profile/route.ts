@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { z } from "zod";
+
+const ProfileUpdateSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  email: z.string().email().optional(),
+});
 
 export async function GET() {
   try {
@@ -44,7 +50,8 @@ export async function PATCH(req: Request) {
 
   try {
     const body = await req.json();
-    const { name, email } = body;
+    const parsed = ProfileUpdateSchema.parse(body);
+    const { name, email } = parsed;
 
     if (email) {
       const existingUser = await prisma.user.findUnique({
@@ -59,9 +66,13 @@ export async function PATCH(req: Request) {
       }
     }
 
-    const updateData: Record<string, string> = {};
+    const updateData: Record<string, string | Date | null> = {};
     if (name !== undefined) updateData.name = name;
-    if (email !== undefined) updateData.email = email;
+    if (email !== undefined) {
+      updateData.email = email;
+      // Reset email verification when email changes
+      updateData.emailVerified = null;
+    }
 
     const user = await prisma.user.update({
       where: { id: session.user.id },

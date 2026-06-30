@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import Link from "next/link";
 import { useCompanies } from "@/hooks/use-companies";
 import { InferenceCard } from "@/components/dashboard/inference-card";
 import { Button } from "@/components/ui/button";
@@ -12,8 +11,10 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
+import { AdminInferencesView } from "./admin-inferences-view";
+import type { AdminInferenceData } from "./admin-inferences-view";
+import { logger } from "@/lib/logger";
 
 type InferenceStatus =
   | "EMERGING"
@@ -37,7 +38,10 @@ interface InferenceData {
   status: InferenceStatus;
   supportingSignalIds: string[];
   sourceTypesInvolved: string[];
+  predictedOutcome?: string | null;
+  createdAt?: Date | string;
   company: {
+    id?: string;
     name: string;
     ticker?: string | null;
     slug: string;
@@ -75,6 +79,11 @@ interface InferenceData {
   } | null;
 }
 
+interface InferencesClientProps {
+  mode?: "user" | "admin";
+  initialInferences?: AdminInferenceData[];
+}
+
 interface PaginatedInferencesResponse {
   items: InferenceData[];
   hasMore: boolean;
@@ -83,7 +92,18 @@ interface PaginatedInferencesResponse {
 
 type SortOption = "confidence" | "createdAt";
 
-export function InferencesClient() {
+export function InferencesClient({
+  mode = "user",
+  initialInferences,
+}: InferencesClientProps) {
+  if (mode === "admin" && initialInferences) {
+    return <AdminInferencesView initialInferences={initialInferences} />;
+  }
+
+  return <UserInferencesView />;
+}
+
+function UserInferencesView() {
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortOption>("confidence");
@@ -98,17 +118,17 @@ export function InferencesClient() {
     if (status) params.set("status", status);
     params.set("sortBy", sortBy);
 
-    const res = await fetch(`/api/v1/inferences?${params.toString()}`, { signal });
+    const res = await fetch(`/api/v1/inferences?${params.toString()}`, {
+      signal,
+    });
     if (!res.ok) throw new Error("Failed to fetch inferences");
     return res.json();
   };
 
-  const {
-    data: inferences,
-    loading,
-    hasMore,
-    loadMore,
-  } = useInferenceFetcher(fetchInferences, [companyId, status, sortBy]);
+  const { data: inferences, loading, hasMore, loadMore } = useInferenceFetcher(
+    fetchInferences,
+    [companyId, status, sortBy],
+  );
 
   const handleClearAll = useCallback(() => {
     setCompanyId(null);
@@ -123,7 +143,7 @@ export function InferencesClient() {
           <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
             Strategic Insights
           </p>
-          <h1 className="text-3xl font-serif font-bold">Inferences</h1>
+          <h1 className="text-3xl font-serif font-bold">Strategic Insights</h1>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -136,18 +156,16 @@ export function InferencesClient() {
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
-      {/* Page Header */}
       <div className="border-b-2 border-foreground pb-4">
         <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
           Strategic Insights
         </p>
-        <h1 className="text-3xl font-serif font-bold">Inferences</h1>
+        <h1 className="text-3xl font-serif font-bold">Strategic Insights</h1>
         <p className="text-sm text-muted-foreground font-body mt-1">
           AI-generated strategic inferences from cross-signal analysis
         </p>
       </div>
 
-      {/* Filters */}
       <div className="border border-foreground p-4">
         <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground mb-3">
           Filters & Sort
@@ -169,7 +187,10 @@ export function InferencesClient() {
             </SelectContent>
           </Select>
 
-          <Select value={status || ""} onValueChange={(v) => setStatus(v || null)}>
+          <Select
+            value={status || ""}
+            onValueChange={(v) => setStatus(v || null)}
+          >
             <SelectTrigger className="w-[150px]">Status</SelectTrigger>
             <SelectContent>
               <SelectItem value="">All Statuses</SelectItem>
@@ -187,7 +208,9 @@ export function InferencesClient() {
           >
             <SelectTrigger className="w-[180px]">Sort by</SelectTrigger>
             <SelectContent>
-              <SelectItem value="confidence">Confidence (High → Low)</SelectItem>
+              <SelectItem value="confidence">
+                Confidence (High → Low)
+              </SelectItem>
               <SelectItem value="createdAt">Newest First</SelectItem>
             </SelectContent>
           </Select>
@@ -200,12 +223,11 @@ export function InferencesClient() {
         </div>
       </div>
 
-      {/* Results Count */}
       <p className="text-xs font-mono text-muted-foreground">
-        {inferences.length} inference{inferences.length !== 1 ? "s" : ""} found
+        {inferences.length} inference
+        {inferences.length !== 1 ? "s" : ""} found
       </p>
 
-      {/* Inferences Grid */}
       {inferences.length === 0 ? (
         <div className="text-center py-12 border border-foreground">
           <Brain className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -244,8 +266,11 @@ export function InferencesClient() {
 }
 
 function useInferenceFetcher(
-  fetcher: (cursor?: string, signal?: AbortSignal) => Promise<PaginatedInferencesResponse>,
-  deps: unknown[]
+  fetcher: (
+    cursor?: string,
+    signal?: AbortSignal,
+  ) => Promise<PaginatedInferencesResponse>,
+  deps: unknown[],
 ) {
   const [data, setData] = useState<InferenceData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -269,7 +294,7 @@ function useInferenceFetcher(
         }
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
-        if (!cancelledRef.current) console.error(err);
+        if (!cancelledRef.current) logger.error("inferences.fetch_failed", { error: String(err) });
       } finally {
         if (!cancelledRef.current) setLoading(false);
       }
@@ -306,7 +331,7 @@ function useInferenceFetcher(
         })
         .catch((err) => {
           if (err instanceof Error && err.name === "AbortError") return;
-          if (!cancelledRef.current) console.error(err);
+          if (!cancelledRef.current) logger.error("inferences.load_more_failed", { error: String(err) });
         })
         .finally(() => {
           if (!cancelledRef.current) setLoading(false);

@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
+import { SCRAPER_REGISTRY } from "@/lib/scraping/pipeline-registry";
 import {
   Table,
   TableBody,
@@ -22,9 +24,12 @@ import {
   ExternalLink,
   Play,
   Loader2,
+  Zap,
+  CheckCircle2,
 } from "lucide-react";
 import { PipelineCard } from "./pipeline-card";
 import { PipelineRunRow } from "./pipeline-run-row";
+import { logger } from "@/lib/logger";
 
 type PipelineStatus = "completed" | "running" | "failed" | "never_run";
 
@@ -64,6 +69,7 @@ interface CompanyDetail {
   ticker: string | null;
   website: string | null;
   totalSignals: number;
+  pendingSignals: number;
   pipelines: PipelineDetail[];
   recentRuns: PipelineRun[];
 }
@@ -80,7 +86,11 @@ export function PipelineDetailClient({ companyId }: Props) {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [countdown, setCountdown] = useState(30);
   const [isRunning, setIsRunning] = useState(false);
+  const [isReanalyzing, setIsReanalyzing] = useState(false);
+  const [reanalyzeMessage, setReanalyzeMessage] = useState<string | null>(null);
+  const [selectedScrapers, setSelectedScrapers] = useState<Set<string>>(new Set());
   const controllerRef = useRef<AbortController | null>(null);
+  const reanalyzeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hasRunning = company?.pipelines.some((p) => p.status === "running");
   const hasRunningRef = useRef(hasRunning);
@@ -114,7 +124,12 @@ export function PipelineDetailClient({ companyId }: Props) {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData();
-    return () => controllerRef.current?.abort();
+    return () => {
+      controllerRef.current?.abort();
+      if (reanalyzeTimeoutRef.current) {
+        clearTimeout(reanalyzeTimeoutRef.current);
+      }
+    };
   }, [fetchData]);
 
   useEffect(() => {
@@ -129,21 +144,70 @@ export function PipelineDetailClient({ companyId }: Props) {
     return () => clearInterval(tick);
   }, [hasRunning]);
 
+  const handleToggleScraper = (scraperName: string) => {
+    setSelectedScrapers((prev) => {
+      const next = new Set(prev);
+      if (next.has(scraperName)) {
+        next.delete(scraperName);
+      } else {
+        next.add(scraperName);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllScrapers = () => {
+    setSelectedScrapers(new Set(SCRAPER_REGISTRY.map((s) => s.name)));
+  };
+
+  const handleDeselectAllScrapers = () => {
+    setSelectedScrapers(new Set());
+  };
+
   const handleRunNow = async () => {
     setIsRunning(true);
     try {
+      const scrapers = selectedScrapers.size > 0
+        ? Array.from(selectedScrapers)
+        : undefined;
       const res = await fetch(`/api/v1/admin/pipelines/${companyId}/run`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scrapers }),
       });
       if (!res.ok) throw new Error("Failed to start pipeline");
       const data = await res.json();
-      console.log("Pipeline started:", data);
+      logger.info("admin.pipeline.started", { companyId, data });
       // Refresh immediately
       await fetchData();
     } catch (err) {
-      console.error("Failed to start pipeline:", err);
+      logger.error("admin.pipeline.start_failed", { companyId, error: String(err) });
     } finally {
       setIsRunning(false);
+    }
+  };
+
+  const handleReanalyze = async () => {
+    setIsReanalyzing(true);
+    setReanalyzeMessage(null);
+    try {
+      const res = await fetch("/api/v1/admin/signals/reanalyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId }),
+      });
+      if (!res.ok) throw new Error("Failed to re-trigger analysis");
+      const data = await res.json();
+      setReanalyzeMessage(data.message);
+      // Refresh to update pending count
+      await fetchData();
+      // Clear message after 5 seconds with cleanup
+      reanalyzeTimeoutRef.current = setTimeout(() => setReanalyzeMessage(null), 5000);
+    } catch (err) {
+      logger.error("admin.pipeline.reanalyze_failed", { companyId, error: String(err) });
+      setReanalyzeMessage("Failed to re-trigger analysis");
+    } finally {
+      setIsReanalyzing(false);
     }
   };
 
@@ -178,6 +242,12 @@ export function PipelineDetailClient({ companyId }: Props) {
               Pipelines running
             </Badge>
           )}
+          {company && company.pendingSignals > 0 && (
+            <Badge variant="outline" className="text-[10px] text-destructive border-destructive">
+              <AlertTriangle className="h-3 w-3 mr-1" />
+              {company.pendingSignals} pending analysis
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -191,6 +261,30 @@ export function PipelineDetailClient({ companyId }: Props) {
             />
             Refresh
           </Button>
+          {company && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReanalyze}
+              disabled={isReanalyzing || company.pendingSignals === 0}
+              className={company.pendingSignals > 0 ? "border-warning text-warning hover:bg-warning/10" : ""}
+              title={company.pendingSignals === 0 ? "No pending signals to re-analyze" : `Re-analyze ${company.pendingSignals} pending signal${company.pendingSignals !== 1 ? "s" : ""}`}
+            >
+              {isReanalyzing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Re-analyzing...
+                </>
+              ) : (
+                <>
+                  <Zap className="h-4 w-4 mr-2" />
+                  {company.pendingSignals > 0
+                    ? `Re-analyze ${company.pendingSignals} Signal${company.pendingSignals !== 1 ? "s" : ""}`
+                    : "No Pending Signals"}
+                </>
+              )}
+            </Button>
+          )}
           <Button
             variant="default"
             size="sm"
@@ -205,12 +299,73 @@ export function PipelineDetailClient({ companyId }: Props) {
             ) : (
               <>
                 <Play className="h-4 w-4 mr-2" />
-                Run All Pipelines
+                {selectedScrapers.size > 0
+                  ? `Run ${selectedScrapers.size} Scraper${selectedScrapers.size !== 1 ? "s" : ""}`
+                  : "Run All Pipelines"}
               </>
             )}
           </Button>
         </div>
       </div>
+
+      {/* Scraper Selection */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium">Select Scrapers</CardTitle>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs h-7"
+                onClick={handleSelectAllScrapers}
+              >
+                Select All
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs h-7"
+                onClick={handleDeselectAllScrapers}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {selectedScrapers.size === 0
+              ? "No scrapers selected — all will run"
+              : `${selectedScrapers.size} of ${SCRAPER_REGISTRY.length} selected`}
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+            {SCRAPER_REGISTRY.map((scraper) => (
+              <label
+                key={scraper.name}
+                className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 rounded px-2 py-1.5 transition-colors"
+              >
+                <Checkbox
+                  checked={selectedScrapers.has(scraper.name)}
+                  onCheckedChange={() => handleToggleScraper(scraper.name)}
+                />
+                <span className="truncate">{scraper.displayName}</span>
+              </label>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {reanalyzeMessage && (
+        <Card className="border-success bg-success/5">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2 text-success">
+              <CheckCircle2 className="h-4 w-4" />
+              <p className="text-sm font-medium">{reanalyzeMessage}</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {error && (
         <Card className="border-destructive">
@@ -260,12 +415,26 @@ export function PipelineDetailClient({ companyId }: Props) {
                   )}
                 </div>
                 <div className="text-right">
-                  <p className="text-3xl font-bold font-mono">
-                    {company.totalSignals.toLocaleString()}
-                  </p>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                    Total Signals
-                  </p>
+                  <div className="flex items-center gap-3 justify-end">
+                    <div>
+                      <p className="text-3xl font-bold font-mono">
+                        {company.totalSignals.toLocaleString()}
+                      </p>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                        Total Signals
+                      </p>
+                    </div>
+                    {company.pendingSignals > 0 && (
+                      <div>
+                        <p className="text-3xl font-bold font-mono text-warning">
+                          {company.pendingSignals.toLocaleString()}
+                        </p>
+                        <p className="text-xs text-warning uppercase tracking-wide">
+                          Pending
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </CardHeader>

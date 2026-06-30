@@ -10,7 +10,6 @@ function SkeletonLine({ width, height = "h-4" }: { width: string; height?: strin
       animate={{ opacity: 1, scaleX: 1 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
       className={`${height} ${width} bg-muted origin-left`}
-      style={{ borderRadius: 0 }}
     />
   );
 }
@@ -48,7 +47,6 @@ export default function SignalDetailLoading() {
                 ease: "easeInOut",
               }}
               className="h-5 w-20 bg-muted"
-              style={{ borderRadius: 0 }}
             />
             <SkeletonLine width="w-24" height="h-5" />
             <SkeletonLine width="w-16" height="h-5" />

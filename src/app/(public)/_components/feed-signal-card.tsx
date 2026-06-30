@@ -4,10 +4,12 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfidenceBand } from "@/components/dashboard/confidence-band";
 import { Metadata } from "@/components";
-import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { ArrowUp, MessageSquare, ExternalLink, BadgeCheck } from "lucide-react";
+import { ExternalLink, BadgeCheck, Layers } from "lucide-react";
+import { SentimentBadge } from "./sentiment-badge";
+import { MomentumArrow } from "./momentum-arrow";
+import { calculateConsensus, ConsensusBadge } from "../signals/[id]/consensus-badge";
 
 type AgentPersona = "ANALYST" | "GOSSIP_GIRL";
 
@@ -24,26 +26,39 @@ interface FeedSignalCardProps {
       id: string;
       name: string;
     };
-    engagement?: unknown;
-    metadata?: unknown;
     analyses: Array<{
       confidence: number;
-      sentiment?: string;
+      sentiment?: string | null;
       sentimentData?: unknown;
-      surface_reading?: string;
       agentPersona: AgentPersona;
+      strategicThemes?: unknown;
     }>;
+    cluster?: {
+      id: string;
+      label: string;
+      momentum?: number;
+      _count?: { clusteredSignals: number };
+    } | null;
   };
-  visibleAgents?: AgentPersona[];
 }
 
-export function FeedSignalCard({ signal, visibleAgents = ["ANALYST", "GOSSIP_GIRL"] }: FeedSignalCardProps) {
+export function FeedSignalCard({ signal }: FeedSignalCardProps) {
   const formattedDate = new Date(signal.scrapedAt).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
   });
 
   const topConfidence = Math.max(...signal.analyses.map((a) => a.confidence));
+
+  const consensus = calculateConsensus(
+    signal.analyses.map((a) => ({
+      sentiment: (typeof a.sentiment === "object" && a.sentiment !== null
+        ? (a.sentiment as { sentiment?: string }).sentiment || "NEUTRAL"
+        : a.sentiment || "NEUTRAL") as string,
+      strategicThemes: a.strategicThemes,
+      confidence: a.confidence,
+    }))
+  );
 
   // Extract domain from sourceUrl
   let sourceDomain: string | null = null;
@@ -69,6 +84,24 @@ export function FeedSignalCard({ signal, visibleAgents = ["ANALYST", "GOSSIP_GIR
               {signal.company.name}
             </Badge>
             <Badge variant="secondary">{signal.sourceType}</Badge>
+            {signal.cluster && (
+              <Link
+                href={`/clusters/${signal.cluster.id}`}
+                className="inline-flex items-center gap-1"
+              >
+                <Badge variant="accent" className="text-[10px] gap-0.5">
+                  <Layers className="h-3 w-3" />
+                  Cluster
+                  {signal.cluster._count?.clusteredSignals && (
+                    <span>({signal.cluster._count.clusteredSignals})</span>
+                  )}
+                </Badge>
+                {signal.cluster.momentum !== undefined && (
+                  <MomentumArrow momentum={signal.cluster.momentum} />
+                )}
+              </Link>
+            )}
+            {consensus && <ConsensusBadge consensus={consensus} />}
           </div>
           <div className="flex items-start justify-between gap-4 min-w-0">
             <CardTitle className="text-lg min-w-0">
@@ -103,39 +136,23 @@ export function FeedSignalCard({ signal, visibleAgents = ["ANALYST", "GOSSIP_GIR
               </div>
             ) : null}
 
-            {signal.sourceType === "SOCIAL" && signal.engagement ? (() => {
-              const eng = signal.engagement as { score?: number | null; likes?: number | null; comments?: number | null } | null;
-              return (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  {(eng?.score ?? eng?.likes) != null && (
-                    <span className="inline-flex items-center gap-0.5">
-                      <ArrowUp className="h-3 w-3" />
-                      {eng?.score ?? eng?.likes}
-                    </span>
-                  )}
-                  {eng?.comments != null && (
-                    <span className="inline-flex items-center gap-0.5">
-                      <MessageSquare className="h-3 w-3" />
-                      {eng.comments}
-                    </span>
-                  )}
-                </div>
-              );
-            })() : null}
-            {signal.sourceType === "SOCIAL" && signal.metadata ? (
-              <Metadata className="text-xs text-muted-foreground">
-                {(() => {
-                  const meta = signal.metadata as { subreddit?: string } | null;
-                  return meta?.subreddit ? `r/${meta.subreddit}` : null;
-                })()}
-              </Metadata>
-            ) : null}
             {signal.analyses.length > 0 && (
               <ConfidenceBand confidence={topConfidence} />
             )}
-            <Metadata className="ml-auto text-muted-foreground">
-              {signal.analyses.length > 1 ? "2 voices" : "1 voice"}
-            </Metadata>
+            {/* Sentiment indicators per agent */}
+            {signal.analyses.map((a, i) => (
+              <SentimentBadge
+                key={i}
+                sentiment={a.sentiment}
+                sentimentData={a.sentimentData}
+                agentPersona={a.agentPersona}
+              />
+            ))}
+            {signal.analyses.length > 0 && (
+              <Metadata className="ml-auto text-muted-foreground">
+                {signal.analyses.length > 1 ? `${signal.analyses.length} voices` : "1 voice"}
+              </Metadata>
+            )}
           </div>
         </CardContent>
       </Card>

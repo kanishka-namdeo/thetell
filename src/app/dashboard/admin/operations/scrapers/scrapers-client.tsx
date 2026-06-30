@@ -25,12 +25,13 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import {
-  Play,
-  TestTube,
   Save,
   Loader2,
   XCircle,
+  Info,
 } from "lucide-react";
+import Link from "next/link";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 interface Scraper {
   name: string;
@@ -50,8 +51,6 @@ export function ScrapersClient() {
   const [scrapers, setScrapers] = useState<Scraper[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedScraper, setSelectedScraper] = useState<string | null>(null);
-  const [testing, setTesting] = useState<string | null>(null);
-  const [running, setRunning] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
 
@@ -124,52 +123,21 @@ export function ScrapersClient() {
     }
   }
 
-  async function testScraper(scraperName: string) {
-    setTesting(scraperName);
-    try {
-      const res = await fetch(`/api/v1/admin/scrapers/${scraperName}/test`, {
-        method: "POST",
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message || "Test failed");
-      }
-
-      toast.success(`Test passed: ${data.message}`);
-    } catch (error) {
-      toast.error(`Test failed: ${error instanceof Error ? error.message : "Unknown error"}`);
-    } finally {
-      setTesting(null);
-    }
-  }
-
-  async function runScraper(scraperName: string) {
-    setRunning(scraperName);
-    try {
-      const res = await fetch(`/api/v1/admin/scrapers/${scraperName}/run`, {
-        method: "POST",
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message || "Run failed");
-      }
-
-      toast.success(`Scraper started: ${data.message}`);
-    } catch (error) {
-      toast.error(`Run failed: ${error instanceof Error ? error.message : "Unknown error"}`);
-    } finally {
-      setRunning(null);
-    }
-  }
-
   const selected = scrapers.find((s) => s.name === selectedScraper);
 
   return (
     <div className="space-y-6">
+      <Alert>
+        <Info className="h-4 w-4" />
+        <AlertTitle>Operations Moved</AlertTitle>
+        <AlertDescription>
+          Scraper testing and execution are now in the{" "}
+          <Link href="/dashboard/admin/control-center" className="underline font-medium">
+            Control Center
+          </Link>
+        </AlertDescription>
+      </Alert>
+
       {/* Scraper List */}
       <Card className="border-2 border-foreground">
         <CardHeader>
@@ -231,41 +199,13 @@ export function ScrapersClient() {
                         : "Never"}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => testScraper(scraper.name)}
-                          disabled={testing === scraper.name}
-                        >
-                          {testing === scraper.name ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <TestTube className="h-4 w-4" />
-                          )}
-                          <span className="sr-only">Test</span>
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => runScraper(scraper.name)}
-                          disabled={running === scraper.name || !scraper.enabled}
-                        >
-                          {running === scraper.name ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Play className="h-4 w-4" />
-                          )}
-                          <span className="sr-only">Run</span>
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setSelectedScraper(scraper.name)}
-                        >
-                          Configure
-                        </Button>
-                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedScraper(scraper.name)}
+                      >
+                        Configure
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}

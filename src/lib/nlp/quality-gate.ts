@@ -8,7 +8,7 @@
  * Labels: ["substantive analysis", "boilerplate content", "irrelevant mention"]
  */
 
-import { getModelPipeline } from "./model-cache";
+import { nlpPool } from "./nlp-pool";
 import { logger } from "@/lib/logger";
 
 export interface QualityAssessment {
@@ -94,16 +94,17 @@ export async function assessContentQuality(
     // Try zero-shot classification for substance detection
     let substanceScore = 0.5; // Default neutral
     try {
-      const classifier = await getModelPipeline(
-        "zero-shot-classification",
-        "Xenova/bart-large-mnli",
-      ) as (text: string, labels: string[]) => Promise<{ labels: string[]; scores: number[] }>;
-
-      const result = await classifier(text.slice(0, 1000), [
-        "substantive analysis",
-        "boilerplate content",
-        "irrelevant mention",
-      ]);
+      // Use worker pool for inference
+      const result = await nlpPool.dispatch<{ labels: string[]; scores: number[] }>({
+        type: "quality",
+        model: "Xenova/bart-large-mnli",
+        text: text.slice(0, 1000),
+        labels: [
+          "substantive analysis",
+          "boilerplate content",
+          "irrelevant mention",
+        ],
+      });
 
       // result.labels and result.scores are parallel arrays
       const labels = result.labels as string[];

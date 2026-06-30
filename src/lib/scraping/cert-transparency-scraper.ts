@@ -46,7 +46,8 @@ export class CertTransparencyScraper extends BaseScraper {
   constructor() {
     // crt.sh rate limit: ~60 requests/minute
     // Use conservative rate: 1 request/second
-    super(1.0, 30000, 3, 3600); // 1 hour cache
+    // Skip robots.txt check - crt.sh is a public transparency log
+    super(1.0, 30000, 3, 3600, true); // 1 hour cache, skipRobots=true
   }
 
   override get scraperName(): string {

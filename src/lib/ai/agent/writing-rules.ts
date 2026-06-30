@@ -70,6 +70,8 @@ export const COMMON_FORBIDDEN_PATTERNS: string[] = [
 export const COMMON_WRITING_RULES = `
 ## Writing Style Rules (Apply to All Personas)
 
+**Language**: ALL output must be in English. Do not use Chinese, or any non-English characters. No mixed languages. This applies to every field, including quoted text and summaries.
+
 **Banned phrases**: Never use these: ${COMMON_FORBIDDEN_PATTERNS.join(", ")}
 
 **Structural anti-patterns to avoid**:
@@ -112,6 +114,8 @@ export function buildSystemPrefix(
   const uniqueForbidden = Array.from(new Set(allForbidden));
   
   return `${voice}
+
+LANGUAGE: Respond ONLY in English. All output must be in English — no Chinese, no other non-English characters, no mixed languages. This applies to all fields including quoted text, examples, and summaries.
 
 Avoid these phrases entirely: ${uniqueForbidden.join(", ")}
 

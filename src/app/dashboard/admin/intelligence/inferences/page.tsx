@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { isAdmin } from "@/lib/auth-guard";
 import { redirect } from "next/navigation";
-import { InferencesClient } from "../inferences-client";
+import { InferencesClient } from "@/app/dashboard/inferences/inferences-client";
 import { AdminPageSkeleton } from "@/components/admin/states";
 
 export const dynamic = "force-dynamic";
@@ -31,5 +31,5 @@ async function InferencesContent() {
     take: 50,
   });
 
-  return <InferencesClient initialInferences={inferences} />;
+  return <InferencesClient mode="admin" initialInferences={inferences} />;
 }

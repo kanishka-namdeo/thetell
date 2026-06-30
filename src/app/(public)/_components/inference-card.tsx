@@ -47,10 +47,10 @@ export function InferenceCard({
       className="block border-l-4 border-l-brand bg-card border border-border p-4 hover:bg-muted/50 transition-colors"
     >
       <div className="flex items-start gap-3">
-        <Brain className="h-5 w-5 text-brand shrink-0 mt-0.5" />
+        <Brain className="h-8 w-8 text-brand shrink-0 mt-0.5" />
         <div className="min-w-0 flex-1">
-          <p className="text-xs text-muted-foreground mb-1">
-            STRATEGIC INFERENCE
+          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
+            Strategic Prediction
           </p>
           <h3 className="font-serif font-bold text-lg leading-tight mb-2">
             {inference.title}

@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { BarChart3, Building2, FileText, TrendingUp, Users, Activity, ShieldCheck, Server, Flag, Brain } from "lucide-react";
+import { BarChart3, Building2, FileText, TrendingUp, Users, Activity, ShieldCheck, Server, Flag, Brain, Layers } from "lucide-react";
 import { motion, useInView } from "motion/react";
 
-type IconName = "BarChart3" | "Building2" | "FileText" | "TrendingUp" | "Users" | "Activity" | "ShieldCheck" | "Server" | "Flag" | "Brain";
+type IconName = "BarChart3" | "Building2" | "FileText" | "TrendingUp" | "Users" | "Activity" | "ShieldCheck" | "Server" | "Flag" | "Brain" | "Layers";
 
 const ICON_MAP = {
   BarChart3,
@@ -19,6 +19,7 @@ const ICON_MAP = {
   Server,
   Flag,
   Brain,
+  Layers,
 };
 
 interface StatCardProps {

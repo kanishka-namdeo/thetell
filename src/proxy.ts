@@ -15,6 +15,8 @@ const PUBLIC_ROUTES = [
 const PUBLIC_PAGE_PATTERNS = [
   /^\/signals\/[^/]+$/,
   /^\/articles\/[^/]+$/,
+  /^\/clusters\/[^/]+$/,
+  /^\/inferences\/[^/]+$/,
 ];
 
 // Public read-only API routes (only GET method is allowed)
@@ -36,6 +38,9 @@ const RATE_LIMITED_AUTH_ROUTES = [
   "/api/v1/auth/forgot-password",
   "/api/v1/auth/reset-password",
 ];
+
+// Brute-force protection on credentials callback
+const CREDENTIALS_CALLBACK_PATTERN = /^\/api\/auth\/callback\/credentials/;
 
 const ADMIN_PAGE_PATTERN = /^\/dashboard\/admin(\/.*)?$/;
 const ADMIN_API_PATTERN = /^\/api\/v1\/admin\/.*$/;
@@ -178,6 +183,26 @@ const authHandler = authEdge((req) => {
       String(Math.ceil(result.resetAt / 1000))
     );
     return response;
+  }
+
+  // Brute-force protection on credentials callback
+  if (CREDENTIALS_CALLBACK_PATTERN.test(pathname) && req.method === "POST") {
+    const ip = getClientIp(req);
+    const result = checkRateLimit(`login:${ip}`, 5, 60);
+    if (!result.allowed) {
+      return NextResponse.json(
+        { error: "rate_limited", message: "Too many login attempts" },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(Math.max(1, Math.ceil((result.resetAt - Date.now()) / 1000))),
+            "X-RateLimit-Limit": String(result.limit),
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": String(Math.ceil(result.resetAt / 1000)),
+          },
+        }
+      );
+    }
   }
 
   // Admin route protection — pages

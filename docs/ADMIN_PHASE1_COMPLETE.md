@@ -22,7 +22,7 @@ Phase 1 of the admin functionality has been successfully implemented and verifie
 
 ### 2. Security & Protection ✅
 
-**Middleware Updates** (`src/middleware.ts`):
+**Middleware Updates** (`src/proxy.ts`):
 - Protects all `/dashboard/admin/*` routes
 - Protects all `/api/v1/admin/*` routes
 - Redirects non-admin users to `/dashboard`
@@ -151,7 +151,7 @@ All verification checks passed:
 ### Modified Files (8 files)
 
 - `prisma/schema.prisma` - Added AuditLog, UserStatus, new enums
-- `src/middleware.ts` - Added admin route protection
+- `src/proxy.ts` - Added admin route protection
 - `src/app/dashboard/layout.tsx` - Added admin navigation
 - `.env.example` - Added ADMIN_API_KEY
 - `.cursor/rules/environment.mdc` - Added admin credentials docs

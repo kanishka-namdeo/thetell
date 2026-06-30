@@ -43,7 +43,7 @@ export function PublicSearch() {
     controllerRef.current = controller;
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/public/search?q=${encodeURIComponent(q)}`, { signal: controller.signal });
+      const res = await fetch(`/api/v1/search?q=${encodeURIComponent(q)}`, { signal: controller.signal });
       if (res.ok) {
         const data = await res.json();
         setResults(data);

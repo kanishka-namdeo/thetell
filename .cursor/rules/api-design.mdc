@@ -94,13 +94,14 @@ import { NextResponse } from 'next/server';
 
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const signal = await getSignal(params.id);
+  const { id } = await params;
+  const signal = await getSignal(id);
   
   if (!signal) {
     return NextResponse.json(
-      { error: 'not_found', message: `Signal ${params.id} not found` },
+      { error: 'not_found', message: `Signal ${id} not found` },
       { status: 404 }
     );
   }

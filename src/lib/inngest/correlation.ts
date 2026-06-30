@@ -11,7 +11,7 @@ import {
   generateEmbedding,
   cosineSimilarity,
 } from "@/lib/nlp/embedding-generator";
-import { getProvider } from "@/lib/ai/provider";
+import { getProviderWithFailover } from "@/lib/ai/provider";
 import { generateCrossSignalDebate } from "@/lib/ai/agent/cross-signal-debate";
 import { calculateSignalWeight } from "@/lib/ai/confidence";
 import { generateClusterArticle } from "@/lib/ai/agent/cluster-article-generator";
@@ -27,6 +27,7 @@ import type {
 } from "@/lib/ai/agent/types";
 import { z } from "zod";
 import { runWithTraceAsync } from "@/lib/ai/trace-context";
+import type { Prisma } from "@prisma/client";
 
 const INFERENCE_TITLE_SCHEMA = z.object({
   title: z.string().describe("A concise, news-style headline for the inference"),
@@ -48,20 +49,16 @@ export interface MomentumResult {
   status: "EMERGING" | "ACCELERATING" | "PEAKED" | "FADING" | "RESOLVED";
 }
 
+import { loadSignalEmbeddings } from "@/lib/nlp/embedding-store";
+
 /**
  * Compute cluster embedding centroid by averaging signal embeddings.
  */
 export async function computeClusterCentroid(signalIds: string[]): Promise<number[] | null> {
   if (signalIds.length === 0) return null;
 
-  const signals = await prisma.signal.findMany({
-    where: { id: { in: signalIds } },
-    select: { embedding: true },
-  });
-
-  const embeddings = signals
-    .map((s) => s.embedding)
-    .filter((e): e is number[] => Array.isArray(e) && e.length > 0);
+  const embeddingMap = await loadSignalEmbeddings(signalIds);
+  const embeddings = Array.from(embeddingMap.values());
 
   if (embeddings.length === 0) return null;
 
@@ -284,6 +281,21 @@ export function calculateMomentum(
 }
 
 /**
+ * Determine cluster status from momentum, signal count, and inactivity.
+ */
+export function computeStatus(
+  momentum: number,
+  signalCount: number,
+  daysSinceLastSignal: number,
+): MomentumResult["status"] {
+  if (daysSinceLastSignal > 60 && momentum < 0.1) return "RESOLVED";
+  if (daysSinceLastSignal > 30 && momentum < 0.3) return "FADING";
+  if (momentum >= 0.8 && signalCount >= 5) return "PEAKED";
+  if (momentum >= 0.5) return "ACCELERATING";
+  return "EMERGING";
+}
+
+/**
  * Generate an inference using LLM for a convergent theme cluster.
  */
 export async function generateInferenceTitle(
@@ -291,7 +303,7 @@ export async function generateInferenceTitle(
   companyName: string,
   sourceTypes: string[],
 ): Promise<{ title: string; summary: string }> {
-  const provider = getProvider("openai");
+  const { provider } = getProviderWithFailover("openai");
   const uniqueSourceTypes = [...new Set(sourceTypes)].join(", ");
 
   const messages = [
@@ -484,11 +496,25 @@ export const correlateSignalsFunction = inngest.createFunction(
             confidence: confidenceBySignal.get(s.id),
             engagement: s.engagement as Record<string, unknown> | null,
           }));
-          const { momentum, status } = calculateMomentum(
+          const { momentum: rawMomentum } = calculateMomentum(
             enrichedSignals,
             now,
             agentAgreement,
           );
+
+          // Time-based momentum decay: no decay for first 7 days, then exponential
+          const latestSignalDate = signals.reduce((latest, s) => {
+            const d = s.publishedAt ?? s.scrapedAt;
+            return d > latest ? d : latest;
+          }, signals[0]?.scrapedAt ?? now);
+          const daysSinceLastSignal = Math.floor(
+            (now.getTime() - latestSignalDate.getTime()) / (1000 * 60 * 60 * 24),
+          );
+          const decayFactor = Math.exp(-0.1 * Math.max(0, daysSinceLastSignal - 7));
+          const momentum = rawMomentum * decayFactor;
+
+          // Automatic status lifecycle based on decayed momentum
+          const status = computeStatus(momentum, signals.length, daysSinceLastSignal);
 
           // Compute cluster embedding centroid
           const clusterCentroid = await computeClusterCentroid(cluster.signalIds);
@@ -496,12 +522,19 @@ export const correlateSignalsFunction = inngest.createFunction(
           let themeId: string;
 
           if (existingTheme) {
+            // Track momentum history (keep last 30 daily values)
+            const existingSummary = (existingTheme.clusterSummary as Record<string, unknown>) ?? {};
+            const momentumHistory = ((existingSummary.momentumHistory as number[]) ?? []).slice(-29);
+            momentumHistory.push(momentum);
+            existingSummary.momentumHistory = momentumHistory;
+
             await prisma.signalTheme.update({
               where: { id: existingTheme.id },
               data: {
                 momentum,
                 status,
                 lastUpdated: now,
+                clusterSummary: existingSummary as Prisma.InputJsonValue,
                 ...(clusterCentroid && { embedding: clusterCentroid }),
               },
             });
@@ -515,13 +548,14 @@ export const correlateSignalsFunction = inngest.createFunction(
                 momentum,
                 firstSeen: now,
                 lastUpdated: now,
+                clusterSummary: { momentumHistory: [momentum] } as Prisma.InputJsonValue,
                 ...(clusterCentroid && { embedding: clusterCentroid }),
               },
             });
             themeId = created.id;
           }
 
-          // Link signals to theme (many-to-many via connect)
+          // Link signals to theme (many-to-many via connect + clusterId for one-to-many)
           for (const signalId of cluster.signalIds) {
             try {
               await prisma.signal.update({
@@ -530,6 +564,7 @@ export const correlateSignalsFunction = inngest.createFunction(
                   themes: {
                     connect: { id: themeId },
                   },
+                  clusterId: themeId, // Set clusterId for clusteredSignals relation
                 },
               });
             } catch (err) {

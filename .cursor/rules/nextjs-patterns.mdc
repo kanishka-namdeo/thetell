@@ -7,7 +7,7 @@ globs: src/app/**/*.ts,src/app/**/*.tsx
 
 **Trigger**: Auto-applied to `src/app/` directory files.
 
-> **Read `node_modules/next/dist/docs/` before writing any code.** This project uses Next.js 16.2.6 with breaking changes from earlier versions. Heed deprecation notices.
+> **Read `node_modules/next/dist/docs/` before writing any code.** This project uses Next.js 16.2.9 with breaking changes from earlier versions. Heed deprecation notices.
 
 ## Server vs Client Components
 
@@ -24,7 +24,7 @@ globs: src/app/**/*.ts,src/app/**/*.tsx
 ```typescript
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/lib/db';
 import { logger } from '@/lib/logger';
 
 const createSchema = z.object({

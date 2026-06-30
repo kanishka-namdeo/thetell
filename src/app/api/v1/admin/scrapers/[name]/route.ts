@@ -36,12 +36,11 @@ export async function PATCH(
 
     log.info("admin.scraper.update.start", { name, update });
 
-    return NextResponse.json({
-      success: true,
-      message: `Scraper ${name} configuration updated`,
-      name,
-      ...update,
-    });
+    // TODO: Persist scraper configuration to SystemConfig table
+    return NextResponse.json(
+      { error: "not_implemented", message: "Scraper configuration persistence not yet implemented" },
+      { status: 501 }
+    );
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(

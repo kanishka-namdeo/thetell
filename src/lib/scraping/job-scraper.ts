@@ -419,4 +419,103 @@ export class JobPostingScraper extends BaseScraper {
     const lines = text.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
     return lines.join("\n");
   }
+
+  /**
+   * Extract job listing URLs from a career page index.
+   * Returns an array of absolute URLs to individual job postings.
+   */
+  async scrapeCareerPage(careerPageUrl: string, limit: number = 20): Promise<string[]> {
+    const normalizedUrl = this.normalizeUrl(careerPageUrl);
+    const html = await this.fetch(normalizedUrl);
+
+    if (html === null) {
+      return [];
+    }
+
+    try {
+      const $ = cheerio.load(html);
+      const jobUrls = new Set<string>();
+      const baseUrl = new URL(normalizedUrl);
+
+      // Common job listing link selectors
+      const linkSelectors = [
+        // ATS platforms
+        'a[href*="/jobs/"]',
+        'a[href*="/careers/"]',
+        'a[href*="greenhouse.io"]',
+        'a[href*="lever.co"]',
+        'a[href*="myworkdayjobs.com"]',
+        // Generic
+        '.job-list a[href]',
+        '.career-list a[href]',
+        '.job-posting a[href]',
+        '.opening a[href]',
+        '[data-job-id] a[href]',
+        // Schema.org
+        '[itemprop="url"]',
+      ];
+
+      for (const selector of linkSelectors) {
+        $(selector).each((_, el) => {
+          const href = $(el).attr("href");
+          if (!href) return;
+
+          try {
+            const absoluteUrl = new URL(href, baseUrl).href;
+
+            // Filter out non-job URLs
+            const skipPatterns = [
+              /\/feed\/?$/i,
+              /\/rss\/?$/i,
+              /#(comment|respond)/i,
+              /\?(.*&)?(feed|rss)=/i,
+            ];
+
+            if (skipPatterns.some((p) => p.test(absoluteUrl))) {
+              return;
+            }
+
+            // Only include URLs that look like job postings
+            const jobPatterns = [
+              /\/jobs?\//i,
+              /\/careers?\//i,
+              /\/positions?\//i,
+              /\/openings?\//i,
+              /greenhouse\.io/i,
+              /lever\.co/i,
+              /myworkdayjobs\.com/i,
+            ];
+
+            const isJobUrl = jobPatterns.some((p) => p.test(absoluteUrl));
+            if (!isJobUrl) return;
+
+            // Normalize and add to set
+            const normalized = absoluteUrl.replace(/\/$/, "").split("#")[0];
+            if (normalized !== normalizedUrl) {
+              jobUrls.add(normalized);
+            }
+          } catch {
+            // Invalid URL, skip
+          }
+        });
+
+        if (jobUrls.size >= limit) break;
+      }
+
+      const urls = Array.from(jobUrls).slice(0, limit);
+
+      logger.info("Extracted job listing URLs", {
+        careerPageUrl: normalizedUrl,
+        jobCount: urls.length,
+      });
+
+      return urls;
+    } catch (error) {
+      logger.error("Failed to extract job listing URLs", {
+        careerPageUrl: normalizedUrl,
+        error: String(error),
+      });
+      return [];
+    }
+  }
 }

@@ -3,7 +3,6 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { inngest } from "@/lib/inngest/client";
 import { logger } from "@/lib/logger";
-import { enrichCompany } from "@/lib/enrichment";
 
 export async function POST(
   req: NextRequest,
@@ -43,37 +42,28 @@ export async function POST(
       triggeredBy: session.user.id,
     });
 
-    // Run enrichment directly (synchronous)
-    const result = await enrichCompany(id);
-
-    logger.info("enrichment.manual_complete", {
-      companyId: id,
-      status: result.status,
-      feedsFound: result.feeds.length,
-      socialsFound: result.socials.length,
-      blogsFound: result.blogs.length,
+    await inngest.send({
+      name: "company/enrichment.requested",
+      data: { companyId: id },
     });
+
+    logger.info("enrichment.event_sent", { companyId: id });
 
     return NextResponse.json(
       {
-        message: "Enrichment completed",
+        message: "Enrichment queued",
         companyId: id,
-        status: result.status,
-        feedsFound: result.feeds.length,
-        socialsFound: result.socials.length,
-        blogsFound: result.blogs.length,
-        tickerFound: !!result.ticker?.ticker,
       },
-      { status: 200 }
+      { status: 202 }
     );
   } catch (error) {
-    logger.error("enrichment.failed", {
+    logger.error("enrichment.event_failed", {
       companyId: id,
       error: String(error),
     });
 
     return NextResponse.json(
-      { error: "enrichment_failed", message: "Failed to enrich company" },
+      { error: "enrichment_failed", message: "Failed to queue enrichment" },
       { status: 500 }
     );
   }

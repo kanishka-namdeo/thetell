@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ProfileForm } from "@/components/dashboard/profile-form";
+import { SettingsSection } from "@/components/dashboard/settings-section";
 
 export const dynamic = "force-dynamic";
 
@@ -36,9 +37,9 @@ export default async function ProfilePage() {
         <p className="text-[11px] uppercase tracking-widest font-sans text-muted-foreground mb-1">
           Account
         </p>
-        <h1 className="text-3xl font-serif font-bold">Profile</h1>
+        <h1 className="text-3xl font-serif font-bold">Profile & Settings</h1>
         <p className="text-sm text-muted-foreground font-body mt-1">
-          Manage your account information
+          Manage your account information and preferences
         </p>
       </div>
 
@@ -93,6 +94,9 @@ export default async function ProfilePage() {
           createdAt: user.createdAt.toISOString(),
         }}
       />
+
+      {/* Settings Section (merged from /settings) */}
+      <SettingsSection />
     </div>
   );
 }

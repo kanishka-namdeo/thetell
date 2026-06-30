@@ -19,6 +19,9 @@ export async function POST(
 
   try {
     const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
     if (!requireAdmin(session)) {
       return NextResponse.json(
         { error: "forbidden", message: "Admin access required" },
@@ -55,12 +58,15 @@ export async function POST(
 
     const scraperNames = scrapers ?? SCRAPER_REGISTRY.map((s) => s.name);
 
-    // Send Inngest event to trigger company-scoped discovery
+    // Send Inngest event to trigger unified signal discovery
     await inngest.send({
-      name: "company/discovery.requested",
+      name: "signal/discovery.requested",
       data: {
-        companyId,
+        companyIds: [companyId],
         scrapers: scraperNames,
+        mode: "manual",
+        hypothesisAware: true,
+        stealthFallback: false,
       },
     });
 

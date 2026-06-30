@@ -8,80 +8,157 @@ import { logger } from "@/lib/logger";
 export async function GET(request: NextRequest) {
   try {
     const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json(
-        { error: "unauthorized", message: "Authentication required" },
-        { status: 401 }
-      );
-    }
 
     const { searchParams } = new URL(request.url);
     const q = searchParams.get("q")?.trim();
+    const type = searchParams.get("type")?.trim();
 
-    if (!q || q.length < 2 || q.length > 500) {
+    if (!q || q.length < 2) {
       return NextResponse.json({
         signals: [],
         companies: [],
         articles: [],
+        inferences: [],
       });
     }
 
-    // Perform semantic search if embeddings are available
-    let semanticResults: Array<{ id: string; title: string; similarity: number }> = [];
-    try {
-      const queryEmbedding = await generateEmbedding(q);
-      semanticResults = await semanticSearch(queryEmbedding, 10);
-    } catch (embedError) {
-      logger.warn("Semantic search failed, falling back to text search", {
-        error: String(embedError),
-      });
+    if (q.length > 500) {
+      return NextResponse.json(
+        { error: "query_too_long", message: "Query must be 500 characters or less" },
+        { status: 400 }
+      );
     }
 
-    // Text-based search
-    const [textSignals, companies, articles] = await Promise.all([
-      prisma.signal.findMany({
-        where: {
-          OR: [
-            { title: { contains: q, mode: "insensitive" } },
-            { rawContent: { contains: q, mode: "insensitive" } },
-          ],
-        },
-        take: 10,
-        include: {
-          company: { select: { name: true } },
-        },
-        orderBy: { scrapedAt: "desc" },
-      }),
-      prisma.company.findMany({
-        where: {
-          OR: [
-            { name: { contains: q, mode: "insensitive" } },
-            { ticker: { contains: q, mode: "insensitive" } },
-          ],
-        },
-        take: 5,
-        orderBy: { name: "asc" },
-      }),
-      prisma.article.findMany({
-        where: {
-          title: { contains: q, mode: "insensitive" },
-        },
-        take: 5,
-        include: {
-          company: { select: { name: true } },
-        },
-        orderBy: { publishedAt: "desc" },
-      }),
+    // Only perform semantic search (embedding generation) for authenticated users
+    const shouldSearchType = (t: string) => !type || type === t;
+
+    // Run text search and semantic search in parallel
+    const [
+      [textSignals, companies, articles, inferences, themes],
+      semanticResults,
+    ] = await Promise.all([
+      Promise.all([
+        shouldSearchType("signal")
+          ? prisma.signal.findMany({
+              where: {
+                status: "ANALYZED",
+                OR: [
+                  { title: { contains: q, mode: "insensitive" } },
+                  { rawContent: { contains: q, mode: "insensitive" } },
+                ],
+              },
+              take: 10,
+              select: {
+                id: true,
+                title: true,
+                rawContent: true,
+                scrapedAt: true,
+                company: { select: { id: true, name: true } },
+              },
+              orderBy: { scrapedAt: "desc" },
+            })
+          : Promise.resolve([]),
+        prisma.company.findMany({
+          where: {
+            OR: [
+              { name: { contains: q, mode: "insensitive" } },
+              { ticker: { contains: q, mode: "insensitive" } },
+            ],
+          },
+          take: 5,
+          orderBy: { name: "asc" },
+        }),
+        shouldSearchType("article")
+          ? prisma.article.findMany({
+              where: {
+                status: "PUBLISHED",
+                title: { contains: q, mode: "insensitive" },
+              },
+              take: 5,
+              select: {
+                id: true,
+                title: true,
+                publishedAt: true,
+                company: { select: { id: true, name: true } },
+              },
+              orderBy: { publishedAt: "desc" },
+            })
+          : Promise.resolve([]),
+        shouldSearchType("inference")
+          ? prisma.inference.findMany({
+              where: {
+                OR: [
+                  { title: { contains: q, mode: "insensitive" } },
+                  { hypothesis: { contains: q, mode: "insensitive" } },
+                ],
+              },
+              take: 5,
+              select: {
+                id: true,
+                title: true,
+                hypothesis: true,
+                confidence: true,
+                company: { select: { id: true, name: true, ticker: true, slug: true } },
+                theme: { select: { id: true, label: true, status: true } },
+              },
+              orderBy: { confidence: "desc" },
+            })
+          : Promise.resolve([]),
+        shouldSearchType("theme")
+          ? prisma.signalTheme.findMany({
+              where: {
+                label: { contains: q, mode: "insensitive" },
+              },
+              take: 5,
+              select: {
+                id: true,
+                label: true,
+                companyId: true,
+                momentum: true,
+                company: { select: { name: true } },
+                signals: { select: { id: true } },
+              },
+              orderBy: { momentum: "desc" },
+            })
+          : Promise.resolve([]),
+      ]),
+      // Semantic search runs in parallel with text search
+      session?.user
+        ? generateEmbedding(q)
+            .then((emb) => semanticSearch(emb, 10))
+            .catch((embedError) => {
+              logger.warn("Semantic search failed, falling back to text search", {
+                error: String(embedError),
+              });
+              return [];
+            })
+        : Promise.resolve([]),
     ]);
 
     // Hybrid search: combine semantic and text results
+    // 60% semantic, 40% text match
     const combinedSignals = combineSearchResults(
       semanticResults,
       textSignals,
       5
     );
 
-    return NextResponse.json({ signals: combinedSignals, companies, articles });
+    const formattedThemes = themes.map((theme) => ({
+      id: theme.id,
+      label: theme.label,
+      companyId: theme.companyId,
+      company: theme.company,
+      signalCount: theme.signals.length,
+      momentum: theme.momentum,
+    }));
+
+    return NextResponse.json({
+      signals: combinedSignals,
+      companies,
+      articles,
+      inferences,
+      themes: formattedThemes,
+    });
   } catch (error) {
     logger.error("Search error", { error: String(error) });
     return NextResponse.json(
@@ -97,7 +174,7 @@ export async function GET(request: NextRequest) {
  */
 function combineSearchResults(
   semanticResults: Array<{ id: string; title: string; similarity: number }>,
-  textResults: Array<{ id: string; title: string; rawContent: string; scrapedAt: Date; company: { name: string } }>,
+  textResults: Array<{ id: string; title: string; rawContent: string; scrapedAt: Date; company: { id: string; name: string } }>,
   limit: number
 ) {
   const scoreMap = new Map<string, { signal: typeof textResults[0]; score: number }>();

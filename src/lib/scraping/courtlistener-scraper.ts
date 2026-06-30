@@ -13,7 +13,7 @@
 import { logger } from "@/lib/logger";
 import { BaseScraper } from "./base-scraper";
 
-const COURT_LISTENER_API_BASE = "https://www.courtlistener.com/api/rest/v3";
+const COURT_LISTENER_API_BASE = "https://www.courtlistener.com/api/rest/v4";
 
 export interface CourtCase {
   id: string;
@@ -79,7 +79,7 @@ export class CourtListenerScraper extends BaseScraper {
    */
   async scrapeByPartyName(
     partyName: string,
-    limit: number = 20,
+    limit: number = 50,
   ): Promise<CourtListenerSignal[]> {
     if (!this.isConfigured) {
       logger.warn("courtlistener.scraper.skipped", {
@@ -111,7 +111,7 @@ export class CourtListenerScraper extends BaseScraper {
    */
   async scrapeDocketEntries(
     docketId: string,
-    limit: number = 50,
+    limit: number = 100,
   ): Promise<DocketEntry[]> {
     if (!this.isConfigured) {
       logger.warn("courtlistener.docket.skipped", {
@@ -138,15 +138,17 @@ export class CourtListenerScraper extends BaseScraper {
 
   /**
    * Search CourtListener for cases involving a party.
+   * Uses v4 API with type=d for docket searches.
    */
   private async searchCases(
     partyName: string,
     limit: number,
   ): Promise<CourtCase[] | null> {
     const params = new URLSearchParams({
-      q: `party:"${partyName}"`,
+      type: "d",
+      q: partyName,
+      party_exact: partyName,
       page_size: String(limit),
-      order_by: "-date_filed",
     });
 
     const url = `${COURT_LISTENER_API_BASE}/search/?${params.toString()}`;
@@ -193,7 +195,7 @@ export class CourtListenerScraper extends BaseScraper {
         });
 
         if (response.ok) {
-          const text = await response.text();
+          const text = await this.readBodyWithLimit(response);
           await this.cache.set(url, text);
           return text;
         }
@@ -211,10 +213,12 @@ export class CourtListenerScraper extends BaseScraper {
             attempt,
           });
 
+          await response.body?.cancel();
           await new Promise((r) => setTimeout(r, waitTime));
           continue;
         }
 
+        await response.body?.cancel();
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       } catch (error) {
         lastError = error as Error;
@@ -252,35 +256,33 @@ export class CourtListenerScraper extends BaseScraper {
   }
 
   /**
-   * Parse a single case document from the API response.
+   * Parse a single case document from the v4 API response.
+   * V4 returns flat structure with docket_id, caseName, etc.
    */
   private parseCourtCase(doc: Record<string, unknown>): CourtCase | null {
-    const id = this.str(doc.id);
+    const docketId = this.str(doc.docket_id);
     const caseName = this.str(doc.caseName);
 
-    if (!id && !caseName) return null;
+    if (!docketId && !caseName) return null;
 
     const docketNumber = this.str(doc.docketNumber);
-    const court = doc.court as Record<string, unknown> | undefined;
-    const courtName = this.str(court?.name ?? doc.courtName);
+    const courtName = this.str(doc.court);
     const dateFiled = this.str(doc.dateFiled);
     const dateTerminated = this.str(doc.dateTerminated);
-    const causeOfAction = this.str(doc.causeOfAction);
-    const natureOfSuit = this.str(doc.natureOfSuit);
-    const jurisdiction = this.str(doc.jurisdiction);
-    const docket = doc.docket as Record<string, unknown> | undefined;
-    const status = this.str(docket?.status ?? doc.status);
-    const absoluteUrl = this.str(doc.absolute_url);
+    const causeOfAction = this.str(doc.cause);
+    const natureOfSuit = this.str(doc.suitNature);
+    const jurisdiction = this.str(doc.jurisdictionType);
+    const status = this.str(doc.dateTerminated ? "terminated" : "active");
+    const absoluteUrl = this.str(doc.docket_absolute_url);
 
-    const parties = doc.party as Array<Record<string, unknown>> | undefined;
+    // V4 returns party as array of strings
+    const parties = doc.party as string[] | undefined;
     const partyNames = parties
-      ? parties
-          .map((p) => this.str(p.name))
-          .filter((n) => n.length > 0)
+      ? parties.filter((n) => typeof n === "string" && n.length > 0)
       : [];
 
     return {
-      id,
+      id: docketId,
       caseName,
       docketNumber,
       courtName,
@@ -291,7 +293,9 @@ export class CourtListenerScraper extends BaseScraper {
       natureOfSuit,
       jurisdiction,
       status,
-      absoluteUrl,
+      absoluteUrl: absoluteUrl.startsWith("http")
+        ? absoluteUrl
+        : `https://www.courtlistener.com${absoluteUrl}`,
     };
   }
 

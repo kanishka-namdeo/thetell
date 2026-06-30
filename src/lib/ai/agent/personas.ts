@@ -72,6 +72,10 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
   GOSSIP_GIRL: GOSSIP_GIRL_CONFIG,
 };
 
+export function isPreferredSourceType(sourceType: string, agentConfig: AgentConfig): boolean {
+  return agentConfig.sourcePreferences.includes(sourceType);
+}
+
 export function getAgentConfig(persona: string): AgentConfig {
   const config = AGENT_CONFIGS[persona];
   if (!config) {

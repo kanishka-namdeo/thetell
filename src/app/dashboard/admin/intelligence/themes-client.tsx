@@ -18,8 +18,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { TrendingUp, TrendingDown, Minus, Tag } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Tag, Eye } from "lucide-react";
 import { AdminEmptyState } from "@/components/admin/states";
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
 interface ThemeData {
   id: string;
@@ -90,22 +92,24 @@ export function ThemesClient({
 
       {/* Themes Table */}
       <Card className="border-2 border-foreground">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Label</TableHead>
-              <TableHead>Company</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Momentum</TableHead>
-              <TableHead>Signals</TableHead>
-              <TableHead>Inferences</TableHead>
-              <TableHead>First Seen</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="min-w-[200px]">Label</TableHead>
+                <TableHead className="min-w-[150px]">Company</TableHead>
+                <TableHead className="min-w-[100px]">Status</TableHead>
+                <TableHead className="min-w-[100px]">Momentum</TableHead>
+                <TableHead className="min-w-[80px]">Signals</TableHead>
+                <TableHead className="min-w-[80px]">Inferences</TableHead>
+                <TableHead className="min-w-[100px]">First Seen</TableHead>
+                <TableHead className="min-w-[80px]">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-12">
+                <TableCell colSpan={8} className="text-center py-12">
                   <AdminEmptyState
                     icon={Tag}
                     title="No themes found"
@@ -170,11 +174,20 @@ export function ThemesClient({
                       })}
                     </time>
                   </TableCell>
+                  <TableCell>
+                    <Link href={`/clusters/${theme.id}`}>
+                      <Button variant="ghost" size="sm">
+                        <Eye className="h-4 w-4 mr-1" />
+                        View
+                      </Button>
+                    </Link>
+                  </TableCell>
                 </TableRow>
               ))
             )}
           </TableBody>
         </Table>
+        </div>
       </Card>
     </div>
   );

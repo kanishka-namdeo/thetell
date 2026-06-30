@@ -47,30 +47,61 @@ export async function GET() {
 
 ## Proxy Auth Wrapper (Next.js 16)
 
-In Next.js 16, `middleware.ts` is renamed to `proxy.ts` and exports `proxy` instead of `middleware`. Use the `auth()` wrapper pattern:
+In Next.js 16, `middleware.ts` is renamed to `proxy.ts` and exports a named `proxy` function instead of a default `middleware` export.
+
+The actual implementation uses `authEdge` from `@/lib/auth-edge` (an edge-compatible NextAuth instance that does NOT import Prisma, since the edge runtime requires Node.js-free code):
 
 ```typescript
-// proxy.ts
-import NextAuth from "next-auth";
-import { NextResponse, type NextRequest } from "next/server";
-import authConfig from "./auth.config";
+// src/proxy.ts
+import { authEdge } from "@/lib/auth-edge";
+import { checkRateLimit } from "@/lib/rate-limiter";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 
-const { auth } = NextAuth(authConfig);
+const authHandler = authEdge((req) => {
+  const { pathname } = req.nextUrl;
 
-export const proxy = auth(async function proxy(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.redirect(new URL("/login", request.url));
+  // Public routes — always allow
+  if (isPublicRoute(pathname)) {
+    return NextResponse.next();
   }
+
+  // Protected dashboard routes
+  if (pathname.startsWith("/dashboard")) {
+    if (!req.auth) {
+      const url = new URL("/sign-in", req.url);
+      url.searchParams.set("callbackUrl", pathname);
+      return NextResponse.redirect(url);
+    }
+  }
+
+  // Protected API routes
+  if (pathname.startsWith("/api/v1/") && !pathname.startsWith("/api/v1/auth")) {
+    if (!req.auth) {
+      return NextResponse.json(
+        { error: "unauthorized" },
+        { status: 401 }
+      );
+    }
+  }
+
   return NextResponse.next();
 });
 
+export function proxy(request: NextRequest, event: any) {
+  return authHandler(request, event);
+}
+
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
 ```
 
-**Keep proxy fast and stateless** — do not run database queries in the proxy.
+**Key points:**
+- `authEdge` is a JWT-only NextAuth instance (no Prisma, edge-compatible)
+- The full `auth()` helper (in `@/lib/auth.ts`) uses Prisma and is NOT edge-compatible
+- Use `authEdge` in proxy, use `auth()` in Server Components and API routes
+- **Keep proxy fast and stateless** — do not run database queries in the proxy
 
 ---
 

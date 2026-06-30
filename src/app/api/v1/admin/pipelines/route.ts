@@ -20,6 +20,9 @@ export async function GET(req: Request) {
 
   try {
     const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
     if (!requireAdmin(session)) {
       return NextResponse.json(
         { error: "forbidden", message: "Admin access required" },
@@ -53,70 +56,90 @@ export async function GET(req: Request) {
     const pageCompanies = hasMore ? companies.slice(0, limit) : companies;
     const nextCursor = hasMore ? pageCompanies[pageCompanies.length - 1].id : null;
 
-    const companyResults = await Promise.all(
-      pageCompanies.map(async (company) => {
-        const [allRuns, signalCounts, totalSignals] = await Promise.all([
-          prisma.pipelineRun.findMany({
-            where: { companyId: company.id },
-            orderBy: { createdAt: "desc" },
-            select: {
-              scraperName: true,
-              sourceType: true,
-              status: true,
-              signalsCreated: true,
-              createdAt: true,
-            },
-          }),
-          prisma.signal.groupBy({
-            by: ["sourceType"],
-            where: { companyId: company.id },
-            _count: true,
-          }),
-          prisma.signal.count({
-            where: { companyId: company.id },
-          }),
-        ]);
+    const companyIds = pageCompanies.map((c) => c.id);
 
-        // Group runs by scraperName, keep only the latest per scraper
-        const runsByScraper = new Map<string, (typeof allRuns)[0]>();
-        for (const run of allRuns) {
-          if (!runsByScraper.has(run.scraperName)) {
-            runsByScraper.set(run.scraperName, run);
-          }
+    const [allRuns, signalCounts, signalCountsByCompany] = await Promise.all([
+      prisma.pipelineRun.findMany({
+        where: { companyId: { in: companyIds } },
+        orderBy: { createdAt: "desc" },
+        select: {
+          companyId: true,
+          scraperName: true,
+          sourceType: true,
+          status: true,
+          signalsCreated: true,
+          createdAt: true,
+        },
+      }),
+      prisma.signal.groupBy({
+        by: ["companyId", "sourceType"],
+        where: { companyId: { in: companyIds } },
+        _count: true,
+      }),
+      prisma.signal.groupBy({
+        by: ["companyId"],
+        where: { companyId: { in: companyIds } },
+        _count: { id: true },
+      }),
+    ]);
+
+    const runsByCompany = new Map<string, (typeof allRuns)[0][]>();
+    for (const run of allRuns) {
+      if (!runsByCompany.has(run.companyId)) {
+        runsByCompany.set(run.companyId, []);
+      }
+      runsByCompany.get(run.companyId)!.push(run);
+    }
+
+    const signalsByCompanyAndType = new Map<string, Map<string, number>>();
+    for (const sc of signalCounts) {
+      if (!signalsByCompanyAndType.has(sc.companyId)) {
+        signalsByCompanyAndType.set(sc.companyId, new Map());
+      }
+      signalsByCompanyAndType.get(sc.companyId)!.set(sc.sourceType, sc._count);
+    }
+
+    const totalSignalsByCompany = new Map<string, number>();
+    for (const sc of signalCountsByCompany) {
+      totalSignalsByCompany.set(sc.companyId, sc._count.id);
+    }
+
+    const companyResults = pageCompanies.map((company) => {
+      const companyRuns = runsByCompany.get(company.id) || [];
+      const typeMap = signalsByCompanyAndType.get(company.id) || new Map();
+      const totalSignals = totalSignalsByCompany.get(company.id) || 0;
+
+      const runsByScraper = new Map<string, (typeof allRuns)[0]>();
+      for (const run of companyRuns) {
+        if (!runsByScraper.has(run.scraperName)) {
+          runsByScraper.set(run.scraperName, run);
         }
+      }
 
-        // Count total signals per sourceType
-        const totalSignalsByType = new Map<string, number>();
-        for (const sc of signalCounts) {
-          totalSignalsByType.set(sc.sourceType, sc._count);
-        }
-
-        // Return ALL scrapers from registry, not just ones with runs
-        const pipelines = SCRAPER_REGISTRY.map((scraper) => {
-          const run = runsByScraper.get(scraper.name);
-          return {
-            scraperName: scraper.name,
-            sourceType: scraper.sourceType,
-            status: run ? mapStatus(run.status) : "never_run" as PipelineStatus,
-            lastRunAt: run?.createdAt?.toISOString() ?? null,
-            signalsCount: totalSignalsByType.get(scraper.sourceType) ?? 0,
-          };
-        });
-
-        const lastActivityAt =
-          allRuns.length > 0 ? allRuns[0].createdAt.toISOString() : null;
-
+      const pipelines = SCRAPER_REGISTRY.map((scraper) => {
+        const run = runsByScraper.get(scraper.name);
         return {
-          id: company.id,
-          name: company.name,
-          ticker: company.ticker,
-          website: company.websiteUrl,
-          totalSignals,
-          lastActivityAt,
-          pipelines,
+          scraperName: scraper.name,
+          sourceType: scraper.sourceType,
+          status: run ? mapStatus(run.status) : "never_run" as PipelineStatus,
+          lastRunAt: run?.createdAt?.toISOString() ?? null,
+          signalsCount: typeMap.get(scraper.sourceType) ?? 0,
         };
-      })
-    );
+      });
+
+      const lastActivityAt =
+        companyRuns.length > 0 ? companyRuns[0].createdAt.toISOString() : null;
+
+      return {
+        id: company.id,
+        name: company.name,
+        ticker: company.ticker,
+        website: company.websiteUrl,
+        totalSignals,
+        lastActivityAt,
+        pipelines,
+      };
+    });
 
     log.info("admin.pipelines.list.success", {
       count: companyResults.length,

@@ -5,7 +5,7 @@
  */
 
 import { logger } from "@/lib/logger";
-import { getProvider } from "../provider";
+import { getProviderWithFailover } from "../provider";
 import { AgentDebateSchema, type AgentDebate, type AgentAnalysis } from "./types";
 import { COMMON_WRITING_RULES } from "./writing-rules";
 import type { LLMMessage } from "../types";
@@ -16,18 +16,34 @@ import type { SourceType } from "../types";
 /** Maximum number of analyses per agent to include in cross-signal debate. */
 const MAX_ANALYSES_PER_AGENT = 10;
 
+/** Maximum number of facts to include per analysis to prevent O(n²) blowup. */
+const MAX_FACTS_PER_ANALYSIS = 100;
+
+/** Maximum prompt size in characters to prevent token overflow. */
+const MAX_PROMPT_SIZE = 100_000;
+
 /**
  * Analysis with source metadata for weighted debate ordering.
  */
 export interface WeightedAnalysis extends AgentAnalysis {
   sourceType?: SourceType;
   engagement?: Record<string, unknown> | null;
+  signalTitle?: string;
+  publishedAt?: Date | null;
+}
+
+/**
+ * Result of cross-signal debate generation with evidence provenance.
+ */
+export interface CrossSignalDebateResult {
+  debate: AgentDebate;
+  evidenceProvenance: Record<string, string[]>;
 }
 
 /**
  * Build a cross-signal debate prompt that aggregates multiple analyses per agent.
  * Analyses are sorted by source credibility weight (highest first) and formatted
- * with source type and engagement metadata.
+ * with source type, engagement metadata, and signal identifiers for provenance tracking.
  */
 function buildCrossSignalDebatePrompt(
   analystAnalyses: Array<{
@@ -37,6 +53,9 @@ function buildCrossSignalDebatePrompt(
     sourceType?: SourceType;
     weight: number;
     engagement?: Record<string, unknown> | null;
+    signalId?: string;
+    signalTitle?: string;
+    publishedAt?: Date | null;
   }>,
   gossipAnalyses: Array<{
     summary: string;
@@ -45,6 +64,9 @@ function buildCrossSignalDebatePrompt(
     sourceType?: SourceType;
     weight: number;
     engagement?: Record<string, unknown> | null;
+    signalId?: string;
+    signalTitle?: string;
+    publishedAt?: Date | null;
   }>,
   themeLabel: string,
   companyName: string,
@@ -57,16 +79,20 @@ function buildCrossSignalDebatePrompt(
       sourceType?: SourceType;
       weight: number;
       engagement?: Record<string, unknown> | null;
+      signalId?: string;
+      signalTitle?: string;
+      publishedAt?: Date | null;
     },
     i: number,
     label: string,
     factsLabel: string,
     themesLabel: string,
   ): string => {
-    const facts = a.keyFacts.map((f) => `  - ${f}`).join("\n");
+    const facts = a.keyFacts.slice(0, MAX_FACTS_PER_ANALYSIS).map((f) => `  - ${f}`).join("\n");
     const themes = a.themes.map((t) => `  - ${t}`).join("\n");
     const source = a.sourceType || "UNKNOWN";
     const weightStr = a.weight.toFixed(2);
+    const signalRef = a.signalId ? ` [Signal: ${a.signalTitle || "Untitled"} (${a.signalId})]` : "";
 
     let engagementNote = "";
     if (a.sourceType === "SOCIAL" && a.engagement) {
@@ -76,7 +102,11 @@ function buildCrossSignalDebatePrompt(
       engagementNote = ` (weight=${weightStr})`;
     }
 
-    return `### ${label} Analysis ${i + 1}${engagementNote}\n[${source}] Summary: ${a.summary}\n${factsLabel}:\n${facts || "  (none)"}\n${themesLabel}:\n${themes || "  (none)"}`;
+    const dateNote = a.publishedAt
+      ? ` [Published: ${new Date(a.publishedAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}]`
+      : "";
+
+    return `### ${label} Analysis ${i + 1}${engagementNote}${signalRef}${dateNote}\n[${source}] Summary: ${a.summary}\n${factsLabel}:\n${facts || "  (none)"}\n${themesLabel}:\n${themes || "  (none)"}`;
   };
 
   const analystSections = analystAnalyses
@@ -114,6 +144,8 @@ Your task is to synthesize the ACCUMULATED data from all Analyst analyses agains
 The Analyst synthesizes all hard data across signals — numbers, dates, named sources, verifiable facts.
 Gossip Girl synthesizes all the tells and subtext across signals — behavioral patterns, hidden agendas, narrative shifts.
 
+Note the chronological order of signals (indicated by [Published: ...] dates) — look for narrative shifts, evolving claims, and changing patterns over time. Earlier signals may show initial reactions while later signals may show updated positions or reversals.
+
 Return a JSON object. Replace ALL placeholder descriptions with your actual analysis. Do NOT copy the example text verbatim.
 
 Required JSON structure:
@@ -137,7 +169,26 @@ Required JSON structure:
       "evidence": ["<supporting evidence>"]
     }
   ],
-  "synthesis": "<YOUR ANALYSIS: 3-5 sentence balanced conclusion>"
+  "synthesis": "<YOUR ANALYSIS: 3-5 sentence balanced conclusion>",
+  "evidenceChain": [
+    {
+      "claim": "<A specific claim or finding from the debate>",
+      "supportingSignals": [
+        {
+          "signalId": "<Signal ID from the input>",
+          "title": "<Signal title>",
+          "fact": "<The specific fact from that signal supporting this claim>"
+        }
+      ],
+      "contradictingSignals": [
+        {
+          "signalId": "<Signal ID>",
+          "title": "<Signal title>",
+          "fact": "<The specific fact that contradicts or complicates this claim>"
+        }
+      ]
+    }
+  ]
 }
 
 RULES:
@@ -145,7 +196,8 @@ RULES:
 - analystPosition.claim: Write the Analyst's thesis (not placeholder text)
 - gossipGirlPosition.claim: Write Gossip Girl's thesis (not placeholder text)
 - pointsOfContention[].analystView: Write the Analyst's view on this point
-- pointsOfContention[].gossipGirlView: Write Gossip Girl's view on this point`,
+- pointsOfContention[].gossipGirlView: Write Gossip Girl's view on this point
+- evidenceChain: Track which signals support each claim. Use the signal IDs provided in the input (e.g., "[Signal: Title (signalId)]"). For each key claim, list the signals that support it and any that contradict it. This creates an auditable evidence trail.`,
     },
     {
       role: "user",
@@ -171,7 +223,7 @@ RULES:
  * @param companyName - Company name for context
  * @param providerName - LLM provider to use (default: "openai")
  * @param model - Optional model override
- * @returns Structured AgentDebate with cross-signal positions
+ * @returns CrossSignalDebateResult with debate and evidenceProvenance map
  */
 export async function generateCrossSignalDebate(
   analystAnalyses: WeightedAnalysis[],
@@ -180,7 +232,7 @@ export async function generateCrossSignalDebate(
   companyName: string,
   providerName: ProviderName = "openai",
   model?: string,
-): Promise<AgentDebate> {
+): Promise<CrossSignalDebateResult> {
   const log = logger.child({
     function: "generateCrossSignalDebate",
     themeLabel,
@@ -212,10 +264,17 @@ export async function generateCrossSignalDebate(
   }
 
   try {
-    const provider = getProvider(providerName);
+    const { provider } = getProviderWithFailover(providerName);
 
-    // Sort by source credibility weight (highest first) so the LLM sees
-    // the most authoritative evidence first
+    // Sort chronologically (oldest first) so the LLM sees narrative evolution over time
+    // Signals without publishedAt go to the end
+    const sortByDate = (a: { publishedAt?: Date | null }, b: { publishedAt?: Date | null }): number => {
+      if (!a.publishedAt && !b.publishedAt) return 0;
+      if (!a.publishedAt) return 1;
+      if (!b.publishedAt) return -1;
+      return new Date(a.publishedAt).getTime() - new Date(b.publishedAt).getTime();
+    };
+
     const analystSummaries = cappedAnalystAnalyses
       .map((a) => ({
         summary: a.summary,
@@ -224,8 +283,11 @@ export async function generateCrossSignalDebate(
         sourceType: a.sourceType,
         weight: calculateSignalWeight(a.sourceType ?? "NEWS", a.engagement),
         engagement: a.engagement,
+        signalId: a.signalId,
+        signalTitle: a.signalTitle,
+        publishedAt: a.publishedAt,
       }))
-      .sort((a, b) => b.weight - a.weight);
+      .sort(sortByDate);
 
     const gossipSummaries = cappedGossipAnalyses
       .map((a) => ({
@@ -235,8 +297,11 @@ export async function generateCrossSignalDebate(
         sourceType: a.sourceType,
         weight: calculateSignalWeight(a.sourceType ?? "NEWS", a.engagement),
         engagement: a.engagement,
+        signalId: a.signalId,
+        signalTitle: a.signalTitle,
+        publishedAt: a.publishedAt,
       }))
-      .sort((a, b) => b.weight - a.weight);
+      .sort(sortByDate);
 
     const messages = buildCrossSignalDebatePrompt(
       analystSummaries,
@@ -244,6 +309,19 @@ export async function generateCrossSignalDebate(
       themeLabel,
       companyName,
     );
+
+    // Truncate prompt if it exceeds max size to prevent token overflow
+    const totalSize = messages.reduce((sum, m) => sum + m.content.length, 0);
+    if (totalSize > MAX_PROMPT_SIZE) {
+      log.warn("cross_signal_debate.prompt_truncated", {
+        originalSize: totalSize,
+        maxSize: MAX_PROMPT_SIZE,
+      });
+      // Truncate the system message (which contains the bulk of the prompt)
+      const systemMsg = messages[0];
+      const excess = totalSize - MAX_PROMPT_SIZE;
+      systemMsg.content = systemMsg.content.slice(0, systemMsg.content.length - excess);
+    }
 
     const result = await provider.completeStructured(
       messages,
@@ -277,6 +355,39 @@ export async function generateCrossSignalDebate(
       }
     }
 
+    // Build evidence provenance map from evidenceChain
+    const evidenceProvenance: Record<string, string[]> = {};
+    if (result.evidenceChain && Array.isArray(result.evidenceChain)) {
+      for (const chainItem of result.evidenceChain) {
+        const claim = chainItem.claim;
+        if (!claim) continue;
+        
+        const signalIds: string[] = [];
+        
+        // Collect signal IDs from supporting signals
+        if (chainItem.supportingSignals && Array.isArray(chainItem.supportingSignals)) {
+          for (const sig of chainItem.supportingSignals) {
+            if (sig.signalId && !signalIds.includes(sig.signalId)) {
+              signalIds.push(sig.signalId);
+            }
+          }
+        }
+        
+        // Collect signal IDs from contradicting signals
+        if (chainItem.contradictingSignals && Array.isArray(chainItem.contradictingSignals)) {
+          for (const sig of chainItem.contradictingSignals) {
+            if (sig.signalId && !signalIds.includes(sig.signalId)) {
+              signalIds.push(sig.signalId);
+            }
+          }
+        }
+        
+        if (signalIds.length > 0) {
+          evidenceProvenance[claim] = signalIds;
+        }
+      }
+    }
+
     log.info("cross_signal_debate.complete", {
       analystConfidence: result.analystPosition.confidence,
       gossipTellStrength: result.gossipGirlPosition.tellStrength,
@@ -284,9 +395,11 @@ export async function generateCrossSignalDebate(
       contentionCount: result.pointsOfContention.length,
       analystClaimPopulated: !!result.analystPosition.claim,
       gossipClaimPopulated: !!result.gossipGirlPosition.claim,
+      evidenceChainLength: result.evidenceChain?.length ?? 0,
+      evidenceProvenanceEntries: Object.keys(evidenceProvenance).length,
     });
 
-    return result;
+    return { debate: result, evidenceProvenance };
   } catch (error) {
     log.error("cross_signal_debate.error", { error: String(error) });
     throw error;

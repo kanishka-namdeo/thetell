@@ -45,6 +45,25 @@ export interface WaybackSignal {
   metadata: Record<string, string>;
 }
 
+/**
+ * Detect the type of page from a URL path.
+ * Helps provide semantic context for what changed.
+ */
+function detectPageType(url: string): string {
+  try {
+    const path = new URL(url).pathname.toLowerCase();
+    if (path.includes("pricing") || path.includes("price")) return "Pricing page";
+    if (path.includes("about") || path.includes("team")) return "About/Team page";
+    if (path.includes("product") || path.includes("feature")) return "Product page";
+    if (path.includes("blog") || path.includes("news")) return "Blog/News";
+    if (path.includes("contact")) return "Contact page";
+    if (path === "/" || path === "") return "Homepage";
+    return "Other page";
+  } catch {
+    return "Unknown page";
+  }
+}
+
 export class WaybackScraper extends BaseScraper {
   constructor() {
     // Wayback Machine CDX: conservative rate, 30s timeout, 3 retries, 12h cache
@@ -61,7 +80,7 @@ export class WaybackScraper extends BaseScraper {
    */
   async scrapeDomainChanges(
     domain: string,
-    limit: number = 50,
+    limit: number = 100,
   ): Promise<WaybackSignal[]> {
     logger.info("wayback.scrape.start", { domain, limit });
 
@@ -89,7 +108,7 @@ export class WaybackScraper extends BaseScraper {
    */
   async scrapeUrlChanges(
     urlPattern: string,
-    limit: number = 50,
+    limit: number = 100,
   ): Promise<WaybackSignal[]> {
     logger.info("wayback.url.start", { urlPattern, limit });
 
@@ -249,6 +268,7 @@ export class WaybackScraper extends BaseScraper {
 
   /**
    * Describe the nature of change between two snapshots.
+   * Includes page type context and semantic interpretation.
    */
   private describeChange(
     earlier: WaybackSnapshot,
@@ -256,19 +276,40 @@ export class WaybackScraper extends BaseScraper {
     daysApart: number,
     digestChanged: boolean,
   ): string {
+    const earlierPageType = detectPageType(earlier.original);
+    const laterPageType = detectPageType(later.original);
+    const earlierPath = this.safePath(earlier.original);
+    const laterPath = this.safePath(later.original);
+
     if (!digestChanged) {
-      return `No content change between ${earlier.timestamp} and ${later.timestamp} (${Math.round(daysApart)} days apart)`;
+      return `No content change on ${earlierPageType} (${earlierPath}) between ${this.formatDate(earlier.timestamp)} and ${this.formatDate(later.timestamp)} (${Math.round(daysApart)} days apart)`;
     }
 
     const sizeDelta = later.length - earlier.length;
     const sizeDirection =
       sizeDelta > 0
-        ? `grew by ${sizeDelta} bytes`
+        ? `grew by ${sizeDelta.toLocaleString()} bytes`
         : sizeDelta < 0
-          ? `shrank by ${Math.abs(sizeDelta)} bytes`
+          ? `shrank by ${Math.abs(sizeDelta).toLocaleString()} bytes`
           : "same size";
 
-    return `Content changed between ${earlier.timestamp} and ${later.timestamp} (${Math.round(daysApart)} days apart, ${sizeDirection})`;
+    const pathChanged = earlierPath !== laterPath;
+    const pageTypeChanged = earlierPageType !== laterPageType;
+
+    let semanticNote = "";
+    if (pathChanged && pageTypeChanged) {
+      semanticNote = ` — ${earlierPageType} (${earlierPath}) was replaced with ${laterPageType} (${laterPath}), suggesting a strategic shift in site structure.`;
+    } else if (pathChanged) {
+      semanticNote = ` — URL changed from ${earlierPath} to ${laterPath}.`;
+    } else if (pageTypeChanged) {
+      semanticNote = ` — Page type changed from ${earlierPageType} to ${laterPageType}.`;
+    } else if (sizeDelta < -5000) {
+      semanticNote = " — Significant content reduction may indicate removed features or simplified messaging.";
+    } else if (sizeDelta > 5000) {
+      semanticNote = " — Significant content expansion may indicate new features or expanded messaging.";
+    }
+
+    return `${earlierPageType} (${earlierPath}) content changed over ${Math.round(daysApart)} days (${sizeDirection})${semanticNote}`;
   }
 
   /**
@@ -292,24 +333,61 @@ export class WaybackScraper extends BaseScraper {
   }
 
   /**
+   * Safely extract the pathname from a URL.
+   * Falls back to the original URL if parsing fails.
+   */
+  private safePath(url: string): string {
+    try {
+      const pathname = new URL(url).pathname;
+      return pathname === "/" ? "/" : pathname;
+    } catch {
+      return url;
+    }
+  }
+
+  /**
+   * Format a Wayback timestamp string into a human-readable date.
+   */
+  private formatDate(timestamp: string): string {
+    const date = this.parseWaybackTimestamp(timestamp);
+    return date ? date.toISOString().split("T")[0] : timestamp;
+  }
+
+  /**
+   * Format a Date object into a human-readable date string.
+   */
+  private formatDateObj(date: Date): string {
+    return date.toISOString().split("T")[0];
+  }
+
+  /**
    * Convert a SnapshotComparison into a WaybackSignal for downstream processing.
+   * Produces rich rawContent with page type labels and semantic interpretation.
    */
   private comparisonToSignal(
     comparison: SnapshotComparison,
     domain: string,
   ): WaybackSignal {
+    const earlierPath = this.safePath(comparison.earlierUrl);
+    const laterPath = this.safePath(comparison.laterUrl);
+    const earlierPageType = detectPageType(comparison.earlierUrl);
+    const laterPageType = detectPageType(comparison.laterUrl);
+
     const contentParts = [
-      `Domain: ${domain}`,
-      `Change: ${comparison.changeDescription}`,
-      `Earlier Snapshot: ${comparison.earlierUrl}`,
-      `Later Snapshot: ${comparison.laterUrl}`,
-      `Content Modified: ${comparison.digestChanged ? "Yes" : "No"}`,
-      `Significant: ${comparison.significantChange ? "Yes" : "No"}`,
+      `Website change detected for ${domain}`,
+      `Earlier: ${earlierPath} (${earlierPageType}) captured ${this.formatDateObj(comparison.earlierDate)}`,
+      `Later: ${laterPath} (${laterPageType}) captured ${this.formatDateObj(comparison.laterDate)}`,
+      `Change details: ${comparison.changeDescription}`,
+      `Significant change: ${comparison.significantChange ? "Yes" : "No"}`,
     ];
+
+    const title = comparison.significantChange
+      ? `${domain}: ${earlierPageType} → ${laterPageType} change detected`
+      : `Website change detected — ${domain}`;
 
     return {
       sourceUrl: comparison.laterUrl,
-      title: `Website Change Detected — ${domain}`,
+      title,
       rawContent: contentParts.join("\n"),
       publishedAt: comparison.laterDate,
       metadata: {
@@ -317,6 +395,8 @@ export class WaybackScraper extends BaseScraper {
         domain,
         earlierUrl: comparison.earlierUrl,
         laterUrl: comparison.laterUrl,
+        earlierPageType,
+        laterPageType,
         earlierDate: comparison.earlierDate.toISOString(),
         laterDate: comparison.laterDate.toISOString(),
         digestChanged: String(comparison.digestChanged),

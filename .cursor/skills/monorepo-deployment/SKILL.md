@@ -226,7 +226,7 @@ main()
 
 | Variable | Purpose | Example |
 |----------|---------|---------|
-| `DATABASE_URL` | PostgreSQL connection | `postgresql://user:pass@host:5432/db` |
+| `DATABASE_URL` | PostgreSQL connection | `postgresql://thell_user:thell_password@localhost:5433/the_tell` |
 | `OPENAI_API_KEY` | OpenAI API key | `sk-...` |
 | `ANTHROPIC_API_KEY` | Anthropic API key | `sk-ant-...` |
 | `NEXTAUTH_SECRET` | NextAuth encryption secret | Random string |

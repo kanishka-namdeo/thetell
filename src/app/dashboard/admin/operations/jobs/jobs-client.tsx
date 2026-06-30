@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -65,12 +65,7 @@ export function JobsClient() {
   const [cancelling, setCancelling] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    fetchJobs();
-    return () => controllerRef.current?.abort();
-  }, [statusFilter, typeFilter]);
-
-  async function fetchJobs() {
+  const fetchJobs = useCallback(async () => {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -83,15 +78,21 @@ export function JobsClient() {
       const res = await fetch(`/api/v1/admin/jobs?${params}`, { signal: controller.signal });
       if (!res.ok) throw new Error("Failed to fetch jobs");
       const data = await res.json();
-      setJobs(data.jobs);
-      setStats(data.stats);
+      setJobs(Array.isArray(data.jobs) ? data.jobs : []);
+      setStats(data.stats ?? null);
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return;
       toast.error("Failed to load jobs");
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [statusFilter, typeFilter]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchJobs();
+    return () => controllerRef.current?.abort();
+  }, [fetchJobs]);
 
   async function retryJob(jobId: string) {
     setRetrying(jobId);
@@ -143,6 +144,15 @@ export function JobsClient() {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}m ${secs}s`;
+  }
+
+  function getJobTypeDisplayName(type: string): string {
+    const displayNames: Record<string, string> = {
+      "analyze-signal": "Analyze Signal",
+      "discover-signals-unified": "Signal Discovery",
+      "discover-signals-cron": "Signal Discovery (Cron)",
+    };
+    return displayNames[type] || type;
   }
 
   function getStatusBadge(status: string) {
@@ -268,7 +278,8 @@ export function JobsClient() {
                 <SelectContent>
                   <SelectItem value="all">All</SelectItem>
                   <SelectItem value="analyze-signal">Analyze Signal</SelectItem>
-                  <SelectItem value="discover-signals">Discover Signals</SelectItem>
+                  <SelectItem value="discover-signals-unified">Signal Discovery</SelectItem>
+                  <SelectItem value="discover-signals-cron">Signal Discovery (Cron)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -315,7 +326,7 @@ export function JobsClient() {
                     <TableCell className="font-mono text-xs">
                       {job.id.slice(0, 8)}
                     </TableCell>
-                    <TableCell className="font-medium">{job.type}</TableCell>
+                    <TableCell className="font-medium">{getJobTypeDisplayName(job.type)}</TableCell>
                     <TableCell>{getStatusBadge(job.status)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {new Date(job.createdAt).toLocaleString()}

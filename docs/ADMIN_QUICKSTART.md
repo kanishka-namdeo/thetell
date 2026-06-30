@@ -206,7 +206,7 @@ pnpm tsx scripts/setup-admin.ts --reset
 
 **Solution**:
 - Verify your session has the ADMIN role
-- Check middleware configuration in `src/middleware.ts`
+- Check middleware configuration in `src/proxy.ts`
 - Ensure admin routes are properly protected
 - Check server logs for detailed error messages
 

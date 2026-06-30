@@ -71,7 +71,7 @@ import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 
 // 2. Internal absolute imports (@/ alias)
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/lib/db';
 import { cn } from '@/lib/utils';
 
 // 3. Relative imports (same directory or subdirectories)

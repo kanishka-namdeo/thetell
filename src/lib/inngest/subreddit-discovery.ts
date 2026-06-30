@@ -36,10 +36,7 @@ export const discoverSubredditsFunction = inngest.createFunction(
 
         const needingDiscovery = await prisma.company.findMany({
           where: {
-            AND: [
-              { status: "ACTIVE" },
-              { id: { notIn: recentLogCompanyIds } },
-            ],
+            id: { notIn: recentLogCompanyIds },
           },
           select: { id: true, name: true },
           take: 20,

@@ -7,9 +7,10 @@ import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { probeWebsite } from "./website-probe";
 import { lookupTicker } from "./ticker-lookup";
+import { lookupWebsite } from "./website-lookup";
 import { discoverSocialProfiles } from "./social-discovery";
 import { discoverBlogUrls } from "./blog-discovery";
-import type { EnrichmentResult, DiscoveredFeed, DiscoveredSocial, TickerLookupResult } from "./types";
+import type { EnrichmentResult, DiscoveredFeed, DiscoveredSocial, TickerLookupResult, WebsiteLookupResult } from "./types";
 import type { SourceType } from "@prisma/client";
 
 const VALID_SOURCE_TYPES = new Set<string>([
@@ -23,7 +24,7 @@ function toSourceType(value: string): SourceType {
 }
 
 /**
- * Enrich a company with discovered data sources, social profiles, and ticker.
+ * Enrich a company with discovered data sources, social profiles, ticker, and website.
  */
 export async function enrichCompany(companyId: string): Promise<EnrichmentResult> {
   const startTime = Date.now();
@@ -44,14 +45,55 @@ export async function enrichCompany(companyId: string): Promise<EnrichmentResult
       companyId,
       name: company.name,
       hasWebsite: !!company.websiteUrl,
+      hasTicker: !!company.ticker,
     });
 
-    // 2. Run discovery in parallel
-    const [tickerResult, feedsResult, socialsResult, blogsResult] = await Promise.all([
-      lookupTicker(company.name),
-      company.websiteUrl ? probeWebsite(company.websiteUrl) : Promise.resolve([] as DiscoveredFeed[]),
-      company.websiteUrl ? discoverSocialProfiles(company.name, company.websiteUrl) : Promise.resolve([] as DiscoveredSocial[]),
-      company.websiteUrl ? discoverBlogUrls(company.websiteUrl) : Promise.resolve([] as DiscoveredFeed[]),
+    // 2. Run discovery in parallel with individual timeouts
+    const withTimeout = <T>(promise: Promise<T>, ms: number, name: string): Promise<T> => {
+      const timeoutPromise = new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`${name} timeout after ${ms}ms`)), ms)
+      );
+      return Promise.race([promise, timeoutPromise]);
+    };
+
+    // First: lookup ticker and website (needed for website probing if missing)
+    const [tickerResult, websiteResult] = await Promise.all([
+      withTimeout(lookupTicker(company.name), 10000, "ticker"),
+      !company.websiteUrl ? withTimeout(lookupWebsite(company.name, company.ticker), 10000, "website-lookup") : Promise.resolve(null),
+    ]);
+
+    // Determine website URL to use (existing or discovered)
+    let websiteUrl = company.websiteUrl;
+    let website: WebsiteLookupResult | null = null;
+
+    if (!websiteUrl && websiteResult?.websiteUrl) {
+      websiteUrl = websiteResult.websiteUrl;
+      website = websiteResult;
+      
+      // Store discovered website URL
+      try {
+        await prisma.company.update({
+          where: { id: companyId },
+          data: { websiteUrl: websiteUrl },
+        });
+        logger.info("enrichment.website_stored", {
+          companyId,
+          websiteUrl,
+          confidence: websiteResult.confidence,
+        });
+      } catch (error) {
+        logger.warn("enrichment.website_store_failed", {
+          companyId,
+          error: String(error),
+        });
+      }
+    }
+
+    // Now: probe feeds, socials, blogs using the website URL
+    const [feedsResult, socialsResult, blogsResult] = await Promise.all([
+      websiteUrl ? withTimeout(probeWebsite(websiteUrl), 10000, "website") : Promise.resolve([] as DiscoveredFeed[]),
+      websiteUrl ? withTimeout(discoverSocialProfiles(company.name, websiteUrl), 10000, "social") : Promise.resolve([] as DiscoveredSocial[]),
+      websiteUrl ? withTimeout(discoverBlogUrls(websiteUrl), 10000, "blog") : Promise.resolve([] as DiscoveredFeed[]),
     ]);
 
     // 3. Extract results
@@ -100,8 +142,8 @@ export async function enrichCompany(companyId: string): Promise<EnrichmentResult
       }
     }
 
-    // 5. Store ticker if found
-    if (ticker?.ticker) {
+    // 5. Store ticker if found (and wasn't already set)
+    if (ticker?.ticker && !company.ticker) {
       try {
         await prisma.company.update({
           where: { id: companyId },
@@ -121,7 +163,7 @@ export async function enrichCompany(companyId: string): Promise<EnrichmentResult
 
     // 6. Create enrichment log
     const durationMs = Date.now() - startTime;
-    const status = determineStatus(feedsStored, ticker, socials.length, blogs.length);
+    const status = determineStatus(feedsStored, ticker, website, socials.length, blogs.length);
 
     await prisma.companyEnrichmentLog.create({
       data: {
@@ -141,6 +183,7 @@ export async function enrichCompany(companyId: string): Promise<EnrichmentResult
       feeds,
       socials,
       ticker,
+      website,
       blogs,
       status,
     };
@@ -153,6 +196,7 @@ export async function enrichCompany(companyId: string): Promise<EnrichmentResult
       socialsFound: socials.length,
       blogsFound: blogs.length,
       tickerFound: !!ticker?.ticker,
+      websiteFound: !!website?.websiteUrl,
       durationMs,
     });
 
@@ -166,26 +210,36 @@ export async function enrichCompany(companyId: string): Promise<EnrichmentResult
       durationMs,
     });
 
-    // Log failure
-    await prisma.companyEnrichmentLog.create({
-      data: {
-        companyId,
-        status: "failed",
-        feedsDiscovered: 0,
-        feedsValidated: 0,
-        tickerFound: null,
-        socialsDiscovered: 0,
-        blogsDiscovered: 0,
-        error: String(error),
-        durationMs,
-      },
-    });
+    // Log failure (only if we have a valid companyId)
+    if (companyId) {
+      try {
+        await prisma.companyEnrichmentLog.create({
+          data: {
+            companyId,
+            status: "failed",
+            feedsDiscovered: 0,
+            feedsValidated: 0,
+            tickerFound: null,
+            socialsDiscovered: 0,
+            blogsDiscovered: 0,
+            error: String(error),
+            durationMs,
+          },
+        });
+      } catch (logError) {
+        logger.error("enrichment.log_failed", {
+          companyId,
+          error: String(logError),
+        });
+      }
+    }
 
     return {
       companyId,
       feeds: [],
       socials: [],
       ticker: null,
+      website: null,
       blogs: [],
       status: "failed",
       error: String(error),
@@ -196,17 +250,18 @@ export async function enrichCompany(companyId: string): Promise<EnrichmentResult
 function determineStatus(
   feedsStored: number,
   ticker: TickerLookupResult | null,
+  website: WebsiteLookupResult | null,
   socialsCount: number,
   blogsCount: number
 ): "success" | "partial" | "failed" {
-  const hasAnyData = feedsStored > 0 || ticker?.ticker || socialsCount > 0 || blogsCount > 0;
+  const hasAnyData = feedsStored > 0 || ticker?.ticker || website?.websiteUrl || socialsCount > 0 || blogsCount > 0;
   
   if (!hasAnyData) {
     return "failed";
   }
 
-  // Success if we have feeds and either ticker or socials
-  if (feedsStored > 0 && (ticker?.ticker || socialsCount > 0)) {
+  // Success if we have feeds and either ticker, website, or socials
+  if (feedsStored > 0 && (ticker?.ticker || website?.websiteUrl || socialsCount > 0)) {
     return "success";
   }
 

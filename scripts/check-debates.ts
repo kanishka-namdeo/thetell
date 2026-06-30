@@ -27,8 +27,8 @@ async function main() {
     console.log('Company:', sample.inference.company.name);
     console.log('Analyst claim:', sample.analystClaim.substring(0, 100));
     console.log('Gossip claim:', sample.gossipClaim.substring(0, 100));
-    console.log('Agreements:', sample.agreements.length);
-    console.log('Contentions:', sample.contentions.length);
+    console.log('Agreements:', (sample.agreements as unknown[] || []).length);
+    console.log('Contentions:', (sample.contentions as unknown[] || []).length);
   }
   
   await prisma.$disconnect();

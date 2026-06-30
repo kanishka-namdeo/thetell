@@ -6,7 +6,7 @@ import * as cheerio from "cheerio";
 import { logger } from "@/lib/logger";
 import { BaseScraper } from "@/lib/scraping/base-scraper";
 import { WebSearchScraper } from "@/lib/scraping/web-search-scraper";
-import { getProvider } from "@/lib/ai/provider";
+import { getProviderWithFailover } from "@/lib/ai/provider";
 import { SocialProfileSchema, type DiscoveredSocial } from "./types";
 
 const SOCIAL_PLATFORM_PATTERNS: Array<{
@@ -178,7 +178,7 @@ async function searchForSocials(
       .map((r) => `${r.title}: ${r.url}`)
       .join("\n");
 
-    const provider = getProvider("openai");
+    const { provider } = getProviderWithFailover("openai");
     const extracted = await provider.completeStructured(
       [
         {
@@ -188,19 +188,30 @@ async function searchForSocials(
         },
         {
           role: "user",
-          content: `Extract social media profiles for "${companyName}" from these search results:\n\n${resultText}\n\nReturn only confirmed official profiles.`,
+          content: `Extract social media profiles for "${companyName}" from these search results. Return your response as JSON with a "profiles" array, each containing url (string) and platform (string).\n\n${resultText}\n\nReturn only confirmed official profiles.`,
         },
       ],
       SocialProfileSchema,
       { temperature: 0.2 }
     );
 
-    return extracted.profiles.map((p) => {
+    return extracted.profiles.map((p: { url: string; handle?: string }) => {
       const platform = detectPlatform(p.url);
+      // Extract handle from URL if not provided
+      let handle = p.handle;
+      if (!handle) {
+        try {
+          const url = new URL(p.url);
+          const pathParts = url.pathname.split("/").filter(Boolean);
+          handle = pathParts[pathParts.length - 1] || "";
+        } catch {
+          handle = "";
+        }
+      }
       return {
         url: p.url,
-        platform: platform ?? p.platform,
-        handle: p.handle,
+        platform: platform ?? "unknown",
+        handle,
         source: "web-search" as const,
       };
     });

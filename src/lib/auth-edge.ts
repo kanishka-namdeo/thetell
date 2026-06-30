@@ -9,7 +9,19 @@ import type { Role } from "@prisma/client";
  */
 
 export const { auth: authEdge } = NextAuth({
+  trustHost: true,
   session: { strategy: "jwt" },
+  cookies: {
+    sessionToken: {
+      name: `next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        path: "/",
+      },
+    },
+  },
   providers: [
     Credentials({
       name: "credentials",

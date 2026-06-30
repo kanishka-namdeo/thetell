@@ -55,10 +55,21 @@ export async function POST(req: Request) {
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
+    const now = new Date();
 
     await prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash },
+      data: {
+        passwordHash,
+        passwordChangedAt: now,
+        loginAttempts: 0,
+        lockoutUntil: null,
+      },
+    });
+
+    // Invalidate all existing sessions for this user
+    await prisma.session.deleteMany({
+      where: { userId: user.id },
     });
 
     await prisma.verificationToken.delete({

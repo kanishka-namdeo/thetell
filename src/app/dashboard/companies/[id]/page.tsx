@@ -9,15 +9,19 @@ import { SignalTable } from "@/components/dashboard/signal-table";
 import { ArticleCard } from "@/components/dashboard/article-card";
 import { WatchlistButton } from "@/components/dashboard/watchlist-button";
 import { DeleteCompanyButton } from "@/components/dashboard/delete-company-button";
+import { PipelineStatusBanner } from "@/components/dashboard/pipeline-status-banner";
 import { TrackedSubredditsSection } from "./tracked-subreddits-section";
+import { DataSourcesSection } from "./data-sources-section";
 import { enrichCompany } from "@/lib/enrichment";
 import Link from "next/link";
-import { ArrowLeft, ExternalLink, RefreshCw } from "lucide-react";
+import { ArrowLeft, ExternalLink, RefreshCw, Layers } from "lucide-react";
+import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
 interface CompanyDetailPageProps {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
 async function reEnrichAction(formData: FormData) {
@@ -36,53 +40,74 @@ async function reEnrichAction(formData: FormData) {
   try {
     await enrichCompany(companyId);
   } catch (error) {
-    console.error("Re-enrichment failed:", error);
+    logger.error("company.reenrichment_failed", { companyId, error: String(error) });
   }
 
   redirect(`/dashboard/companies/${companyId}`);
 }
 
-export default async function CompanyDetailPage({ params }: CompanyDetailPageProps) {
+export default async function CompanyDetailPage({ params, searchParams }: CompanyDetailPageProps) {
   const session = await auth();
   const { id } = await params;
+  const { discovery } = await searchParams;
+  const showDiscoveryBanner = discovery === "queued";
 
-  const company = await prisma.company.findUnique({
-    where: { id },
-    include: {
-      signals: {
-        take: 10,
-        orderBy: { scrapedAt: "desc" },
-        include: {
-          company: true,
-          analyses: true,
-        },
-      },
-      articles: {
-        take: 5,
-        orderBy: { publishedAt: "desc" },
-        include: {
-          company: true,
-          author: {
-            select: { name: true, email: true },
+  const [company, watchedCompany] = await Promise.all([
+    prisma.company.findUnique({
+      where: { id },
+      include: {
+        signals: {
+          take: 10,
+          orderBy: { scrapedAt: "desc" },
+          include: {
+            company: true,
+            analyses: true,
           },
         },
+        articles: {
+          take: 5,
+          orderBy: { publishedAt: "desc" },
+          include: {
+            company: true,
+            author: {
+              select: { name: true, email: true },
+            },
+          },
+        },
+        signalThemes: {
+          where: {
+            status: { in: ["EMERGING", "ACCELERATING"] },
+          },
+          orderBy: { momentum: "desc" },
+          take: 5,
+        },
+        trackedSubreddits: {
+          orderBy: { discoveredAt: "desc" },
+        },
+        dataSources: {
+          where: { isActive: true },
+          orderBy: { createdAt: "desc" },
+        },
+        enrichmentLogs: {
+          orderBy: { createdAt: "desc" },
+          take: 5,
+        },
+        _count: {
+          select: { signals: true, articles: true },
+        },
       },
-      trackedSubreddits: {
-        orderBy: { discoveredAt: "desc" },
-      },
-      dataSources: {
-        where: { isActive: true },
-        orderBy: { createdAt: "desc" },
-      },
-      enrichmentLogs: {
-        orderBy: { createdAt: "desc" },
-        take: 5,
-      },
-      _count: {
-        select: { signals: true, articles: true },
-      },
-    },
-  });
+    }),
+    session?.user?.id
+      ? prisma.watchedCompany.findUnique({
+          where: {
+            userId_companyId: {
+              userId: session.user.id,
+              companyId: id,
+            },
+          },
+        })
+      : Promise.resolve(null),
+  ]);
 
   if (!company) {
     notFound();
@@ -93,16 +118,7 @@ export default async function CompanyDetailPage({ params }: CompanyDetailPagePro
   );
   const socials = company.dataSources.filter(ds => ds.sourceType === "SOCIAL");
 
-  const isWatched = session?.user?.id
-    ? await prisma.watchedCompany.findUnique({
-        where: {
-          userId_companyId: {
-            userId: session.user.id,
-            companyId: company.id,
-          },
-        },
-      }).then(w => !!w)
-    : false;
+  const isWatched = !!watchedCompany;
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
@@ -115,6 +131,11 @@ export default async function CompanyDetailPage({ params }: CompanyDetailPagePro
           </Button>
         </Link>
       </div>
+
+      {/* Pipeline Status Banner */}
+      {session?.user?.role === "ADMIN" && (
+        <PipelineStatusBanner companyId={company.id} show={showDiscoveryBanner} />
+      )}
 
       {/* Header */}
       <div className="border-b-2 border-foreground pb-4">
@@ -170,8 +191,62 @@ export default async function CompanyDetailPage({ params }: CompanyDetailPagePro
               Articles
             </p>
           </div>
+          <div className="border-l-2 border-foreground pl-3">
+            <p className="text-2xl font-serif font-bold">{company.signalThemes.length}</p>
+            <p className="text-xs uppercase tracking-widest font-sans text-muted-foreground">
+              Clusters
+            </p>
+          </div>
         </div>
       </div>
+
+      {/* Active Clusters */}
+      {company.signalThemes.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Layers className="h-5 w-5 text-primary" />
+              <CardTitle>Active Clusters</CardTitle>
+            </div>
+            <CardDescription>
+              Signal clusters detected for this company
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {company.signalThemes.map((theme) => (
+                <Link
+                  key={theme.id}
+                  href={`/clusters/${theme.id}`}
+                  className="block border-l-2 border-primary pl-3 py-2 hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">{theme.label}</p>
+                      {theme.description && (
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                          {theme.description}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 mt-1">
+                        <Badge
+                          variant={theme.status === "ACCELERATING" ? "default" : "secondary"}
+                          className="text-[10px]"
+                        >
+                          {theme.status}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground font-mono">
+                          Momentum: {theme.momentum.toFixed(1)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tracked Subreddits */}
       <TrackedSubredditsSection
@@ -181,71 +256,14 @@ export default async function CompanyDetailPage({ params }: CompanyDetailPagePro
       />
 
       {/* Data Sources */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Data Sources</CardTitle>
-            <CardDescription>
-              Automatically discovered feeds, social profiles, and metadata
-            </CardDescription>
-          </div>
-          <form action={reEnrichAction}>
-            <input type="hidden" name="companyId" value={company.id} />
-            <Button type="submit" size="sm" variant="outline">
-              <RefreshCw className="h-3 w-3 mr-1" />
-              Re-enrich
-            </Button>
-          </form>
-        </CardHeader>
-        <CardContent>
-          {company.dataSources.length === 0 && (
-            <div className="text-sm text-muted-foreground">
-              No data sources discovered yet. Enrichment runs automatically after company creation.
-            </div>
-          )}
-
-          {company.dataSources.length > 0 && (
-            <div className="space-y-4">
-              <div>
-                <h4 className="text-sm font-medium mb-2">RSS Feeds & Blogs</h4>
-                <div className="space-y-1">
-                  {feeds.length > 0 ? (
-                    feeds.map(source => (
-                      <div key={source.id} className="flex items-center justify-between text-sm">
-                        <span className="truncate mr-2">{source.label || source.url}</span>
-                        <Badge variant="outline">{source.sourceType}</Badge>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No feeds discovered yet.</p>
-                  )}
-                </div>
-              </div>
-
-              {socials.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-medium mb-2">Social Profiles</h4>
-                  <div className="space-y-1">
-                    {socials.map(source => (
-                      <div key={source.id} className="flex items-center justify-between text-sm">
-                        <span className="truncate mr-2">{source.url}</span>
-                        <Badge variant="outline">{source.sourceType}</Badge>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {company.ticker && (
-                <div>
-                  <h4 className="text-sm font-medium mb-2">Stock Ticker</h4>
-                  <Badge>{company.ticker}</Badge>
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <DataSourcesSection
+        feeds={feeds}
+        socials={socials}
+        ticker={company.ticker}
+        companyId={company.id}
+        companyName={company.name}
+        isAdmin={session?.user?.role === "ADMIN"}
+      />
 
       {/* Enrichment History */}
       {company.enrichmentLogs.length > 0 && (
@@ -261,6 +279,41 @@ export default async function CompanyDetailPage({ params }: CompanyDetailPagePro
                   <Badge variant={log.status === "success" ? "default" : log.status === "partial" ? "secondary" : "destructive"}>
                     {log.status}
                   </Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Cluster Summary */}
+      {company.signalThemes.length > 0 && (
+        <Card className="border-l-4 border-l-primary">
+          <CardHeader>
+            <CardTitle>Active Clusters</CardTitle>
+            <CardDescription>
+              Strategic themes and signal clusters for this company
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {company.signalThemes.map((theme) => (
+                <div
+                  key={theme.id}
+                  className="flex items-start justify-between gap-4 p-3 border border-border rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex-1">
+                    <Link href={`/clusters/${theme.id}`}>
+                      <h4 className="font-medium hover:underline">{theme.label}</h4>
+                    </Link>
+                    <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
+                      <Badge variant="secondary">{theme.status}</Badge>
+                      <span>Momentum: {theme.momentum.toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <Link href={`/clusters/${theme.id}`}>
+                    <Button variant="outline" size="sm">View Cluster</Button>
+                  </Link>
                 </div>
               ))}
             </div>

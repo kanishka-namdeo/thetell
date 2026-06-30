@@ -3,9 +3,7 @@ import { AgentPersona } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
-import { generateArticle } from "@/lib/ai/article-generator";
-import { generateArticleWithAgent } from "@/lib/ai/agent/article-generator";
-import { getAgentConfig } from "@/lib/ai/agent/personas";
+import { inngest } from "@/lib/inngest/client";
 
 export async function POST(request: NextRequest) {
   const requestId = crypto.randomUUID();
@@ -89,69 +87,49 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const analysesForGeneration = analyses.map((a) => ({
-      summary: a.summary,
-      keyFacts: (a.keyFacts as Array<{ text: string }>) || [],
-      sentiment: a.sentiment,
-      strategicThemes: (a.strategicThemes as Array<{ label: string }>) || [],
-    }));
-
     const resolvedPersona: AgentPersona = agentPersona ?? "ANALYST";
-    let article: { title: string; slug: string; summary: string; body: string };
+    const status = body.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT";
+    const jobId = crypto.randomUUID();
 
-    if (agentPersona) {
-      const agentConfig = getAgentConfig(agentPersona);
-
-      const crossRefAnalyses = await prisma.analysis.findMany({
-        where: {
-          signalId: { in: analyses.map((a) => a.signalId) },
-          agentPersona: { not: agentPersona },
-        },
-      });
-
-      const crossRefs = crossRefAnalyses.map((a) => ({
-        summary: a.summary,
-        agentPersona: a.agentPersona,
-        keyFacts: ((a.keyFacts as Array<{ text: string }>) || []).map((f) => f.text),
-      }));
-
-      article = await generateArticleWithAgent(
-        { companyId, companyName: company.name, analyses: analysesForGeneration },
-        agentConfig,
-        crossRefs.length > 0 ? crossRefs : undefined
-      );
+    if (process.env.INNGEST_SIGNING_KEY) {
+      try {
+        await inngest.send({
+          name: "article/generate.requested",
+          data: {
+            jobId,
+            companyId,
+            analysisIds,
+            agentPersona: resolvedPersona,
+            customHeadline,
+            authorId: session.user.id,
+            status,
+          },
+        });
+      } catch (err) {
+        log.error("api.article.inngest_send_failed", { error: String(err) });
+      }
     } else {
-      article = await generateArticle({
-        companyId,
-        companyName: company.name,
-        analyses: analysesForGeneration,
+      log.warn("api.article.inngest_not_configured", {
+        jobId,
+        reason: "INNGEST_SIGNING_KEY not set — article will not be generated",
       });
     }
 
-    const status = body.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT";
+    log.info("api.request.accepted", { jobId, agentPersona: resolvedPersona, status });
 
-    const dbArticle = await prisma.article.create({
-      data: {
-        title: customHeadline || article.title,
-        slug: article.slug,
-        summary: article.summary,
-        body: article.body,
-        companyId,
-        agentPersona: resolvedPersona,
-        analysisIds: analysisIds,
+    return NextResponse.json(
+      {
+        jobId,
+        message: "Article generation queued",
         status,
-        authorId: session.user.id,
-        publishedAt: status === "PUBLISHED" ? new Date() : null,
+        agentPersona: resolvedPersona,
       },
-    });
-
-    log.info("api.request.success", { articleId: dbArticle.id, agentPersona: resolvedPersona });
-
-    return NextResponse.json(dbArticle, { status: 201 });
+      { status: 202 }
+    );
   } catch (error) {
     log.error("api.request.error", { error: String(error) });
     return NextResponse.json(
-      { error: "internal_error", message: "Failed to generate article" },
+      { error: "internal_error", message: "Failed to queue article generation" },
       { status: 500 }
     );
   }

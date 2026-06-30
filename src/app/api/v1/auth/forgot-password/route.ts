@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import crypto from "crypto";
+import { logger } from "@/lib/logger";
 
 const forgotPasswordSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -40,14 +41,15 @@ export async function POST(req: Request) {
       // In production, send email with reset link
       // For development, log the token (never log full link in production)
       if (process.env.NODE_ENV === "development") {
-        console.log(`[Password Reset] Token generated for ${email}`);
+        logger.debug("forgot_password.token_generated", { email });
       }
     }
 
     return NextResponse.json({
       message: "If an account exists with that email, you will receive a password reset link.",
     });
-  } catch {
+  } catch (error) {
+    logger.error("forgot_password.error", { error: String(error) });
     return NextResponse.json(
       { error: "Failed to process request" },
       { status: 500 }

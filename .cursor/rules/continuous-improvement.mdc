@@ -37,6 +37,7 @@ Every mistake is a rule or skill update opportunity. When you encounter a failur
 | Skill is too verbose or unfocused | Apply conciseness audit per `write-effective-skills.mdc` |
 | Skill conflicts with another skill | Clarify boundary, rename, or split |
 | Skill's companion file became stale | Update `references/`, `scripts/`, or `assets/` content |
+| Found `ponytail:` comments in codebase | Harvest into debt ledger per `general.mdc` simplification marking |
 
 ## Capture Process
 
@@ -72,6 +73,7 @@ Determine whether the mistake belongs to a rule domain or a skill domain, then i
 | Subagent-driven dev | `.agents/skills/subagent-driven-development/` | Missing handoff context, unclear success criteria |
 | LLM Provider | `.cursor/skills/llm-abstraction/` | OpenAI/Anthropic provider, Zod structured output, multi-provider LLM |
 | LangGraph orchestration | `.cursor/skills/langgraph-orchestration/` | Signal pipeline graph (LangGraph.js), cross-signal inference, article generation, checkpointing, streaming |
+| Ponytail/over-engineering | `.cursor/skills/over-engineering-review/` | `ponytail:` comment debt harvesting, simplification review, YAGNI enforcement |
 
 ### 2. Research Current Best Practice
 

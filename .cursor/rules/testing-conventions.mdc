@@ -83,7 +83,7 @@ describe('validateEmail', () => {
 ```typescript
 import { describe, it, expect } from 'vitest';
 import { POST } from './route';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/lib/db';
 
 describe('POST /api/auth/register', () => {
   it('returns 400 when email is missing', async () => {
@@ -116,7 +116,7 @@ describe('POST /api/auth/register', () => {
 ```typescript
 import { describe, it, expect } from 'vitest';
 import { createItem } from '@/app/actions/create-item';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/lib/db';
 
 describe('createItem', () => {
   it('creates item with valid data', async () => {

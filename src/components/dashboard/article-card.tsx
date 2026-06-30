@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, Clock } from "lucide-react";
+import { Calendar, Clock, Layers } from "lucide-react";
 
 interface ArticleCardProps {
   id: string;
@@ -16,6 +16,11 @@ interface ArticleCardProps {
   publishedAt: string | null;
   status: "DRAFT" | "PUBLISHED" | "PENDING_REVIEW";
   authorName: string | null;
+  sourceSignalId?: string | null;
+  cluster?: {
+    id: string;
+    label: string;
+  } | null;
 }
 
 export function ArticleCard({
@@ -28,6 +33,8 @@ export function ArticleCard({
   publishedAt,
   status,
   authorName,
+  sourceSignalId,
+  cluster,
 }: ArticleCardProps) {
   const formatDate = (date: string | null) => {
     if (!date) return "Not published";
@@ -39,15 +46,33 @@ export function ArticleCard({
   };
 
   return (
-    <Card className="hard-shadow-hover transition-all">
+    <Card className="hard-shadow-hover transition-all relative overflow-hidden">
+      {/* Fold effect in top-right */}
+      <div className="absolute top-0 right-0 w-12 h-12 bg-muted/50 border-l border-b border-border transform rotate-45 translate-x-6 -translate-y-6" />
+      
       <CardHeader>
         <div className="flex items-start justify-between gap-2 min-w-0">
           <CardTitle className="text-lg leading-tight truncate min-w-0" title={title}>
             {title}
           </CardTitle>
-          <Badge variant={status === "PUBLISHED" ? "default" : "outline"} className="shrink-0">
-            {status}
-          </Badge>
+          <div className="flex items-center gap-2 shrink-0">
+            {authorName && (
+              <Badge variant={authorName.includes("Analyst") ? "default" : "secondary"} className="text-[10px]">
+                {authorName}
+              </Badge>
+            )}
+            {cluster && (
+              <Link href={`/clusters/${cluster.id}`}>
+                <Badge variant="accent" className="text-[10px] gap-1 hover:opacity-80">
+                  <Layers className="h-3 w-3" />
+                  Cluster
+                </Badge>
+              </Link>
+            )}
+            <Badge variant={status === "PUBLISHED" ? "default" : "outline"}>
+              {status}
+            </Badge>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -69,12 +94,17 @@ export function ArticleCard({
           )}
         </div>
       </CardContent>
-      <CardFooter>
-        <Link href={`/dashboard/articles/${id}`} className="flex-1">
-          <Button variant="outline" size="sm" className="w-full">
+      <CardFooter className="flex justify-between items-center">
+        <Link href={`/dashboard/articles/${id}`}>
+          <Button variant="outline" size="sm">
             Read Article
           </Button>
         </Link>
+        {sourceSignalId && (
+          <Link href={`/dashboard/signals/${sourceSignalId}`} className="text-xs text-muted-foreground hover:text-foreground">
+            View Source Signal
+          </Link>
+        )}
       </CardFooter>
     </Card>
   );

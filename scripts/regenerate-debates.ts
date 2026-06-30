@@ -96,22 +96,22 @@ async function main() {
       await prisma.crossSignalDebate.update({
         where: { id: debate.id },
         data: {
-          analystClaim: newDebate.analystPosition.claim || '',
-          analystEvidence: newDebate.analystPosition.evidence || [],
-          analystConfidence: newDebate.analystPosition.confidence,
-          gossipClaim: newDebate.gossipGirlPosition.claim || '',
-          gossipEvidence: newDebate.gossipGirlPosition.evidence || [],
-          gossipTellStrength: newDebate.gossipGirlPosition.tellStrength,
-          agreements: newDebate.pointsOfAgreement,
-          contentions: newDebate.pointsOfContention,
-          synthesisText: newDebate.synthesis,
+          analystClaim: newDebate.debate.analystPosition.claim || '',
+          analystEvidence: newDebate.debate.analystPosition.evidence || [],
+          analystConfidence: newDebate.debate.analystPosition.confidence,
+          gossipClaim: newDebate.debate.gossipGirlPosition.claim || '',
+          gossipEvidence: newDebate.debate.gossipGirlPosition.evidence || [],
+          gossipTellStrength: newDebate.debate.gossipGirlPosition.tellStrength,
+          agreements: newDebate.debate.pointsOfAgreement,
+          contentions: newDebate.debate.pointsOfContention,
+          synthesisText: newDebate.debate.synthesis,
           debateTranscript: JSON.stringify(newDebate),
         },
       });
       
       console.log(`  ✓ Updated`);
-      console.log(`    Analyst claim: ${(newDebate.analystPosition.claim || '').substring(0, 60)}...`);
-      console.log(`    Gossip claim: ${(newDebate.gossipGirlPosition.claim || '').substring(0, 60)}...\n`);
+      console.log(`    Analyst claim: ${(newDebate.debate.analystPosition.claim || '').substring(0, 60)}...`);
+      console.log(`    Gossip claim: ${(newDebate.debate.gossipGirlPosition.claim || '').substring(0, 60)}...\n`);
     } catch (error) {
       console.log(`  ✗ Failed: ${error instanceof Error ? error.message : String(error)}\n`);
     }

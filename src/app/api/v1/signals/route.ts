@@ -3,11 +3,6 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { SourceType, Sentiment, AgentPersona, Prisma } from "@prisma/client";
 import { inngest } from "@/lib/inngest/client";
-import { analyzeSignalWithAgent } from "@/lib/ai/agent/pipeline";
-import { ANALYST_CONFIG, GOSSIP_GIRL_CONFIG } from "@/lib/ai/agent/personas";
-import { generateArticleWithAgent } from "@/lib/ai/agent/article-generator";
-import type { CrossRefAnalysis } from "@/lib/ai/agent/pipeline";
-import { extractSentimentLabel } from "@/lib/ai/agent/types";
 import { NewsScraper } from "@/lib/scraping/news-scraper";
 import { BlogScraper } from "@/lib/scraping/blog-scraper";
 import { SocialScraper } from "@/lib/scraping/social-scraper";
@@ -57,11 +52,16 @@ export async function GET(request: NextRequest) {
     const agentPersona = searchParams.get("agentPersona") as AgentPersona | null;
     const includeInferences = searchParams.get("includeInferences") === "true";
     const includeCorrelations = searchParams.get("includeCorrelations") === "true";
+    const includeCluster = searchParams.get("includeCluster") === "true";
+    const clusterId = searchParams.get("clusterId");
 
     log.info("api.request.start", { method: "GET", path: "/api/v1/signals" });
 
-    const where: Record<string, unknown> = { status: "ANALYZED" };
+    const where: Record<string, unknown> = {};
+    const statusFilter = searchParams.get("status");
+    if (statusFilter) where.status = statusFilter;
     if (companyId) where.companyId = companyId;
+    if (clusterId) where.clusterId = clusterId;
     if (sourceType) where.sourceType = sourceType;
     if (sentiment || agentPersona) {
       const analysesWhere: Record<string, unknown> = {};
@@ -81,6 +81,20 @@ export async function GET(request: NextRequest) {
           : true,
         ...(includeInferences || includeCorrelations
           ? { themes: { select: { id: true, label: true } } }
+          : {}),
+        ...(includeCluster
+          ? {
+              cluster: {
+                select: {
+                  id: true,
+                  label: true,
+                  clusterSummary: true,
+                  status: true,
+                  momentum: true,
+                  signals: { select: { id: true } },
+                },
+              },
+            }
           : {}),
       },
       orderBy: { scrapedAt: "desc" },
@@ -294,26 +308,48 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const signal = await prisma.signal.create({
-      data: {
-        sourceUrl,
-        sourceType,
-        title,
-        rawContent,
-        contentHash,
-        publishedAt: publishedAt ? new Date(publishedAt) : null,
-        companyId,
-        status: "PENDING",
-        engagement: (engagement as Prisma.InputJsonValue) ?? undefined,
-        author: author ?? undefined,
-        metadata: (metadata as Prisma.InputJsonValue) ?? undefined,
-        scraperName: null,
-        verified: true,
-        scrapeAttempts: null,
-        rawContentHash: null,
-        dataOrigin: "MANUAL",
-      },
-    });
+    let signal;
+    try {
+      signal = await prisma.signal.create({
+        data: {
+          sourceUrl,
+          sourceType,
+          title,
+          rawContent,
+          contentHash,
+          publishedAt: publishedAt ? new Date(publishedAt) : null,
+          companyId,
+          status: "PENDING",
+          engagement: (engagement as Prisma.InputJsonValue) ?? undefined,
+          author: author ?? undefined,
+          metadata: (metadata as Prisma.InputJsonValue) ?? undefined,
+          scraperName: null,
+          verified: true,
+          scrapeAttempts: null,
+          rawContentHash: null,
+          dataOrigin: "MANUAL",
+        },
+      });
+    } catch (createError) {
+      if (createError instanceof Prisma.PrismaClientKnownRequestError && createError.code === "P2002") {
+        const existing = await prisma.signal.findUnique({
+          where: { contentHash },
+          include: { company: true, analyses: true },
+        });
+        if (existing) {
+          logger.info("Duplicate signal detected (race condition handled)", {
+            contentHash,
+            existingSignalId: existing.id,
+            newUrl: sourceUrl,
+          });
+          return NextResponse.json(
+            { ...existing, deduplicated: true },
+            { status: 200 },
+          );
+        }
+      }
+      throw createError;
+    }
 
     // Store embedding for the new signal
     if (embedding) {
@@ -412,10 +448,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Task 2: Replace Inngest with synchronous analysis
-    const useInngest = !!process.env.INNGEST_SIGNING_KEY;
-
-    if (useInngest) {
+    // ponytail: inline analysis fallback removed — requires INNGEST_SIGNING_KEY for background analysis
+    if (process.env.INNGEST_SIGNING_KEY) {
       try {
         await inngest.send({
           name: "signal/analysis.requested",
@@ -425,257 +459,16 @@ export async function POST(request: NextRequest) {
         logger.error("Failed to trigger Inngest analysis", { error: String(err) });
       }
     } else {
-      // Run analysis synchronously
-      await prisma.signal.update({
-        where: { id: signal.id },
-        data: { status: "ANALYZING" },
+      logger.warn("api.signal.inngest_not_configured", {
+        signalId: signal.id,
+        reason: "INNGEST_SIGNING_KEY not set — signal will not be analyzed until background jobs are enabled",
       });
-
-      try {
-        const signalInput = {
-          id: signal.id,
-          sourceUrl: signal.sourceUrl,
-          sourceType: signal.sourceType,
-          title: signal.title,
-          rawContent: signal.rawContent,
-          publishedAt: signal.publishedAt,
-          scrapedAt: signal.scrapedAt,
-          companyId: signal.companyId,
-          status: signal.status,
-          company: {
-            id: company.id,
-            name: company.name,
-            slug: company.slug,
-            ticker: company.ticker,
-          },
-        };
-
-        // Run Analyst agent pipeline
-        const analystAnalysis = await analyzeSignalWithAgent(signalInput, ANALYST_CONFIG);
-
-        // Extract simple sentiment label for DB enum field
-        const analystSentimentLabel = extractSentimentLabel(analystAnalysis);
-
-        // Create Analyst analysis record
-        await prisma.analysis.create({
-          data: {
-            id: analystAnalysis.id,
-            signalId: signal.id,
-            agentPersona: "ANALYST",
-            summary: analystAnalysis.summary,
-            keyFacts: analystAnalysis.keyFacts,
-            sentiment: analystSentimentLabel,
-            sentimentData: analystAnalysis.sentiment,
-            strategicThemes: analystAnalysis.strategicThemes,
-            confidence: analystAnalysis.confidence,
-            modelUsed: analystAnalysis.modelUsed,
-            analyzedAt: new Date(analystAnalysis.analyzedAt),
-          },
-        });
-
-        // Run Gossip Girl agent pipeline with cross-reference to Analyst
-        const crossRefAnalyses: CrossRefAnalysis[] = [
-          {
-            id: analystAnalysis.id,
-            agentPersona: analystAnalysis.agentPersona,
-            summary: analystAnalysis.summary,
-            keyFacts: analystAnalysis.keyFacts.map((f) => ({ text: f.text })),
-            sentiment: analystSentimentLabel,
-            strategicThemes: analystAnalysis.strategicThemes.map((t) => ({
-              label: t.label,
-            })),
-          },
-        ];
-
-        const gossipGirlAnalysis = await analyzeSignalWithAgent(
-          signalInput,
-          GOSSIP_GIRL_CONFIG,
-          crossRefAnalyses
-        );
-
-        // Extract simple sentiment label for DB enum field
-        const gossipSentimentLabel = extractSentimentLabel(gossipGirlAnalysis);
-
-        // Create Gossip Girl analysis record
-        await prisma.analysis.create({
-          data: {
-            id: gossipGirlAnalysis.id,
-            signalId: signal.id,
-            agentPersona: "GOSSIP_GIRL",
-            summary: gossipGirlAnalysis.summary,
-            keyFacts: gossipGirlAnalysis.keyFacts,
-            sentiment: gossipSentimentLabel,
-            sentimentData: gossipGirlAnalysis.sentiment,
-            strategicThemes: gossipGirlAnalysis.strategicThemes,
-            confidence: gossipGirlAnalysis.confidence,
-            modelUsed: gossipGirlAnalysis.modelUsed,
-            crossReferences: gossipGirlAnalysis.crossReferences ?? undefined,
-            analyzedAt: new Date(gossipGirlAnalysis.analyzedAt),
-          },
-        });
-
-        const updatedSignal = await prisma.signal.update({
-          where: { id: signal.id },
-          data: { status: "ANALYZED" },
-        });
-
-        Object.assign(signal, updatedSignal);
-
-        // Generate debate between agents
-        try {
-          const { generateDebate } = await import("@/lib/ai/agent/debate");
-          const debate = await generateDebate(analystAnalysis, gossipGirlAnalysis);
-          
-          await prisma.agentDebate.create({
-            data: {
-              signalId: signal.id,
-              analystPosition: debate.analystPosition,
-              gossipGirlPosition: debate.gossipGirlPosition,
-              pointsOfAgreement: debate.pointsOfAgreement,
-              pointsOfContention: debate.pointsOfContention,
-              synthesis: debate.synthesis,
-            },
-          });
-        } catch (debateErr) {
-          logger.error("Debate generation failed", { error: String(debateErr) });
-        }
-
-        // Generate articles for both agents
-        try {
-          // Check if Analyst article already exists for this signal
-          const existingAnalystArticles = await prisma.article.findMany({
-            where: {
-              companyId: signal.companyId,
-              agentPersona: "ANALYST",
-            },
-          });
-          const existingAnalystArticle = existingAnalystArticles.find((a) => {
-            const ids = (a.analysisIds as string[]) ?? [];
-            return ids.includes(analystAnalysis.id);
-          });
-
-          if (!existingAnalystArticle) {
-            // Generate Analyst article with cross-reference to Gossip Girl
-            const analystArticleInput = {
-              companyId: signal.companyId,
-              companyName: company.name,
-              analyses: [
-                {
-                  summary: analystAnalysis.summary,
-                  keyFacts: analystAnalysis.keyFacts.map((f) => ({ text: f.text })),
-                  sentiment: analystSentimentLabel,
-                  strategicThemes: analystAnalysis.strategicThemes.map((t) => ({
-                    label: t.label,
-                  })),
-                },
-              ],
-            };
-
-            const crossRefForAnalystArticle = [
-              {
-                summary: gossipGirlAnalysis.summary,
-                agentPersona: gossipGirlAnalysis.agentPersona,
-                keyFacts: gossipGirlAnalysis.keyFacts.map((f) => f.text),
-              },
-            ];
-
-            const analystArticleResult = await generateArticleWithAgent(
-              analystArticleInput,
-              ANALYST_CONFIG,
-              crossRefForAnalystArticle
-            );
-
-            await prisma.article.create({
-              data: {
-                title: analystArticleResult.title,
-                slug: analystArticleResult.slug,
-                summary: analystArticleResult.summary,
-                body: analystArticleResult.body,
-                companyId: signal.companyId,
-                agentPersona: "ANALYST",
-                analysisIds: [analystAnalysis.id],
-                status: "PUBLISHED",
-                authorId: session.user.id,
-                publishedAt: new Date(),
-              },
-            });
-          } else {
-            logger.info("Analyst article already exists for signal", { signalId: signal.id });
-          }
-
-          // Check if Gossip Girl article already exists for this signal
-          const existingGossipArticles = await prisma.article.findMany({
-            where: {
-              companyId: signal.companyId,
-              agentPersona: "GOSSIP_GIRL",
-            },
-          });
-          const existingGossipArticle = existingGossipArticles.find((a) => {
-            const ids = (a.analysisIds as string[]) ?? [];
-            return ids.includes(gossipGirlAnalysis.id);
-          });
-
-          if (!existingGossipArticle) {
-            // Generate Gossip Girl article with cross-reference to Analyst
-            const gossipGirlArticleInput = {
-              companyId: signal.companyId,
-              companyName: company.name,
-              analyses: [
-                {
-                  summary: gossipGirlAnalysis.summary,
-                  keyFacts: gossipGirlAnalysis.keyFacts.map((f) => ({ text: f.text })),
-                  sentiment: gossipSentimentLabel,
-                  strategicThemes: gossipGirlAnalysis.strategicThemes.map((t) => ({
-                    label: t.label,
-                  })),
-                },
-              ],
-            };
-
-            const crossRefForArticle = [
-              {
-                summary: analystAnalysis.summary,
-                agentPersona: analystAnalysis.agentPersona,
-                keyFacts: analystAnalysis.keyFacts.map((f) => f.text),
-              },
-            ];
-
-            const gossipGirlArticleResult = await generateArticleWithAgent(
-              gossipGirlArticleInput,
-              GOSSIP_GIRL_CONFIG,
-              crossRefForArticle
-            );
-
-            await prisma.article.create({
-              data: {
-                title: gossipGirlArticleResult.title,
-                slug: gossipGirlArticleResult.slug,
-                summary: gossipGirlArticleResult.summary,
-                body: gossipGirlArticleResult.body,
-                companyId: signal.companyId,
-                agentPersona: "GOSSIP_GIRL",
-                analysisIds: [gossipGirlAnalysis.id],
-                status: "PUBLISHED",
-                authorId: session.user.id,
-                publishedAt: new Date(),
-              },
-            });
-          } else {
-            logger.info("Gossip Girl article already exists for signal", { signalId: signal.id });
-          }
-        } catch (articleErr) {
-          logger.error("Article generation failed", { error: String(articleErr) });
-        }
-      } catch (err) {
-        logger.error("Analysis failed", { error: String(err) });
-        await prisma.signal.update({
-          where: { id: signal.id },
-          data: { status: "FAILED" },
-        });
-      }
     }
 
-    return NextResponse.json(signal, { status: 201 });
+    return NextResponse.json(
+      { id: signal.id, status: signal.status, message: "Signal accepted; analysis queued" },
+      { status: 202 }
+    );
   } catch (error) {
     logger.error("Error creating signal", { error: String(error) });
     return NextResponse.json(

@@ -30,6 +30,9 @@ import { ConferenceAgendaScraper } from "./conference-agenda-scraper";
 import { AppStoreScraper } from "./app-store-scraper";
 import { ConferenceScraper } from "./conference-scraper";
 import { WebSearchScraper } from "./web-search-scraper";
+import { StealthBrowserScraper } from "./stealth-browser-scraper";
+import { MastodonScraper } from "./mastodon-scraper";
+import { TwitterScraper } from "./twitter-scraper";
 
 export interface ScraperConfig {
   enabled: boolean;
@@ -42,6 +45,40 @@ export interface ScraperEntry<T> {
   config: Record<string, string | undefined>;
 }
 
+// Cached scraper instances to avoid re-allocating on every call
+const scraperInstances = {
+  rss: new RssScraper(),
+  filing: new FilingScraper(),
+  blog: new BlogScraper(),
+  social: new SocialScraper(),
+  jobPosting: new JobPostingScraper(),
+  transcript: new TranscriptScraper(),
+  news: new NewsScraper(),
+  github: new GitHubScraper(),
+  certTransparency: new CertTransparencyScraper(),
+  redditFinancial: new RedditFinancialScraper(),
+  pressRelease: new PressReleaseScraper(),
+  uspto: new UspScraper(),
+  courtListener: new CourtListenerScraper(),
+  fda: new FdaScraper(),
+  sam: new SamScraper(),
+  wayback: new WaybackScraper(),
+  congress: new CongressScraper(),
+  academic: new AcademicScraper(),
+  lobbying: new LobbyingScraper(),
+  supplierEarning: new SupplierEarningScraper(),
+  execAppearance: new ExecutiveAppearanceScraper(),
+  appStoreTracker: new AppStoreTracker(),
+  domainTracker: new DomainTracker(),
+  conferenceAgenda: new ConferenceAgendaScraper(),
+  appStore: new AppStoreScraper(),
+  conference: new ConferenceScraper(),
+  webSearch: new WebSearchScraper(),
+  stealthBrowser: new StealthBrowserScraper(),
+  mastodon: new MastodonScraper(),
+  twitter: new TwitterScraper(),
+};
+
 /**
  * Get all available scrapers with their configuration.
  * Scrapers requiring API keys are disabled if keys are not configured.
@@ -49,186 +86,81 @@ export interface ScraperEntry<T> {
 export function getAllScrapers() {
   return [
     // RSS and feed-based scrapers (no API key required)
-    {
-      scraper: new RssScraper(),
-      enabled: true,
-      config: {},
-    },
-    {
-      scraper: new FilingScraper(),
-      enabled: true,
-      config: {},
-    },
-    {
-      scraper: new BlogScraper(),
-      enabled: true,
-      config: {},
-    },
-    {
-      scraper: new SocialScraper(),
-      enabled: true,
-      config: {},
-    },
-    {
-      scraper: new JobPostingScraper(),
-      enabled: true,
-      config: {},
-    },
-    {
-      scraper: new TranscriptScraper(),
-      enabled: true,
-      config: {},
-    },
-    {
-      scraper: new NewsScraper(),
-      enabled: true,
-      config: {},
-    },
+    { scraper: scraperInstances.rss, enabled: true, config: {} },
+    { scraper: scraperInstances.filing, enabled: true, config: {} },
+    { scraper: scraperInstances.blog, enabled: true, config: {} },
+    { scraper: scraperInstances.social, enabled: true, config: {} },
+    { scraper: scraperInstances.jobPosting, enabled: true, config: {} },
+    { scraper: scraperInstances.transcript, enabled: true, config: {} },
+    { scraper: scraperInstances.news, enabled: true, config: {} },
 
     // GitHub scraper (optional token for higher rate limits)
-    {
-      scraper: new GitHubScraper(),
-      enabled: true,
-      config: {
-        githubToken: process.env.GITHUB_TOKEN,
-      },
-    },
+    { scraper: scraperInstances.github, enabled: true, config: { githubToken: process.env.GITHUB_TOKEN } },
 
     // Certificate transparency (no API key required)
-    {
-      scraper: new CertTransparencyScraper(),
-      enabled: true,
-      config: {},
-    },
+    { scraper: scraperInstances.certTransparency, enabled: true, config: {} },
 
     // Reddit financial scraper (no API key required)
-    {
-      scraper: new RedditFinancialScraper(),
-      enabled: true,
-      config: {},
-    },
+    { scraper: scraperInstances.redditFinancial, enabled: true, config: {} },
 
     // Press release wires (no API key required)
-    {
-      scraper: new PressReleaseScraper(),
-      enabled: true,
-      config: {},
-    },
+    { scraper: scraperInstances.pressRelease, enabled: true, config: {} },
 
     // USPTO patent scraper (requires API key)
-    {
-      scraper: new UspScraper(),
-      enabled: !!process.env.USPTO_API_KEY,
-      config: {
-        apiKey: process.env.USPTO_API_KEY,
-      },
-    },
+    { scraper: scraperInstances.uspto, enabled: !!process.env.USPTO_API_KEY, config: { apiKey: process.env.USPTO_API_KEY } },
 
     // CourtListener litigation scraper (requires API key)
-    {
-      scraper: new CourtListenerScraper(),
-      enabled: !!process.env.COURT_LISTENER_API_KEY,
-      config: {
-        apiKey: process.env.COURT_LISTENER_API_KEY,
-      },
-    },
+    { scraper: scraperInstances.courtListener, enabled: !!process.env.COURT_LISTENER_API_KEY, config: { apiKey: process.env.COURT_LISTENER_API_KEY } },
 
     // FDA scraper (no API key required)
-    {
-      scraper: new FdaScraper(),
-      enabled: true,
-      config: {},
-    },
+    { scraper: scraperInstances.fda, enabled: true, config: {} },
 
     // SAM.gov contract scraper (requires API key)
-    {
-      scraper: new SamScraper(),
-      enabled: !!process.env.SAM_API_KEY,
-      config: {
-        apiKey: process.env.SAM_API_KEY,
-      },
-    },
+    { scraper: scraperInstances.sam, enabled: !!process.env.SAM_API_KEY, config: { apiKey: process.env.SAM_API_KEY } },
 
     // Wayback Machine scraper (no API key required)
-    {
-      scraper: new WaybackScraper(),
-      enabled: true,
-      config: {},
-    },
+    { scraper: scraperInstances.wayback, enabled: true, config: {} },
 
     // Congress.gov scraper (requires API key)
-    {
-      scraper: new CongressScraper(),
-      enabled: !!process.env.CONGRESS_API_KEY,
-      config: {
-        apiKey: process.env.CONGRESS_API_KEY,
-      },
-    },
+    { scraper: scraperInstances.congress, enabled: !!process.env.CONGRESS_API_KEY, config: { apiKey: process.env.CONGRESS_API_KEY } },
 
     // Academic paper scraper (no API key required)
-    {
-      scraper: new AcademicScraper(),
-      enabled: true,
-      config: {},
-    },
+    { scraper: scraperInstances.academic, enabled: true, config: {} },
 
     // Lobbying disclosure scraper (no API key required)
-    {
-      scraper: new LobbyingScraper(),
-      enabled: true,
-      config: {},
-    },
+    { scraper: scraperInstances.lobbying, enabled: true, config: {} },
+
     // Supplier earnings scraper (no API key required)
-    {
-      scraper: new SupplierEarningScraper(),
-      enabled: true,
-      config: {},
-    },
+    { scraper: scraperInstances.supplierEarning, enabled: true, config: {} },
+
     // Executive appearance scraper (no API key required)
-    {
-      scraper: new ExecutiveAppearanceScraper(),
-      enabled: true,
-      config: {},
-    },
+    { scraper: scraperInstances.execAppearance, enabled: true, config: {} },
+
     // App Store tracker (no API key required)
-    {
-      scraper: new AppStoreTracker(),
-      enabled: true,
-      config: {},
-    },
+    { scraper: scraperInstances.appStoreTracker, enabled: true, config: {} },
+
     // Domain registration tracker (no API key required)
-    {
-      scraper: new DomainTracker(),
-      enabled: true,
-      config: {},
-    },
+    { scraper: scraperInstances.domainTracker, enabled: true, config: {} },
+
     // Conference agenda scraper (no API key required)
-    {
-      scraper: new ConferenceAgendaScraper(),
-      enabled: true,
-      config: {},
-    },
+    { scraper: scraperInstances.conferenceAgenda, enabled: true, config: {} },
+
     // App Store RSS scraper (no API key required)
-    {
-      scraper: new AppStoreScraper(),
-      enabled: true,
-      config: {},
-    },
-    // Conference agenda scraper v2 (no API key required)
-    {
-      scraper: new ConferenceScraper(),
-      enabled: true,
-      config: {},
-    },
+    { scraper: scraperInstances.appStore, enabled: true, config: {} },
+
+    // Conference scraper (no API key required)
+    { scraper: scraperInstances.conference, enabled: true, config: {} },
+
     // Web search scraper (Brave Search API primary, DuckDuckGo fallback)
     // Always enabled: uses DuckDuckGo if Brave key not configured
-    {
-      scraper: new WebSearchScraper(),
-      enabled: true,
-      config: {
-        braveApiKey: process.env.BRAVE_API_KEY,
-      },
-    },
+    { scraper: scraperInstances.webSearch, enabled: true, config: { braveApiKey: process.env.BRAVE_API_KEY } },
+
+    // Stealth browser scraper (CloakBrowser for bypassing bot protection)
+    // Enabled by default, can be disabled via STEALTH_SCRAPER_ENABLED env var
+    { scraper: scraperInstances.stealthBrowser, enabled: process.env.STEALTH_SCRAPER_ENABLED !== "false", config: {} },
+
+    // Mastodon social signals (no API key required, public endpoints only)
+    { scraper: scraperInstances.mastodon, enabled: true, config: {} },
   ];
 }
 

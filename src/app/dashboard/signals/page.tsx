@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useSignals } from "@/hooks/use-signals";
 import { useCompanies } from "@/hooks/use-companies";
 import { SignalTable } from "@/components/dashboard/signal-table";
@@ -9,18 +10,25 @@ import { SignalFilters } from "@/components/dashboard/signal-filters";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { BarChart3 } from "lucide-react";
+import { logger } from "@/lib/logger";
 
 export default function SignalsPage() {
+  const searchParams = useSearchParams();
   const [sourceType, setSourceType] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [sentiment, setSentiment] = useState<string | null>(null);
-  const [companyId, setCompanyId] = useState<string | null>(null);
+  const [companyId, setCompanyId] = useState<string | null>(
+    searchParams.get("companyId")
+  );
+  const [clusterId, setClusterId] = useState<string | null>(null);
+  const [clusters, setClusters] = useState<{ id: string; label: string }[]>([]);
 
   const { data: signals, loading, hasMore, loadMore, refetch } = useSignals({
     sourceType,
     status,
     sentiment,
     companyId,
+    clusterId,
     limit: 20,
     includeInferences: true,
     includeCorrelations: true,
@@ -28,11 +36,26 @@ export default function SignalsPage() {
 
   const { data: companies } = useCompanies({ limit: 50 });
 
+  useEffect(() => {
+    fetch("/api/v1/clusters?limit=50")
+      .then((res) => res.json())
+      .then((data) => {
+        const items = data.items ?? data;
+        if (Array.isArray(items)) {
+          setClusters(items.map((c: { id: string; label: string }) => ({ id: c.id, label: c.label })));
+        }
+      })
+      .catch((error) => {
+        logger.warn("signals.clusters_fetch_failed", { error: String(error) });
+      });
+  }, []);
+
   const handleClearAll = useCallback(() => {
     setSourceType(null);
     setStatus(null);
     setSentiment(null);
     setCompanyId(null);
+    setClusterId(null);
   }, []);
 
   return (
@@ -59,10 +82,13 @@ export default function SignalsPage() {
           sentiment={sentiment}
           companyId={companyId}
           companies={companies.map((c) => ({ id: c.id, name: c.name }))}
+          clusterId={clusterId}
+          clusters={clusters}
           onSourceTypeChange={setSourceType}
           onStatusChange={setStatus}
           onSentimentChange={setSentiment}
           onCompanyChange={setCompanyId}
+          onClusterChange={setClusterId}
           onClearAll={handleClearAll}
         />
       </div>
@@ -87,11 +113,11 @@ export default function SignalsPage() {
             No signals found
           </p>
           <p className="text-sm text-muted-foreground font-body mb-4">
-            {sourceType || status || sentiment || companyId
+            {sourceType || status || sentiment || companyId || clusterId
               ? "Try adjusting your filters."
               : "Add your first signal to start tracking corporate intelligence."}
           </p>
-          {!sourceType && !status && !sentiment && !companyId && (
+          {!sourceType && !status && !sentiment && !companyId && !clusterId && (
             <Link href="/dashboard/signals/new">
               <Button variant="outline">Add Your First Signal</Button>
             </Link>

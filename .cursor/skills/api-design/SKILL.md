@@ -198,17 +198,18 @@ interface ErrorResponse {
 // Usage
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const signal = await prisma.signal.findUnique({
-    where: { id: params.id },
+    where: { id },
   });
   
   if (!signal) {
     return NextResponse.json(
       {
         error: "not_found",
-        message: `Signal ${params.id} not found`,
+        message: `Signal ${id} not found`,
       },
       { status: 404 }
     );
@@ -322,8 +323,9 @@ export async function GET(request: NextRequest) {
 
 ```typescript
 // Bad: Different error formats
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const signal = await prisma.signal.findUnique({ where: { id: params.id } });
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const signal = await prisma.signal.findUnique({ where: { id } });
   if (!signal) {
     return NextResponse.json({ error: "not found" }); // 200 with error in body!
   }
@@ -331,9 +333,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 // Good: HTTP status codes + consistent format
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const signal = await prisma.signal.findUnique({ where: { id: params.id } });
+    const { id } = await params;
+    const signal = await prisma.signal.findUnique({ where: { id } });
     if (!signal) {
       return NextResponse.json(
         { error: "not_found", message: "Signal not found" },
@@ -395,21 +398,21 @@ import { prisma } from "@/lib/db";
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   // Get single signal
 }
 
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   // Update signal
 }
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   // Delete signal
 }

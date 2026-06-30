@@ -60,6 +60,11 @@ export class BaseScraper {
   protected skipRobots: boolean;
   private robotsCache = new Map<string, ReturnType<typeof robotsParser>>();
 
+  // Domain-level circuit breaker: track consecutive failures per domain
+  private static domainFailures = new Map<string, { count: number; lastFailure: number }>();
+  private static readonly CIRCUIT_BREAKER_THRESHOLD = 5;
+  private static readonly CIRCUIT_BREAKER_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
+
   // Provenance tracking: updated on each successful fetch()
   protected lastFetchAttempts: number = 0;
   protected lastFetchHash: string | null = null;
@@ -98,6 +103,7 @@ export class BaseScraper {
   /**
    * Validate URL protocol and hostname to prevent SSRF attacks.
    * Only HTTP and HTTPS are allowed. Blocks private/internal IPs.
+   * Exception: Allows configured RSSHub URL (localhost:1200) for local development.
    */
   protected validateUrl(url: string): boolean {
     try {
@@ -105,6 +111,14 @@ export class BaseScraper {
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
         return false;
       }
+      
+      // Allow configured RSSHub URL (typically localhost:1200)
+      const rsshubUrl = process.env.RSSHUB_URL || "http://localhost:1200";
+      const rsshubParsed = new URL(rsshubUrl);
+      if (parsed.hostname === rsshubParsed.hostname && parsed.port === rsshubParsed.port) {
+        return true;
+      }
+      
       const hostname = parsed.hostname;
       // Block localhost and loopback
       if (["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname)) {
@@ -210,6 +224,52 @@ export class BaseScraper {
   }
 
   /**
+   * Check if a domain is circuit-broken (too many consecutive failures).
+   */
+  private isDomainCircuitBroken(url: string): boolean {
+    const domain = this.extractDomain(url);
+    const state = BaseScraper.domainFailures.get(domain);
+    if (!state) return false;
+    if (state.count < BaseScraper.CIRCUIT_BREAKER_THRESHOLD) return false;
+    const elapsed = Date.now() - state.lastFailure;
+    return elapsed < BaseScraper.CIRCUIT_BREAKER_COOLDOWN_MS;
+  }
+
+  /**
+   * Record a failure for a domain.
+   */
+  private recordDomainFailure(url: string): void {
+    const domain = this.extractDomain(url);
+    const state = BaseScraper.domainFailures.get(domain) ?? { count: 0, lastFailure: 0 };
+    state.count++;
+    state.lastFailure = Date.now();
+    BaseScraper.domainFailures.set(domain, state);
+    if (state.count >= BaseScraper.CIRCUIT_BREAKER_THRESHOLD) {
+      logger.warn("scraper.domain_circuit_breaker.open", { domain, failures: state.count });
+    }
+  }
+
+  /**
+   * Record a success for a domain (reset failure count).
+   */
+  private recordDomainSuccess(url: string): void {
+    const domain = this.extractDomain(url);
+    BaseScraper.domainFailures.delete(domain);
+  }
+
+  /**
+   * Extract domain from URL for circuit breaker tracking.
+   */
+  private extractDomain(url: string): string {
+    try {
+      const parsed = new URL(url);
+      return parsed.hostname.replace(/^www\./, "");
+    } catch {
+      return url;
+    }
+  }
+
+  /**
    * Fetch a URL with rate limiting, caching, retry, and robots.txt compliance.
    * Returns the response text, or null if the request failed after retries.
    * Updates lastFetchAttempts and lastFetchHash on success.
@@ -217,6 +277,13 @@ export class BaseScraper {
   async fetch(url: string): Promise<string | null> {
     if (!this.validateUrl(url)) {
       logger.warn("Invalid URL protocol", { url });
+      return null;
+    }
+
+    // Check domain-level circuit breaker
+    if (this.isDomainCircuitBroken(url)) {
+      const domain = this.extractDomain(url);
+      logger.info("scraper.domain_circuit_breaker.skip", { url, domain });
       return null;
     }
 
@@ -250,6 +317,7 @@ export class BaseScraper {
           await this.cache.set(url, text);
           this.lastFetchAttempts = attempt;
           this.lastFetchHash = createHash("sha256").update(text).digest("hex");
+          this.recordDomainSuccess(url);
           logger.info("Successfully fetched", { url, attempt });
           return text;
         }
@@ -297,6 +365,9 @@ export class BaseScraper {
       maxRetries: this.maxRetries,
       error: lastError?.message ?? "Unknown error",
     });
+
+    // Record domain failure for circuit breaker
+    this.recordDomainFailure(url);
 
     return null;
   }

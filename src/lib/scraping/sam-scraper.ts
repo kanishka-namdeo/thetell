@@ -88,7 +88,7 @@ export class SamScraper extends BaseScraper {
    */
   async scrapeByVendorName(
     vendorName: string,
-    limit: number = 20,
+    limit: number = 50,
   ): Promise<SamSignal[]> {
     if (!this.isConfigured) {
       logger.warn("sam.scraper.skipped", {
@@ -121,7 +121,7 @@ export class SamScraper extends BaseScraper {
    */
   async scrapeByUei(
     uei: string,
-    limit: number = 20,
+    limit: number = 50,
   ): Promise<SamSignal[]> {
     if (!this.isConfigured) {
       logger.warn("sam.uei.skipped", {
@@ -160,7 +160,6 @@ export class SamScraper extends BaseScraper {
       limit: String(limit),
       offset: "0",
       sortby: "-modifiedDate",
-      api_key: this.apiKey!,
     });
 
     const url = `${SAM_API_BASE}/opportunities?${params.toString()}`;
@@ -191,7 +190,6 @@ export class SamScraper extends BaseScraper {
       limit: String(limit),
       offset: "0",
       sortby: "-modifiedDate",
-      api_key: this.apiKey!,
     });
 
     const url = `${SAM_API_BASE}/opportunities?${params.toString()}`;
@@ -211,11 +209,79 @@ export class SamScraper extends BaseScraper {
   }
 
   /**
-   * Fetch a URL with the SAM.gov API key appended as a query parameter.
-   * Uses the base fetch method since the key is already in the URL.
+   * Fetch a URL with the SAM.gov API key in the X-API-KEY header.
    */
   private async fetchWithApiKey(url: string): Promise<string | null> {
-    return this.fetch(url);
+    if (!this.apiKey) return null;
+
+    const cached = await this.cache.get(url);
+    if (cached !== null) {
+      return cached;
+    }
+
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      await this.rateLimiter.wait();
+
+      try {
+        const response = await fetch(url, {
+          headers: {
+            "User-Agent": BaseScraper.USER_AGENT,
+            "X-API-KEY": this.apiKey,
+            Accept: "application/json",
+          },
+          signal: AbortSignal.timeout(this.timeout),
+          redirect: "follow",
+        });
+
+        if (response.ok) {
+          const text = await this.readBodyWithLimit(response);
+          await this.cache.set(url, text);
+          return text;
+        }
+
+        if (response.status === 429 || response.status === 503) {
+          const retryAfter = response.headers.get("Retry-After");
+          const waitTime = retryAfter
+            ? parseInt(retryAfter, 10) * 1000
+            : Math.min(2 ** attempt * 1000, 60000);
+
+          logger.warn("sam.rate.limited", {
+            url,
+            status: response.status,
+            waitTime: waitTime / 1000,
+            attempt,
+          });
+
+          await response.body?.cancel();
+          await new Promise((r) => setTimeout(r, waitTime));
+          continue;
+        }
+
+        await response.body?.cancel();
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      } catch (error) {
+        lastError = error as Error;
+        const waitTime = Math.min(2 ** attempt * 1000, 60000);
+
+        logger.warn("sam.request.error", {
+          url,
+          error: String(error),
+          attempt,
+        });
+
+        if (attempt < this.maxRetries) {
+          await new Promise((r) => setTimeout(r, waitTime));
+        }
+      }
+    }
+
+    logger.error("sam.fetch.failed", {
+      url,
+      error: lastError?.message ?? "Unknown error",
+    });
+    return null;
   }
 
   /**

@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod";
-import { getProvider } from "./provider";
+import { getProviderWithFailover } from "./provider";
 import { logger } from "@/lib/logger";
 import type { Company, CompanyHypothesis, SignalTheme } from "@prisma/client";
 
@@ -24,9 +24,10 @@ const SearchQueryItemSchema = z.object({
     .describe("Why this query is relevant, e.g. 'Hypothesis: expanding India manufacturing'"),
   priority: z
     .number()
-    .min(0)
-    .max(1)
-    .describe("Priority score 0-1 based on strategic significance and hypothesis alignment"),
+    .int()
+    .min(1)
+    .max(10)
+    .describe("Priority rank 1-10 (10 = highest strategic significance, 1 = lowest)"),
 });
 
 export const SearchQuerySchema = z.object({
@@ -114,7 +115,7 @@ export async function generateSearchQueries(
     functionName: "generateSearchQueries",
   });
 
-  const provider = getProvider("openai");
+  const { provider } = getProviderWithFailover("openai");
 
   const activeHypotheses = (hypotheses ?? []).filter(
     (h) => h.status === "ACTIVE"
@@ -147,7 +148,7 @@ ${
     ? `- IMPORTANT: Generate queries targeting high-momentum themes to find corroborating or contradicting signals.`
     : ""
 }
-- Priority should reflect: (1) hypothesis alignment, (2) theme momentum, (3) likelihood of finding actionable content
+- Priority (integer 1-10, 10 = highest): reflect hypothesis alignment, theme momentum, likelihood of finding actionable content
 - Include a brief rationale for each query`,
     },
     {
@@ -244,14 +245,14 @@ function generateFallbackQueries(company: Company): SearchQuery[] {
     query: `${name} latest news`,
     sourceType: "NEWS",
     rationale: "General news coverage",
-    priority: 0.5,
+    priority: 5,
   });
 
   queries.push({
     query: `${name} press release`,
     sourceType: "PRESS_RELEASE",
     rationale: "Official company announcements",
-    priority: 0.5,
+    priority: 5,
   });
 
   if (ticker) {
@@ -259,7 +260,7 @@ function generateFallbackQueries(company: Company): SearchQuery[] {
       query: `$${ticker} SEC filing`,
       sourceType: "FILING",
       rationale: "Regulatory filings via ticker symbol",
-      priority: 0.6,
+      priority: 6,
     });
   }
 
@@ -270,7 +271,7 @@ function generateFallbackQueries(company: Company): SearchQuery[] {
         query: `${name} ${keywords[0]}`,
         sourceType: "NEWS",
         rationale: `Sector keyword search: ${keywords[0]}`,
-        priority: 0.4,
+        priority: 4,
       });
     }
   }
@@ -279,7 +280,7 @@ function generateFallbackQueries(company: Company): SearchQuery[] {
     query: `${name} hiring jobs`,
     sourceType: "JOB_POSTING",
     rationale: "Hiring signals reveal strategic direction",
-    priority: 0.4,
+    priority: 4,
   });
 
   return queries;
@@ -304,6 +305,90 @@ function extractKeywords(description: string): string[] {
     .slice(0, 5);
 }
 
+// ─── Content Relevance Classification ───────────────────────────────────────
+
+const ContentRelevanceSchema = z.object({
+  relevant: z.boolean().describe("Whether this article is primarily about the specified company"),
+  confidence: z.number().min(0).max(1).describe("Confidence in the relevance judgment"),
+  reasoning: z.string().describe("Brief explanation of why the article is or isn't about the company"),
+});
+
+export type ContentRelevance = z.infer<typeof ContentRelevanceSchema>;
+
+/**
+ * Classify whether scraped article content is actually about a specific company.
+ *
+ * Uses LLM to understand context — distinguishes "Apple announces new iPhone"
+ * from "Apple pie recipe" or "WD SSD deal mentioning Mac compatibility".
+ *
+ * Designed to be called AFTER a fast string pre-filter (checkCompanyRelevance)
+ * to avoid LLM calls on obviously irrelevant content.
+ */
+export async function classifyContentRelevance(
+  title: string,
+  contentHead: string,
+  company: { name: string; ticker: string | null; description: string | null }
+): Promise<ContentRelevance> {
+  const log = logger.child({
+    module: "url-discovery",
+    companyName: company.name,
+    functionName: "classifyContentRelevance",
+  });
+
+  const { provider } = getProviderWithFailover("openai");
+
+  const messages = [
+    {
+      role: "system" as const,
+      content: `You are a corporate intelligence relevance classifier. Your job is to determine whether an article is PRIMARILY about a specific company.
+
+Key rules:
+- The article must be primarily ABOUT the company, not just mention it in passing
+- A product review that mentions "compatible with Mac" is NOT primarily about Apple
+- A deal article about a competitor's product is NOT about Apple even if it mentions Apple
+- An article about the fruit "apple" is NOT about Apple Inc
+- An article about Apple's products, strategy, earnings, executives, or business IS about Apple
+- When the company name is a common word (Apple, Shell, Meta, Amazon), be extra strict
+- The ticker symbol (${company.ticker ?? "N/A"}) is a strong signal — if present, the article is likely about the company
+- Consider the company's description to understand what it does
+
+Respond with relevant=true only if the article's PRIMARY subject is the company.`,
+    },
+    {
+      role: "user" as const,
+      content: `Company: ${company.name}${company.ticker ? ` (${company.ticker})` : ""}
+${company.description ? `Description: ${company.description.slice(0, 200)}` : ""}
+
+Article title: ${title}
+Article content (first 1000 chars):
+${contentHead.slice(0, 1000)}
+
+Is this article primarily about ${company.name}?`,
+    },
+  ];
+
+  try {
+    const result = await provider.completeStructured(messages, ContentRelevanceSchema, {
+      temperature: 0.2,
+    });
+
+    log.info("content_relevance.classified", {
+      companyName: company.name,
+      relevant: result.relevant,
+      confidence: result.confidence,
+    });
+
+    return result;
+  } catch (error) {
+    log.error("content_relevance.classification_failed", {
+      error: String(error),
+    });
+
+    // Fall back to permissive — let the signal through if LLM fails
+    return { relevant: true, confidence: 0.5, reasoning: "LLM classification failed, defaulting to permissive" };
+  }
+}
+
 // ─── Relevance Scoring ──────────────────────────────────────────────────────
 
 /**
@@ -326,7 +411,7 @@ export async function scoreRelevance(
     return [];
   }
 
-  const provider = getProvider("openai");
+  const { provider } = getProviderWithFailover("openai");
 
   const resultsSummary = results.slice(0, 30).map((r) => ({
     url: r.url,

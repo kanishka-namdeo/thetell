@@ -17,12 +17,19 @@ interface FeedSignal {
     id: string;
     name: string;
   };
-  engagement?: unknown;
-  metadata?: unknown;
   analyses: Array<{
     confidence: number;
     agentPersona: "ANALYST" | "GOSSIP_GIRL";
+    sentiment?: string | null;
+    sentimentData?: unknown;
+    strategicThemes?: unknown;
   }>;
+  cluster?: {
+    id: string;
+    label: string;
+    momentum: number;
+    _count?: { clusteredSignals: number };
+  } | null;
 }
 
 interface FeedContentProps {
@@ -69,7 +76,10 @@ export function FeedContent({ signals }: FeedContentProps) {
               }}
             >
               {signals.slice(0, 10).map((signal) => (
-                <FeedSignalCard key={signal.id} signal={signal} />
+                <FeedSignalCard
+                  key={signal.id}
+                  signal={signal}
+                />
               ))}
               <motion.div
                 variants={{
@@ -81,7 +91,10 @@ export function FeedContent({ signals }: FeedContentProps) {
                 <SignupPrompt />
               </motion.div>
               {signals.slice(10).map((signal) => (
-                <FeedSignalCard key={signal.id} signal={signal} />
+                <FeedSignalCard
+                  key={signal.id}
+                  signal={signal}
+                />
               ))}
             </motion.div>
           )}

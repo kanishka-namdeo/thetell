@@ -29,7 +29,7 @@ export default async function AdminSubredditsPage() {
         </div>
         <h1 className="text-3xl font-serif font-bold">Subreddit Management</h1>
         <p className="text-sm text-muted-foreground font-body mt-1">
-          Manage tracked subreddits per company, trigger discovery, and monitor validation
+          Manage tracked subreddits per company and monitor validation
         </p>
       </div>
 

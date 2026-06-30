@@ -8,9 +8,13 @@ import { ConfidenceBadge } from "@/components/dashboard/confidence-badge";
 import { ConfidenceBand } from "@/components/dashboard/confidence-band";
 import { SentimentIndicator } from "@/components/dashboard/sentiment-indicator";
 import { SignalStatusMonitor } from "@/components/dashboard/signal-status-monitor";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Info } from "lucide-react";
 import Link from "next/link";
-import { ArrowLeft, ExternalLink, MessageSquare, Handshake, Swords, Lightbulb, ArrowUp, User } from "lucide-react";
+import { ArrowLeft, ExternalLink, MessageSquare, Handshake, Swords, Lightbulb, ArrowUp, User, Globe, BadgeCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { auth } from "@/lib/auth";
+import { isAdmin } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +92,8 @@ interface SignalDetailPageProps {
 
 export default async function SignalDetailPage({ params }: SignalDetailPageProps) {
   const { id } = await params;
+  const session = await auth();
+  const userIsAdmin = session?.user ? isAdmin(session) : false;
 
   const signal = await prisma.signal.findUnique({
     where: { id },
@@ -97,6 +103,15 @@ export default async function SignalDetailPage({ params }: SignalDetailPageProps
       debates: {
         take: 1,
         orderBy: { generatedAt: "desc" },
+      },
+      cluster: {
+        select: {
+          id: true,
+          label: true,
+          status: true,
+          momentum: true,
+          _count: { select: { clusteredSignals: true } },
+        },
       },
     },
   });
@@ -165,6 +180,20 @@ export default async function SignalDetailPage({ params }: SignalDetailPageProps
         </Link>
       </div>
 
+      {/* Admin Control Center Banner */}
+      {userIsAdmin && (
+        <Alert>
+          <Info className="h-4 w-4" />
+          <AlertTitle>Admin Operations</AlertTitle>
+          <AlertDescription>
+            Pipeline operations are available in the{" "}
+            <Link href="/dashboard/admin/control-center" className="underline font-medium">
+              Control Center
+            </Link>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Header */}
       <div className="border-b-2 border-foreground pb-4">
         <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -222,6 +251,32 @@ export default async function SignalDetailPage({ params }: SignalDetailPageProps
           )}
         </div>
       </div>
+
+      {/* Cluster Context */}
+      {signal.cluster && (
+        <Card className="border-l-4 border-l-primary">
+          <CardContent className="pt-6">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <Badge variant="outline">Cluster</Badge>
+                  <Badge variant="secondary">{signal.cluster.status}</Badge>
+                </div>
+                <Link href={`/clusters/${signal.cluster.id}`}>
+                  <h3 className="font-semibold text-lg mb-1 hover:underline">{signal.cluster.label}</h3>
+                </Link>
+                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                  <span>{signal.cluster._count.clusteredSignals} signals in cluster</span>
+                  <span>Momentum: {signal.cluster.momentum.toFixed(2)}</span>
+                </div>
+              </div>
+              <Link href={`/clusters/${signal.cluster.id}`}>
+                <Button variant="outline" size="sm">View Cluster →</Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Source URL */}
       <Card>
@@ -284,6 +339,24 @@ export default async function SignalDetailPage({ params }: SignalDetailPageProps
                     <div className="flex items-center gap-2">
                       <MessageSquare className="h-4 w-4 text-muted-foreground" />
                       <span className="text-sm">r/{meta.subreddit}</span>
+                    </div>
+                  )}
+                  {meta?.instance && (
+                    <div className="flex items-center gap-2">
+                      <Globe className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm">{meta.instance}</span>
+                    </div>
+                  )}
+                  {meta?.authorAcct && !meta?.authorAcct.startsWith("@") && (
+                    <div className="flex items-center gap-2">
+                      <User className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm">@{meta.authorAcct}</span>
+                    </div>
+                  )}
+                  {meta?.source && (
+                    <div className="flex items-center gap-2">
+                      <BadgeCheck className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm capitalize">{String(meta.source).replace("-", " ")}</span>
                     </div>
                   )}
                   {eng && (

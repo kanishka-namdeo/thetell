@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 export async function GET() {
   try {
@@ -35,7 +36,7 @@ export async function GET() {
 
     return NextResponse.json({ data: watchedCompanies });
   } catch (error) {
-    console.error("Error fetching watchlist:", error);
+    logger.error("watchlist.fetch_error", { error: String(error) });
     return NextResponse.json(
       { error: "internal_error", message: "Failed to fetch watchlist" },
       { status: 500 }
@@ -92,7 +93,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ data: watchedCompany }, { status: 201 });
   } catch (error) {
-    console.error("Error in watchlist POST:", error);
+    logger.error("watchlist.create_error", { error: String(error) });
     return NextResponse.json(
       { error: "internal_error", message: "Failed to add company to watchlist" },
       { status: 500 }

@@ -3,7 +3,7 @@
  */
 
 import { logger } from "@/lib/logger";
-import { getProvider } from "@/lib/ai/provider";
+import { getProviderWithFailover } from "@/lib/ai/provider";
 import { WebSearchScraper } from "@/lib/scraping/web-search-scraper";
 import { TickerSuggestionSchema, type TickerLookupResult } from "./types";
 
@@ -66,7 +66,7 @@ async function lookupViaLLM(
   companyName: string
 ): Promise<TickerLookupResult | null> {
   try {
-    const provider = getProvider("openai");
+    const { provider } = getProviderWithFailover("openai");
     const result = await provider.completeStructured(
       [
         {
@@ -76,7 +76,7 @@ async function lookupViaLLM(
         },
         {
           role: "user",
-          content: `What is the stock ticker symbol for "${companyName}"? Return null if the company is not publicly traded or you are unsure.`,
+          content: `What is the stock ticker symbol for "${companyName}"? Return your response as JSON with fields: ticker (string or null), exchange (string or null), confidence (number 0-1). Return null ticker if the company is not publicly traded or you are unsure.`,
         },
       ],
       TickerSuggestionSchema,
@@ -116,7 +116,7 @@ async function lookupViaWebSearch(
       .map((r) => `${r.title}: ${r.snippet} (${r.url})`)
       .join("\n");
 
-    const provider = getProvider("openai");
+    const { provider } = getProviderWithFailover("openai");
     const extracted = await provider.completeStructured(
       [
         {
@@ -126,7 +126,7 @@ async function lookupViaWebSearch(
         },
         {
           role: "user",
-          content: `Based on these search results, what is the stock ticker symbol for "${companyName}"?\n\nSearch results:\n${resultText}\n\nReturn null if you cannot determine the ticker with confidence.`,
+          content: `Based on these search results, what is the stock ticker symbol for "${companyName}"? Return your response as JSON with fields: ticker (string or null), exchange (string or null), confidence (number 0-1).\n\nSearch results:\n${resultText}\n\nReturn null ticker if you cannot determine the ticker with confidence.`,
         },
       ],
       TickerSuggestionSchema,

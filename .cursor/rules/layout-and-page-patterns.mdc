@@ -20,7 +20,7 @@ Dashboard page files (`src/app/(dashboard)/dashboard/page.tsx`) are Server Compo
 ```tsx
 // Server Component
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { CalendarPreview } from "@/components/dashboard/calendar-preview";
 import { RecentPostsList } from "@/components/dashboard/recent-posts-list";
 

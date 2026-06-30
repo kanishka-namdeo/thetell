@@ -1,24 +1,24 @@
 ---
 description: Prisma ORM patterns and data layer conventions. Covers query optimization, transactions, type usage, validation, and access patterns. Apply when writing database code.
-globs: src/lib/db/**/*.ts,src/lib/prisma.ts
+globs: src/lib/db/**/*.ts,src/lib/db.ts
 ---
 
 # Data Layer Conventions
 
-**Trigger**: Auto-applied to `src/lib/db/**/*.ts` and `src/lib/prisma.ts`.
+**Trigger**: Auto-applied to `src/lib/db/**/*.ts` and `src/lib/db.ts`.
 
 ## Prisma Client Usage
 
-**Import the singleton from `@/lib/prisma`, never instantiate directly**:
+**Import the singleton from `@/lib/db`, never instantiate directly**:
 
 ```typescript
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/lib/db';
 ```
 
-**Import Prisma types from the generated client**:
+**Import Prisma types from `@prisma/client`**:
 
 ```typescript
-import type { Prisma } from '@/app/generated/prisma';
+import { Prisma } from '@prisma/client';
 ```
 
 ## Query Optimization
@@ -110,7 +110,7 @@ export async function createWorkspace(userId: string, input: unknown) {
 **Use Prisma's type system for nullable fields**:
 
 ```typescript
-import type { Prisma } from '@/app/generated/prisma';
+import { Prisma } from '@prisma/client';
 
 // Json fields need explicit typing when writing
 const profile = await prisma.userProfile.create({
@@ -127,13 +127,13 @@ const profile = await prisma.userProfile.create({
 **Catch and handle `P2002` (unique constraint violation) errors**:
 
 ```typescript
-import { PrismaClientKnownRequestError } from '@/app/generated/prisma/runtime/library';
+import { Prisma } from '@prisma/client';
 
 try {
   await prisma.user.create({ data: { email, name, password } });
 } catch (error) {
   if (
-    error instanceof PrismaClientKnownRequestError &&
+    error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === 'P2002'
   ) {
     throw new ConflictError('Email already registered');

@@ -1,0 +1,10 @@
+SELECT 'Signal' as tbl, COUNT(*) FROM "Signal"
+UNION ALL SELECT 'Analysis', COUNT(*) FROM "Analysis"
+UNION ALL SELECT 'Article', COUNT(*) FROM "Article"
+UNION ALL SELECT 'Company', COUNT(*) FROM "Company"
+UNION ALL SELECT 'SignalTheme', COUNT(*) FROM "SignalTheme"
+UNION ALL SELECT 'Inference', COUNT(*) FROM "Inference"
+UNION ALL SELECT 'CompanyDataSource', COUNT(*) FROM "CompanyDataSource"
+UNION ALL SELECT 'CompanyEnrichmentLog', COUNT(*) FROM "CompanyEnrichmentLog"
+UNION ALL SELECT 'PipelineRun', COUNT(*) FROM "PipelineRun"
+ORDER BY tbl;

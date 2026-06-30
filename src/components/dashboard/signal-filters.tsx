@@ -16,10 +16,13 @@ interface SignalFiltersProps {
   sentiment: string | null;
   companyId: string | null;
   companies?: { id: string; name: string }[];
+  clusterId?: string | null;
+  clusters?: { id: string; label: string }[];
   onSourceTypeChange: (value: string | null) => void;
   onStatusChange: (value: string | null) => void;
   onSentimentChange: (value: string | null) => void;
   onCompanyChange: (value: string | null) => void;
+  onClusterChange?: (value: string | null) => void;
   onClearAll: () => void;
 }
 
@@ -29,13 +32,16 @@ export function SignalFilters({
   sentiment,
   companyId,
   companies = [],
+  clusterId,
+  clusters = [],
   onSourceTypeChange,
   onStatusChange,
   onSentimentChange,
   onCompanyChange,
+  onClusterChange,
   onClearAll,
 }: SignalFiltersProps) {
-  const hasFilters = sourceType || status || sentiment || companyId;
+  const hasFilters = sourceType || status || sentiment || companyId || clusterId;
 
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -93,6 +99,23 @@ export function SignalFilters({
             {companies.map((c) => (
               <SelectItem key={c.id} value={c.id}>
                 {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+
+      {clusters.length > 0 && onClusterChange && (
+        <Select
+          value={clusterId || ""}
+          onValueChange={(v) => onClusterChange(v || null)}
+        >
+          <SelectTrigger>Cluster</SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">All Clusters</SelectItem>
+            {clusters.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.label}
               </SelectItem>
             ))}
           </SelectContent>

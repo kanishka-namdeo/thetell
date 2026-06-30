@@ -193,52 +193,58 @@ export async function extractEntities(text: string, sourceType?: string): Promis
 
     const result = await ner(text);
 
-    // Clean up token words before grouping
-    const cleanedTokens = result.map((token: { entity: string; word: string; score: number }) => ({
-      ...token,
-      word: cleanTokenWord(token.word),
-    }));
+    try {
+      // Clean up token words before grouping
+      const cleanedTokens = result.map((token: { entity: string; word: string; score: number }) => ({
+        ...token,
+        word: cleanTokenWord(token.word),
+      }));
 
-    // Group tokens into entities using BIO scheme
-    const groupedEntities = groupEntitiesByBIO(cleanedTokens);
+      // Group tokens into entities using BIO scheme
+      const groupedEntities = groupEntitiesByBIO(cleanedTokens);
 
-    // Map entity types to our categories
-    let persons = groupedEntities.get("PER") ?? [];
-    let organizations = groupedEntities.get("ORG") ?? [];
-    let locations = groupedEntities.get("LOC") ?? [];
+      // Map entity types to our categories
+      let persons = groupedEntities.get("PER") ?? [];
+      let organizations = groupedEntities.get("ORG") ?? [];
+      let locations = groupedEntities.get("LOC") ?? [];
 
-    // Use regex for dates and monetary (BERT-NER doesn't extract these well)
-    let dates = extractDatesWithRegex(text);
-    let monetary = extractMonetaryWithRegex(text);
+      // Use regex for dates and monetary (BERT-NER doesn't extract these well)
+      let dates = extractDatesWithRegex(text);
+      let monetary = extractMonetaryWithRegex(text);
 
-    // For SOCIAL signals, merge BERT-NER entities with social-specific entities
-    if (sourceType === "SOCIAL") {
-      const socialEntities = extractSocialEntities(text);
-      persons = [...persons, ...socialEntities.persons];
-      organizations = [...organizations, ...socialEntities.organizations];
-      locations = [...locations, ...socialEntities.locations];
-      dates = [...dates, ...socialEntities.dates];
-      monetary = [...monetary, ...socialEntities.monetary];
+      // For SOCIAL signals, merge BERT-NER entities with social-specific entities
+      if (sourceType === "SOCIAL") {
+        const socialEntities = extractSocialEntities(text);
+        persons = [...persons, ...socialEntities.persons];
+        organizations = [...organizations, ...socialEntities.organizations];
+        locations = [...locations, ...socialEntities.locations];
+        dates = [...dates, ...socialEntities.dates];
+        monetary = [...monetary, ...socialEntities.monetary];
+      }
+
+      const elapsed = Date.now() - startTime;
+      logger.info("nlp.entities.extracted", {
+        personsCount: persons.length,
+        organizationsCount: organizations.length,
+        locationsCount: locations.length,
+        datesCount: dates.length,
+        monetaryCount: monetary.length,
+        sourceType: sourceType ?? "unspecified",
+        elapsedMs: elapsed,
+      });
+
+      return {
+        persons: [...new Set(persons)],
+        organizations: [...new Set(organizations)],
+        locations: [...new Set(locations)],
+        dates: [...new Set(dates)],
+        monetary: [...new Set(monetary)],
+      };
+    } finally {
+      if (result && typeof (result as unknown as { dispose?: () => void }).dispose === "function") {
+        (result as unknown as { dispose: () => void }).dispose();
+      }
     }
-
-    const elapsed = Date.now() - startTime;
-    logger.info("nlp.entities.extracted", {
-      personsCount: persons.length,
-      organizationsCount: organizations.length,
-      locationsCount: locations.length,
-      datesCount: dates.length,
-      monetaryCount: monetary.length,
-      sourceType: sourceType ?? "unspecified",
-      elapsedMs: elapsed,
-    });
-
-    return {
-      persons: [...new Set(persons)],
-      organizations: [...new Set(organizations)],
-      locations: [...new Set(locations)],
-      dates: [...new Set(dates)],
-      monetary: [...new Set(monetary)],
-    };
   } catch (error) {
     logger.error("nlp.entities.extraction.failed", {
       error: String(error),

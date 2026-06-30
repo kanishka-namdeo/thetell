@@ -62,7 +62,6 @@ export async function POST(
     return NextResponse.json({
       success: true,
       message: "Password has been reset",
-      temporaryPassword: tempPassword,
     });
   } catch (error) {
     log.error("admin.user.password_reset.error", { error: String(error) });

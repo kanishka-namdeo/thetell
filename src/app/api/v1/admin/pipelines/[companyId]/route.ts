@@ -47,6 +47,9 @@ export async function GET(
 
   try {
     const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
     if (!requireAdmin(session)) {
       return NextResponse.json(
         { error: "forbidden", message: "Admin access required" },
@@ -75,6 +78,13 @@ export async function GET(
 
     const totalSignals = await prisma.signal.count({
       where: { companyId },
+    });
+
+    const pendingSignals = await prisma.signal.count({
+      where: {
+        companyId,
+        status: { in: ["PENDING", "FAILED", "LOW_QUALITY", "NON_ENGLISH"] },
+      },
     });
 
     // Build pipeline cards for all scrapers
@@ -156,6 +166,7 @@ export async function GET(
       ticker: company.ticker,
       website: company.websiteUrl,
       totalSignals,
+      pendingSignals,
       pipelines,
       recentRuns,
     });

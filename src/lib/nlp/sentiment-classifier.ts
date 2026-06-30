@@ -4,11 +4,11 @@
  * Opportunity 1 from the Local NLP Model Integration Plan.
  * Replaces 2 LLM calls per signal for the Analyst persona.
  *
- * Model: ProsusAI/finbert
+ * Model: Xenova/finbert (ONNX version for Transformers.js)
  * Expected output: { sentiment, confidence, keyPhrases }
  */
 
-import { getModelPipeline } from "./model-cache";
+import { nlpPool } from "./nlp-pool";
 import { logger } from "@/lib/logger";
 
 export interface LocalSentimentResult {
@@ -42,12 +42,12 @@ export async function classifySentimentLocal(
   }
 
   try {
-    const classifier = await getModelPipeline(
-      "text-classification",
-      "ProsusAI/finbert",
-    ) as (text: string) => Promise<Array<{ label: string; score: number }>>;
-
-    const result = await classifier(text);
+    // Use worker pool for inference
+    const result = await nlpPool.dispatch<Array<{ label: string; score: number }>>({
+      type: "sentiment",
+      model: "Xenova/finbert",
+      text,
+    });
 
     // FinBERT returns array of {label, score}
     if (!Array.isArray(result) || result.length === 0) {

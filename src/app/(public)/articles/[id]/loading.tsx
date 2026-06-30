@@ -10,7 +10,6 @@ function SkeletonLine({ width, height = "h-4" }: { width: string; height?: strin
       animate={{ opacity: 1, scaleX: 1 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
       className={`${height} ${width} bg-muted origin-left`}
-      style={{ borderRadius: 0 }}
     />
   );
 }

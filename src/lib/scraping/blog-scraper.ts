@@ -163,7 +163,7 @@ export class BlogScraper extends BaseScraper {
   }
 
   private extractBody($: cheerio.CheerioAPI): string {
-    $("script, style, nav, header, footer, aside, iframe, .comments, .sidebar").remove();
+    $("script, style, nav, header, footer, aside, iframe, .comments, .sidebar, noscript").remove();
 
     const selectors = [
       // Schema.org
@@ -172,6 +172,10 @@ export class BlogScraper extends BaseScraper {
       ".entry-content, .post-content, .single-post-content",
       // Ghost
       ".post-content, .post-full-content",
+      // IR/Press release pages
+      ".press-release-content, .press-release-body, .ir-content",
+      ".field--name-body, .node__content, .content-wrapper",
+      'main [role="main"]',
       // Generic blog patterns
       '[class*="article-body"], [class*="post-body"], [class*="blog-content"]',
       '[class*="entry-content"], [class*="story-body"]',
@@ -198,6 +202,22 @@ export class BlogScraper extends BaseScraper {
     if (article.length) {
       article.find("nav, aside, footer, figure, img, video, .comments, .sidebar").remove();
       const text = article
+        .find("p")
+        .map((_, el) => $(el).text().trim())
+        .get()
+        .filter((t) => t.length > 0)
+        .join("\n\n");
+
+      if (text.length > 100) {
+        return this.cleanText(text);
+      }
+    }
+
+    // Fallback: <main> tag
+    const main = $("main").first();
+    if (main.length) {
+      main.find("nav, aside, footer, figure, img, video, .comments, .sidebar, script, style").remove();
+      const text = main
         .find("p")
         .map((_, el) => $(el).text().trim())
         .get()
@@ -258,5 +278,102 @@ export class BlogScraper extends BaseScraper {
     text = text.replace(/\n{3,}/g, "\n\n");
     const lines = text.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
     return lines.join("\n");
+  }
+
+  /**
+   * Extract blog post URLs from a blog index/archive page.
+   * Returns an array of absolute URLs to individual blog posts.
+   */
+  async extractPostUrls(indexUrl: string, limit: number = 20): Promise<string[]> {
+    const normalizedUrl = this.normalizeUrl(indexUrl);
+    const html = await this.fetch(normalizedUrl);
+
+    if (html === null) {
+      return [];
+    }
+
+    try {
+      const $ = cheerio.load(html);
+      const postUrls = new Set<string>();
+      const baseUrl = new URL(normalizedUrl);
+
+      // Common blog post link selectors
+      const linkSelectors = [
+        // WordPress
+        "article a[href]",
+        ".entry-title a",
+        ".post-title a",
+        ".blog-post a",
+        // Ghost
+        ".post-card a",
+        ".post-full-title a",
+        // Generic
+        "h2 a[href]",
+        "h3 a[href]",
+        ".post-list a[href]",
+        ".blog-list a[href]",
+        ".archive-list a[href]",
+        // Schema.org
+        '[itemprop="url"]',
+        '[itemprop="headline"] a',
+      ];
+
+      for (const selector of linkSelectors) {
+        $(selector).each((_, el) => {
+          const href = $(el).attr("href");
+          if (!href) return;
+
+          try {
+            const absoluteUrl = new URL(href, baseUrl);
+
+            // Filter out non-post URLs (feeds, categories, tags, etc.)
+            const skipPatterns = [
+              /\/feed\/?$/i,
+              /\/rss\/?$/i,
+              /\/atom\/?$/i,
+              /\/category\//i,
+              /\/tag\//i,
+              /\/author\//i,
+              /\/page\//i,
+              /\?(.*&)?(feed|rss|cat|tag)=/i,
+              /#comment/i,
+              /#respond/i,
+            ];
+
+            if (skipPatterns.some((p) => p.test(absoluteUrl.href))) {
+              return;
+            }
+
+            // Only include URLs from the same domain
+            if (absoluteUrl.hostname === baseUrl.hostname) {
+              // Normalize and add to set
+              const normalized = absoluteUrl.href.replace(/\/$/, "").split("#")[0];
+              if (normalized !== normalizedUrl) {
+                postUrls.add(normalized);
+              }
+            }
+          } catch {
+            // Invalid URL, skip
+          }
+        });
+
+        if (postUrls.size >= limit) break;
+      }
+
+      const urls = Array.from(postUrls).slice(0, limit);
+
+      logger.info("Extracted blog post URLs", {
+        indexUrl: normalizedUrl,
+        postCount: urls.length,
+      });
+
+      return urls;
+    } catch (error) {
+      logger.error("Failed to extract blog post URLs", {
+        indexUrl: normalizedUrl,
+        error: String(error),
+      });
+      return [];
+    }
   }
 }

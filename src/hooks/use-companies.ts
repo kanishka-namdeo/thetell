@@ -47,29 +47,7 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
     const controller = new AbortController();
 
     const fetchData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const params = new URLSearchParams();
-        params.set("limit", String(options.limit || 20));
-
-        const res = await fetch(`/api/v1/companies?${params.toString()}`, {
-          signal: controller.signal,
-        });
-        if (!res.ok) throw new Error("Failed to fetch companies");
-
-        const json: PaginatedApiResponse<CompanyWithCounts> = await res.json();
-
-        setData(json.items);
-        setHasMore(json.hasMore);
-        setNextCursor(json.nextCursor);
-      } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") return;
-        setError(err instanceof Error ? err.message : "Unknown error");
-      } finally {
-        setLoading(false);
-      }
+      await fetchCompanies(undefined, controller.signal);
     };
 
     fetchData();
@@ -77,7 +55,7 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
     return () => {
       controller.abort();
     };
-  }, [options.limit]);
+  }, [fetchCompanies]);
 
   useEffect(() => {
     return () => {

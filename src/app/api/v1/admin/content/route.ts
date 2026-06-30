@@ -20,6 +20,9 @@ export async function GET(request: NextRequest) {
 
   try {
     const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
     if (!requireAdmin(session)) {
       return NextResponse.json(
         { error: "forbidden", message: "Admin access required" },
@@ -48,15 +51,24 @@ export async function GET(request: NextRequest) {
     const includeSignals = !query.type || query.type === "signal";
     const includeArticles = !query.type || query.type === "article";
 
+    // Get actual counts from database
+    const [signalCount, articleCount] = await Promise.all([
+      includeSignals ? prisma.signal.count({ where: query.status ? { status: query.status as any } : {} }) : 0,
+      includeArticles ? prisma.article.count({ where: query.status ? { status: query.status as any } : {} }) : 0,
+    ]);
+    const actualTotal = signalCount + articleCount;
+
     if (includeSignals) {
       const signalWhere: Record<string, unknown> = {};
       if (query.status) {
         signalWhere.status = query.status;
       }
 
+      // When fetching both types, limit each query to prevent unbounded loads
+      const signalTake = query.type === "signal" ? query.limit + 1 : query.limit;
       const signals = await prisma.signal.findMany({
         where: signalWhere,
-        take: query.type === "signal" ? query.limit + 1 : undefined,
+        take: signalTake,
         cursor: query.type === "signal" && query.cursor ? { id: query.cursor } : undefined,
         include: {
           company: true,
@@ -87,7 +99,7 @@ export async function GET(request: NextRequest) {
 
       const articles = await prisma.article.findMany({
         where: articleWhere,
-        take: query.type === "article" ? query.limit + 1 : undefined,
+        take: query.limit + 1,
         cursor: query.type === "article" && query.cursor ? { id: query.cursor } : undefined,
         include: {
           company: true,
@@ -127,7 +139,7 @@ export async function GET(request: NextRequest) {
       items: limitedItems,
       nextCursor,
       hasMore,
-      total: items.length,
+      total: actualTotal,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

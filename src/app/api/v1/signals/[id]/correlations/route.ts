@@ -29,8 +29,16 @@ export async function GET(
         title: true,
         sourceType: true,
         companyId: true,
+        clusterId: true,
         themes: {
           select: { id: true, label: true },
+        },
+        cluster: {
+          select: {
+            id: true,
+            label: true,
+            clusterSummary: true,
+          },
         },
       },
     });

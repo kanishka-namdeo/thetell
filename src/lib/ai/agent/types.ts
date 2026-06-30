@@ -200,6 +200,9 @@ export const AgentDebateSchema = z.preprocess(
     if (!obj.pointsOfContention && obj.points_of_contention) {
       obj.pointsOfContention = obj.points_of_contention;
     }
+    if (!obj.evidenceChain && obj.evidence_chain) {
+      obj.evidenceChain = obj.evidence_chain;
+    }
     
     // Ensure positions are objects, not undefined
     if (!obj.analystPosition || typeof obj.analystPosition !== "object") {
@@ -233,6 +236,19 @@ export const AgentDebateSchema = z.preprocess(
       evidence: z.array(z.string()).default([]),
     })).default([]),
     synthesis: z.string().default("No synthesis available"),
+    evidenceChain: z.array(z.object({
+      claim: z.string(),
+      supportingSignals: z.array(z.object({
+        signalId: z.string(),
+        title: z.string(),
+        fact: z.string(),
+      })),
+      contradictingSignals: z.array(z.object({
+        signalId: z.string(),
+        title: z.string(),
+        fact: z.string(),
+      })).optional(),
+    })).optional(),
   })
 );
 export type AgentDebate = z.infer<typeof AgentDebateSchema>;
@@ -257,6 +273,7 @@ export interface AgentAnalysis {
   }> | null;
   modelUsed: string;
   analyzedAt: Date | string;
+  sourceMatchPreference?: boolean | null;
 }
 
 /**

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Bookmark } from "lucide-react";
+import { logger } from "@/lib/logger";
 
 interface WatchlistButtonProps {
   companyId: string;
@@ -52,7 +53,7 @@ export function WatchlistButton({
     } catch (error) {
       // Rollback on error
       setIsWatched(previousState);
-      console.error("Watchlist toggle failed:", error);
+      logger.error("watchlist.toggle_failed", { companyId, error: String(error) });
     } finally {
       setIsLoading(false);
     }

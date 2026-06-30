@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 import { logger } from "@/lib/logger";
-import { getProvider } from "./provider";
+import { getProviderWithFailover } from "./provider";
 import { buildThemesPrompt } from "./prompts";
 import {
   ThemeExtractionResultSchema,
@@ -19,7 +19,7 @@ export async function identifyThemes(
   providerName: ProviderName = "openai",
   model?: string
 ): Promise<ThemeExtractionResult> {
-  const provider = getProvider(providerName);
+  const { provider } = getProviderWithFailover(providerName);
   const messages = buildThemesPrompt(text);
 
   logger.debug("analysis.themes.start", {
@@ -48,7 +48,7 @@ export async function identifyThemesWithPrompt<T extends z.ZodTypeAny>(
   temperature: number = 0.4,
   model?: string
 ): Promise<z.infer<T>> {
-  const provider = getProvider(providerName);
+  const { provider } = getProviderWithFailover(providerName);
 
   logger.debug("analysis.themes.custom.start", {
     provider: providerName,

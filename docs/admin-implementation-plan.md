@@ -181,7 +181,7 @@ const adminNavItems = [
 - [ ] Active state highlights correctly
 
 #### 1.5 Admin Route Protection
-**Location**: `src/middleware.ts`
+**Location**: `src/proxy.ts`
 
 **Changes**:
 - Add admin route pattern matching

@@ -21,12 +21,14 @@ import { correlateSignalsFunction } from "./correlation";
 import { calibrateInferencesFunction } from "./calibration";
 import { sourceHealthCheckFunction } from "./source-health";
 import { generateArticleFunction } from "./articles";
+import { mergeClustersFunction } from "./cluster-merge";
 import { detectLanguage, LANGUAGE_CONFIDENCE_THRESHOLD } from "@/lib/nlp";
 import { assessContentQuality } from "@/lib/nlp";
 import { invalidateClusterCacheForCompany } from "@/lib/cache/cluster-cache";
 import { invalidateClusterMetrics } from "@/lib/metrics/cluster-metrics";
 import { clusterPerformanceMetrics } from "@/lib/metrics/cluster-performance-metrics";
 import { triageSignalToCluster } from "@/lib/nlp/cluster-triage";
+import { loadSignalEmbedding } from "@/lib/nlp/embedding-store";
 import { analyzeSignalForCluster } from "@/lib/ai/agent/cluster-analysis";
 import { updateClusterWithSignal } from "@/lib/ai/agent/cluster-update";
 import { AUDIT_ACTIONS, logAuditEvent } from "@/lib/audit-logger";
@@ -195,19 +197,13 @@ export const analyzeSignalFunction = inngest.createFunction(
           return { matched: false, cluster: null, method: "disabled" as const, candidates: 0 };
         }
 
-        // Load signal embedding
-        const signalRecord = await prisma.signal.findUnique({
-          where: { id: signalId },
-          select: { embedding: true },
-        });
+        // Load signal embedding via raw query (pgvector column is Unsupported in Prisma)
+        const embeddingArray = await loadSignalEmbedding(signalId);
 
-        if (!signalRecord?.embedding) {
+        if (!embeddingArray) {
           log.info("inngest.function.no_embedding_for_triage");
           return { matched: false, cluster: null, method: "no_embedding" as const, candidates: 0 };
         }
-
-        const embedding = signalRecord.embedding as unknown;
-        const embeddingArray = Array.isArray(embedding) ? embedding : JSON.parse(String(embedding));
 
         const threshold = config?.clusterMatchThreshold ?? 0.75;
 
@@ -851,23 +847,60 @@ export const analyzeSignalFunction = inngest.createFunction(
             return ids.includes(signalId);
           });
 
-          await prisma.article.create({
-            data: {
-              title: articleResult.title,
+          // Check if article already exists for this signal+persona to prevent duplicates
+          // Find all analysis IDs for this signal, then check if any article references them
+          const signalAnalyses = await prisma.analysis.findMany({
+            where: { signalId, agentPersona: "ANALYST" },
+            select: { id: true },
+          });
+          const signalAnalysisIds = new Set(signalAnalyses.map((a) => a.id));
+
+          const existingArticles = await prisma.article.findMany({
+            where: { companyId: signal.companyId, agentPersona: "ANALYST" },
+            select: { id: true, analysisIds: true },
+          });
+
+          const existingArticle = existingArticles.find((article) => {
+            const ids = Array.isArray(article.analysisIds) ? article.analysisIds : [];
+            return ids.some((id: unknown) => typeof id === "string" && signalAnalysisIds.has(id));
+          });
+
+          if (existingArticle) {
+            // Update existing article instead of creating duplicate
+            await prisma.article.update({
+              where: { id: existingArticle.id },
+              data: {
+                title: articleResult.title,
+                slug: articleResult.slug,
+                summary: articleResult.summary,
+                body: articleResult.body,
+                inferenceId: matchingInference?.id ?? null,
+                status: "PUBLISHED",
+              },
+            });
+            log.info("inngest.function.analyst_article_updated", {
+              articleId: existingArticle.id,
               slug: articleResult.slug,
-              summary: articleResult.summary,
-              body: articleResult.body,
-              companyId: signal.companyId,
-              agentPersona: "ANALYST",
-              analysisIds: [analystAnalysis!.id],
+            });
+          } else {
+            await prisma.article.create({
+              data: {
+                title: articleResult.title,
+                slug: articleResult.slug,
+                summary: articleResult.summary,
+                body: articleResult.body,
+                companyId: signal.companyId,
+                agentPersona: "ANALYST",
+                analysisIds: [analystAnalysis!.id],
+                inferenceId: matchingInference?.id ?? null,
+                status: "PUBLISHED",
+              },
+            });
+            log.info("inngest.function.analyst_article_created", {
+              slug: articleResult.slug,
               inferenceId: matchingInference?.id ?? null,
-              status: "PUBLISHED",
-            },
-          });
-          log.info("inngest.function.analyst_article_created", {
-            slug: articleResult.slug,
-            inferenceId: matchingInference?.id ?? null,
-          });
+            });
+          }
         });
       } catch (error) {
         log.error("inngest.function.analyst_article_failed", {
@@ -943,23 +976,59 @@ export const analyzeSignalFunction = inngest.createFunction(
             return ids.includes(signalId);
           });
 
-          await prisma.article.create({
-            data: {
-              title: articleResult.title,
+          // Check if article already exists for this signal+persona to prevent duplicates
+          const signalAnalyses = await prisma.analysis.findMany({
+            where: { signalId, agentPersona: "GOSSIP_GIRL" },
+            select: { id: true },
+          });
+          const signalAnalysisIds = new Set(signalAnalyses.map((a) => a.id));
+
+          const existingArticles = await prisma.article.findMany({
+            where: { companyId: signal.companyId, agentPersona: "GOSSIP_GIRL" },
+            select: { id: true, analysisIds: true },
+          });
+
+          const existingArticle = existingArticles.find((article) => {
+            const ids = Array.isArray(article.analysisIds) ? article.analysisIds : [];
+            return ids.some((id: unknown) => typeof id === "string" && signalAnalysisIds.has(id));
+          });
+
+          if (existingArticle) {
+            // Update existing article instead of creating duplicate
+            await prisma.article.update({
+              where: { id: existingArticle.id },
+              data: {
+                title: articleResult.title,
+                slug: articleResult.slug,
+                summary: articleResult.summary,
+                body: articleResult.body,
+                inferenceId: matchingInference?.id ?? null,
+                status: "PUBLISHED",
+              },
+            });
+            log.info("inngest.function.gossip_girl_article_updated", {
+              articleId: existingArticle.id,
               slug: articleResult.slug,
-              summary: articleResult.summary,
-              body: articleResult.body,
-              companyId: signal.companyId,
-              agentPersona: "GOSSIP_GIRL",
-              analysisIds: [gossipGirlAnalysis!.id],
+            });
+          } else {
+            await prisma.article.create({
+              data: {
+                title: articleResult.title,
+                slug: articleResult.slug,
+                summary: articleResult.summary,
+                body: articleResult.body,
+                companyId: signal.companyId,
+                agentPersona: "GOSSIP_GIRL",
+                analysisIds: [gossipGirlAnalysis!.id],
+                inferenceId: matchingInference?.id ?? null,
+                status: "PUBLISHED",
+              },
+            });
+            log.info("inngest.function.gossip_girl_article_created", {
+              slug: articleResult.slug,
               inferenceId: matchingInference?.id ?? null,
-              status: "PUBLISHED",
-            },
-          });
-          log.info("inngest.function.gossip_girl_article_created", {
-            slug: articleResult.slug,
-            inferenceId: matchingInference?.id ?? null,
-          });
+            });
+          }
         });
       } catch (error) {
         log.error("inngest.function.gossip_girl_article_failed", {
@@ -1018,6 +1087,11 @@ export const analyzeSignalFunction = inngest.createFunction(
         });
 
         await step.run("create-debate-record", async () => {
+          // Delete any existing debate for this signal to prevent duplicates on re-analysis
+          await prisma.agentDebate.deleteMany({
+            where: { signalId, clusterId: null },
+          });
+
           await prisma.agentDebate.create({
             data: {
               signalId,
@@ -1036,41 +1110,6 @@ export const analyzeSignalFunction = inngest.createFunction(
         });
       } catch (error) {
         log.error("inngest.function.debate_failed", {
-          error: String(error),
-        });
-      }
-    }
-
-    // Step 6.5: Check for high-confidence alerts
-    if (analystAnalysis && gossipGirlAnalysis) {
-      try {
-        await step.run("check-alert-thresholds-2", async () => {
-          const { checkAlertThresholds, createSignalAlert } = await import("@/lib/alerts/signal-alerts");
-          
-          const alertResult = checkAlertThresholds(analystAnalysis!, gossipGirlAnalysis!);
-          
-          if (alertResult.shouldAlert) {
-            const gossipSentiment = gossipGirlAnalysis!.sentiment as { tell_strength?: number } | null;
-            const gossipTellStrength = gossipSentiment?.tell_strength ?? 0;
-            
-            await createSignalAlert(
-              signalId,
-              signal.companyId,
-              analystAnalysis!.confidence,
-              gossipTellStrength,
-              alertResult.reason || "High-conviction signal detected"
-            );
-            
-            log.info("inngest.function.alert_triggered", {
-              signalId,
-              analystConfidence: analystAnalysis!.confidence,
-              gossipTellStrength,
-            });
-          }
-        });
-      } catch (error) {
-        log.error("inngest.function.alert_check_failed", {
-          signalId,
           error: String(error),
         });
       }
@@ -1261,7 +1300,82 @@ export const analyzeSignalFunction = inngest.createFunction(
       });
     }
 
-    // Step 9: Update signal status to ANALYZED (at least one agent succeeded)
+    // Step 9: Link signal to existing cluster based on strategic themes
+    // This ensures signals get linked to clusters even when cluster routing is disabled
+    // Skip if signal is already assigned to a cluster to prevent reassignment during re-analysis
+    if ((analystAnalysis || gossipGirlAnalysis) && !signal.clusterId) {
+      await step.run("link-signal-to-cluster", async () => {
+        try {
+          // Extract strategic themes from whichever analysis succeeded
+          const themes = analystAnalysis?.strategicThemes ?? gossipGirlAnalysis?.strategicThemes ?? [];
+          if (themes.length === 0) {
+            log.debug("inngest.function.no_themes_for_cluster_matching");
+            return;
+          }
+
+          // Find existing clusters for this company
+          const existingClusters = await prisma.signalTheme.findMany({
+            where: {
+              companyId: signal.companyId,
+              status: { in: ["EMERGING", "ACCELERATING", "PEAKED"] },
+            },
+            select: {
+              id: true,
+              label: true,
+              embedding: true,
+            },
+            take: 50,
+          });
+
+          if (existingClusters.length === 0) {
+            log.debug("inngest.function.no_existing_clusters");
+            return;
+          }
+
+          // Try to match signal themes to existing clusters
+          // Use label similarity (case-insensitive contains) as a simple heuristic
+          for (const theme of themes) {
+            const themeLabel = theme.label.toLowerCase();
+            const matchingCluster = existingClusters.find((cluster) => {
+              const clusterLabel = cluster.label.toLowerCase();
+              return clusterLabel.includes(themeLabel) || themeLabel.includes(clusterLabel);
+            });
+
+            if (matchingCluster) {
+              // Link signal to this cluster
+              await prisma.signal.update({
+                where: { id: signalId },
+                data: { clusterId: matchingCluster.id },
+              });
+
+              log.info("inngest.function.signal_linked_to_cluster", {
+                signalId,
+                clusterId: matchingCluster.id,
+                clusterLabel: matchingCluster.label,
+                matchedTheme: theme.label,
+              });
+              return; // Only link to first matching cluster
+            }
+          }
+
+          log.debug("inngest.function.no_cluster_match_found");
+        } catch (error) {
+          log.warn("inngest.function.cluster_matching_failed", {
+            signalId,
+            error: String(error),
+          });
+          // Non-fatal - continue without cluster linking
+        }
+      });
+    } else if (signal.clusterId) {
+      log.debug("inngest.function.cluster_linking_skipped", {
+        signalId,
+        clusterId: signal.clusterId,
+        reason: "signal already assigned to cluster",
+      });
+    }
+
+    // Step 10: Update signal status to ANALYZED (at least one agent succeeded)
     await step.run("update-status-analyzed-standalone", async () => {
       await prisma.signal.update({
         where: { id: signalId },
@@ -1285,4 +1399,4 @@ export const analyzeSignalFunction = inngest.createFunction(
   }
 );
 
-export const functions = [analyzeSignalFunction, discoverSignalsUnifiedFunction, correlateSignalsFunction, calibrateInferencesFunction, sourceHealthCheckFunction, generateArticleFunction];
+export const functions = [analyzeSignalFunction, discoverSignalsUnifiedFunction, correlateSignalsFunction, calibrateInferencesFunction, sourceHealthCheckFunction, generateArticleFunction, mergeClustersFunction];

@@ -8,7 +8,7 @@ import { extractFacts } from "./fact-extraction";
 import { classifySentiment } from "./sentiment";
 import { identifyThemes } from "./themes";
 import { calculateConfidence } from "./confidence";
-import { getProvider } from "./provider";
+import { getProviderWithFailover } from "./provider";
 import { buildSummaryPrompt } from "./prompts";
 import { z } from "zod";
 import type { ProviderName } from "./provider";
@@ -96,7 +96,7 @@ export async function analyzeSignal(
     });
 
     // Generate summary
-    const provider = getProvider(providerName);
+    const { provider } = getProviderWithFailover(providerName);
     const companyName = signal.company?.name ?? "the company";
     const summaryMessages = buildSummaryPrompt(signal.rawContent, companyName);
     const summaryResult = await provider.completeStructured(
@@ -106,7 +106,7 @@ export async function analyzeSignal(
     );
 
     // Calculate composite confidence
-    const modelUsed = model ?? (providerName === "openai" ? "gpt-4o" : "claude-3-5-sonnet");
+    const modelUsed = model ?? process.env.FAST_MODEL ?? "unknown";
     const confidence = calculateConfidence({
       sourceType: signal.sourceType,
       contentLength: signal.rawContent.length,

@@ -27,11 +27,17 @@ export interface TickerLookupResult {
   confidence: number;
 }
 
+export interface WebsiteLookupResult {
+  websiteUrl: string | null;
+  confidence: number;
+}
+
 export interface EnrichmentResult {
   companyId: string;
   feeds: DiscoveredFeed[];
   socials: DiscoveredSocial[];
   ticker: TickerLookupResult | null;
+  website: WebsiteLookupResult | null;
   blogs: DiscoveredFeed[];
   status: "success" | "partial" | "failed";
   error?: string;
@@ -45,12 +51,17 @@ export const TickerSuggestionSchema = z.object({
   confidence: z.number().min(0).max(1),
 });
 
+export const WebsiteSuggestionSchema = z.object({
+  websiteUrl: z.string().url().nullable(),
+  confidence: z.number().min(0).max(1),
+});
+
 export const SocialProfileSchema = z.object({
   profiles: z.array(
     z.object({
       platform: z.string(),
       url: z.string().url(),
-      handle: z.string(),
+      handle: z.string().optional().default(""),
     })
   ),
 });

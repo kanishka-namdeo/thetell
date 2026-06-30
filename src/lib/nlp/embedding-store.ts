@@ -7,6 +7,43 @@ import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
 
 /**
+ * Load embedding for a single signal.
+ * Uses raw query since embedding column is pgvector (Unsupported in Prisma).
+ */
+export async function loadSignalEmbedding(signalId: string): Promise<number[] | null> {
+  const result = await prisma.$queryRaw<Array<{ embedding: string | null }>>`
+    SELECT embedding::text as embedding FROM "Signal" WHERE id = ${signalId}
+  `;
+  const raw = result[0]?.embedding;
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Load embeddings for multiple signals.
+ */
+export async function loadSignalEmbeddings(signalIds: string[]): Promise<Map<string, number[]>> {
+  if (signalIds.length === 0) return new Map();
+  const result = await prisma.$queryRaw<Array<{ id: string; embedding: string | null }>>`
+    SELECT id, embedding::text as embedding FROM "Signal" WHERE id = ANY(${signalIds}) AND embedding IS NOT NULL
+  `;
+  const map = new Map<string, number[]>();
+  for (const row of result) {
+    if (!row.embedding) continue;
+    try {
+      const parsed = JSON.parse(row.embedding);
+      if (Array.isArray(parsed)) map.set(row.id, parsed);
+    } catch { /* skip */ }
+  }
+  return map;
+}
+
+/**
  * Store embedding for a signal using pgvector.
  */
 export async function storeSignalEmbedding(

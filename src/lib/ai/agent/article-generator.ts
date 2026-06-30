@@ -4,12 +4,14 @@
  */
 
 import { logger } from "@/lib/logger";
-import { getProvider } from "../provider";
+import { getProviderWithFailover } from "../provider";
 import {
   buildAgentArticleHeadlinePrompt,
   buildAgentArticleSummaryPrompt,
   buildAgentArticleBodyPrompt,
+  buildCrossRefContext,
 } from "./prompts";
+import { validateArticleBody, isThinContent, DEFAULT_CONFIG } from "../hallucination-guard";
 import { z } from "zod";
 import type { ProviderName } from "../provider";
 import type { AgentConfig, AgentPersona } from "./types";
@@ -31,12 +33,14 @@ export interface AgentArticleInput {
   companyName: string;
   analyses: Array<{
     summary: string;
-    keyFacts: Array<{ text: string }>;
+    keyFacts: Array<{ text: string; source_sentence?: string }>;
     sentiment: string;
     strategicThemes: Array<{ label: string }>;
   }>;
   agentPersona?: AgentPersona;
   sourceType?: string;
+  /** Raw source text for thin content detection */
+  sourceText?: string;
   engagement?: {
     score?: number;
     comments?: number;
@@ -54,6 +58,11 @@ export interface AgentArticleResult {
   slug: string;
   summary: string;
   body: string;
+  /** Indicates if article was skipped due to thin content or persona mismatch */
+  skipped?: boolean;
+  skipReason?: string;
+  /** Grounding score (percentage of claims traceable to source) */
+  groundingScore?: number;
 }
 
 export interface AgentCrossRef {
@@ -130,7 +139,34 @@ export async function generateArticleWithAgent(
   });
 
   try {
-    const provider = getProvider(providerName);
+    // Layer 4: Persona-source matching gate
+    // Skip article generation if persona doesn't match source type AND content is thin
+    const sourceMatchesPersona = input.sourceType && agentConfig.sourcePreferences.includes(input.sourceType);
+    
+    // Check if content is thin (low information density)
+    const sourceText = input.sourceText || 
+      input.analyses.map(a => `${a.summary}\n${a.keyFacts.map(f => f.text).join("\n")}`).join("\n\n");
+    const isThin = isThinContent(sourceText);
+    
+    if (!sourceMatchesPersona && isThin) {
+      log.warn("agent.article_generation.skipped_persona_mismatch", {
+        sourceType: input.sourceType,
+        personaPreferences: agentConfig.sourcePreferences,
+        isThin,
+        skipReason: "Persona does not match source type and content is too thin for dramatic interpretation",
+      });
+      
+      return {
+        title: "",
+        slug: "",
+        summary: "",
+        body: "",
+        skipped: true,
+        skipReason: `Persona ${agentConfig.persona} prefers ${agentConfig.sourcePreferences.join(", ")} sources, but source is ${input.sourceType || "unknown"}. Content is too thin for dramatic interpretation without fabrication risk.`,
+      };
+    }
+
+    const { provider } = getProviderWithFailover(providerName);
 
     const summaries = input.analyses.map((a) => a.summary);
     const allThemes = input.analyses.flatMap((a) =>
@@ -183,13 +219,17 @@ export async function generateArticleWithAgent(
       sentiment: a.sentiment,
     }));
 
+    // Build cross-reference context from the other agent's analysis
+    const crossRefContext = buildCrossRefContext(crossRefAnalyses);
+
     const bodyMessages = buildAgentArticleBodyPrompt(
       input.companyName,
       headlineResult.headline,
       summaryResult.summary,
       analysesForBody,
       agentConfig,
-      socialContext
+      socialContext,
+      crossRefContext || undefined
     );
     const bodyResult = await provider.completeStructured(
       bodyMessages,
@@ -201,7 +241,46 @@ export async function generateArticleWithAgent(
 
     const sanitizedHeadline = sanitizeArticleOutput(headlineResult.headline);
     const sanitizedSummary = sanitizeArticleOutput(summaryResult.summary);
-    const sanitizedBody = sanitizeArticleOutput(bodyResult.body);
+    const sanitizedBody = fixHeaderFormatting(sanitizeArticleOutput(bodyResult.body));
+
+    // Validate article output is non-empty and well-formed
+    const validationError = validateArticleOutput(
+      sanitizedHeadline,
+      sanitizedSummary,
+      sanitizedBody
+    );
+    if (validationError) {
+      log.warn("agent.article_generation.validation_failed", {
+        error: validationError,
+        titleLength: sanitizedHeadline.length,
+        summaryLength: sanitizedSummary.length,
+        bodyLength: sanitizedBody.length,
+      });
+      return {
+        title: sanitizedHeadline,
+        slug: "",
+        summary: sanitizedSummary,
+        body: sanitizedBody,
+        skipped: true,
+        skipReason: validationError,
+      };
+    }
+
+    // Layer 2: Post-generation grounding check
+    // Validate that article claims are traceable to source analyses
+    const articleValidation = validateArticleBody(
+      sanitizedBody,
+      analysesForBody,
+      { ...DEFAULT_CONFIG, groundingThreshold: 0.6 }
+    );
+
+    if (!articleValidation.isAcceptable) {
+      log.warn("agent.article_generation.low_grounding", {
+        groundingScore: articleValidation.groundingScore,
+        threshold: 0.6,
+        ungroundedClaims: articleValidation.ungroundedClaims.slice(0, 5),
+      });
+    }
 
     const slug = createSlug(sanitizedHeadline);
     const latencyMs = Date.now() - startTime;
@@ -209,6 +288,7 @@ export async function generateArticleWithAgent(
     log.info("agent.article_generation.complete", {
       latency_ms: latencyMs,
       slug,
+      groundingScore: articleValidation.groundingScore,
     });
 
     return {
@@ -216,6 +296,7 @@ export async function generateArticleWithAgent(
       slug,
       summary: sanitizedSummary,
       body: sanitizedBody,
+      groundingScore: articleValidation.groundingScore,
     };
   } catch (error) {
     log.error("agent.article_generation.error", { error: String(error) });
@@ -224,7 +305,37 @@ export async function generateArticleWithAgent(
 }
 
 function sanitizeArticleOutput(text: string): string {
-  return text.replace(/[^\x00-\x7F]/g, "");
+  return text.replace(/[\x00-\x1F\x7F]/g, "");
+}
+
+/**
+ * Ensure markdown headers have a newline after them.
+ * Fixes LLM output like "## The TellContent..." → "## The Tell\nContent..."
+ */
+function fixHeaderFormatting(text: string): string {
+  // Match ## headers that are immediately followed by non-whitespace content
+  return text.replace(/^(##\s+[^\n#]+)([A-Za-z0-9])/gm, "$1\n$2");
+}
+
+/**
+ * Validate that article output is non-empty and well-formed.
+ * Returns an error message if invalid, or null if valid.
+ */
+function validateArticleOutput(
+  title: string,
+  summary: string,
+  body: string
+): string | null {
+  if (!title || title.trim().length === 0) {
+    return "Article title is empty";
+  }
+  if (!summary || summary.trim().length < 20) {
+    return `Article summary is too short (${summary.trim().length} chars, minimum 20)`;
+  }
+  if (!body || body.trim().length < 100) {
+    return `Article body is too short (${body.trim().length} chars, minimum 100)`;
+  }
+  return null;
 }
 
 function createSlug(headline: string): string {

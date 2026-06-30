@@ -30,8 +30,8 @@ async function main() {
       console.log(`  Gossip Claim: ${inf.debate.gossipClaim.substring(0, 100)}...`);
       console.log(`  Analyst Confidence: ${inf.debate.analystConfidence.toFixed(2)}`);
       console.log(`  Gossip Tell Strength: ${inf.debate.gossipTellStrength.toFixed(2)}`);
-      console.log(`  Agreements: ${inf.debate.agreements.length}`);
-      console.log(`  Contentions: ${inf.debate.contentions.length}`);
+      console.log(`  Agreements: ${(inf.debate.agreements as unknown[])?.length || 0}`);
+      console.log(`  Contentions: ${(inf.debate.contentions as unknown[])?.length || 0}`);
       console.log(`  Synthesis: ${inf.debate.synthesisText.substring(0, 100)}...`);
     } else {
       console.log('Debate: None');

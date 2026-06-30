@@ -18,8 +18,9 @@ import { SignupPrompt } from "../../_components/signup-prompt";
 import { ShareButton } from "@/components/dashboard/share-button";
 import { ConsensusBadge, calculateConsensus } from "./consensus-badge";
 import { AnalysisSection } from "./analysis-section";
+import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { ArrowLeft, MessageSquare, Handshake, Swords, Lightbulb, ArrowUp, User, Globe, Rss, ExternalLink, BadgeCheck } from "lucide-react";
+import { ArrowLeft, MessageSquare, Handshake, Swords, Lightbulb, ArrowUp, User, Globe, Rss, ExternalLink, BadgeCheck, AlertTriangle } from "lucide-react";
 
 const categoryLabels: Record<string, string> = {
   financial: "Financial",
@@ -58,6 +59,15 @@ export async function SignalDetailContent({ id }: SignalDetailContentProps) {
         take: 1,
         orderBy: { generatedAt: "desc" },
       },
+      cluster: {
+        select: {
+          id: true,
+          label: true,
+          status: true,
+          momentum: true,
+          _count: { select: { clusteredSignals: true } },
+        },
+      },
     },
   });
 
@@ -75,35 +85,35 @@ export async function SignalDetailContent({ id }: SignalDetailContentProps) {
     (a) => a.agentPersona === "ANALYST"
   );
 
-  // Fetch related inferences
-  const relatedInferences = await prisma.inference.findMany({
-    where: {
-      supportingSignalIds: {
-        array_contains: signal.id,
+  // Parallelize related inferences + current themes (independent queries)
+  const [relatedInferences, currentThemes] = await Promise.all([
+    prisma.inference.findMany({
+      where: {
+        supportingSignalIds: {
+          array_contains: signal.id,
+        },
       },
-    },
-    include: {
-      company: true,
-      theme: true,
-    },
-    take: 5,
-    orderBy: { confidence: "desc" },
-  });
-
-  // Fetch current signal's themes
-  const currentThemes = await prisma.signalTheme.findMany({
-    where: {
-      signals: {
-        some: { id: signal.id },
+      include: {
+        company: true,
+        theme: true,
       },
-    },
-    select: { id: true },
-  });
+      take: 5,
+      orderBy: { confidence: "desc" },
+    }),
+    prisma.signalTheme.findMany({
+      where: {
+        signals: {
+          some: { id: signal.id },
+        },
+      },
+      select: { id: true },
+    }),
+  ]);
 
   const themeIds = currentThemes.map((t) => t.id);
 
-  // Fetch related signals (sharing themes)
-  const relatedSignals =
+  // Single query for both related and correlated signals (same WHERE clause)
+  const relatedSignalsFull =
     themeIds.length > 0
       ? await prisma.signal.findMany({
           where: {
@@ -116,34 +126,16 @@ export async function SignalDetailContent({ id }: SignalDetailContentProps) {
           },
           include: {
             company: true,
+            themes: { select: { id: true } },
           },
           orderBy: { scrapedAt: "desc" },
           take: 10,
         })
       : [];
 
-  // Fetch correlated signals with theme overlap count
-  const correlatedSignalsRaw =
-    themeIds.length > 0
-      ? await prisma.signal.findMany({
-          where: {
-            id: { not: signal.id },
-            themes: {
-              some: {
-                id: { in: themeIds },
-              },
-            },
-          },
-          include: {
-            themes: {
-              select: { id: true },
-            },
-          },
-          take: 5,
-        })
-      : [];
-
-  const correlatedSignals = correlatedSignalsRaw
+  const relatedSignals = relatedSignalsFull;
+  const correlatedSignals = relatedSignalsFull
+    .slice(0, 5)
     .map((s) => ({
       ...s,
       sharedThemeCount: s.themes.filter((t) => themeIds.includes(t.id)).length,
@@ -313,6 +305,35 @@ export async function SignalDetailContent({ id }: SignalDetailContentProps) {
           </CardContent>
         </Card>
 
+        {/* Cluster Context */}
+        {signal.cluster && (
+          <Card className="mb-6 border-l-4 border-l-primary">
+            <CardContent className="pt-6">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Badge variant="outline">Cluster</Badge>
+                    <Badge variant="secondary">{signal.cluster.status}</Badge>
+                  </div>
+                  <h3 className="font-semibold text-lg mb-1">{signal.cluster.label}</h3>
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                    <span>{signal.cluster._count.clusteredSignals} signals in cluster</span>
+                    <span>Momentum: {signal.cluster.momentum.toFixed(2)}</span>
+                  </div>
+                </div>
+                <Link
+                  href={`/clusters/${signal.cluster.id}`}
+                  className="flex-shrink-0"
+                >
+                  <Button variant="outline" size="sm">
+                    View Cluster →
+                  </Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Signal Content */}
         {signal.rawContent && (
           <Card className="mb-6">
@@ -349,6 +370,24 @@ export async function SignalDetailContent({ id }: SignalDetailContentProps) {
                       <div className="flex items-center gap-2">
                         <MessageSquare className="h-4 w-4 text-muted-foreground" />
                         <Metadata className="text-sm">r/{meta.subreddit}</Metadata>
+                      </div>
+                    )}
+                    {meta?.instance && (
+                      <div className="flex items-center gap-2">
+                        <Globe className="h-4 w-4 text-muted-foreground" />
+                        <Metadata className="text-sm">{meta.instance}</Metadata>
+                      </div>
+                    )}
+                    {meta?.authorAcct && !String(meta.authorAcct).startsWith("@") && (
+                      <div className="flex items-center gap-2">
+                        <User className="h-4 w-4 text-muted-foreground" />
+                        <Metadata className="text-sm">@{String(meta.authorAcct)}</Metadata>
+                      </div>
+                    )}
+                    {meta?.source && (
+                      <div className="flex items-center gap-2">
+                        <BadgeCheck className="h-4 w-4 text-muted-foreground" />
+                        <Metadata className="text-sm capitalize">{String(meta.source).replace("-", " ")}</Metadata>
                       </div>
                     )}
                     {eng && (
@@ -400,10 +439,27 @@ export async function SignalDetailContent({ id }: SignalDetailContentProps) {
               categoryLabels={categoryLabels}
               tellTypeLabels={tellTypeLabels}
               surfaceReadingLabels={surfaceReadingLabels}
+              isClustered={!!signal.cluster}
             />
 
-            {/* Debate Section */}
-            {(() => {
+            {/* Debate Section — skip for clustered signals, show link to cluster-level debate */}
+            {signal.cluster ? (
+              <Card className="mb-6 border-dashed border-2">
+                <CardContent className="flex items-center justify-center py-6">
+                  <div className="text-center space-y-2">
+                    <MessageSquare className="h-6 w-6 mx-auto text-muted-foreground" />
+                    <Metadata className="text-sm">
+                      Per-signal debate is handled at the cluster level
+                    </Metadata>
+                    <Link href={`/clusters/${signal.cluster.id}`}>
+                      <Button variant="outline" size="sm">
+                        View Cluster Debate →
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (() => {
               const debate = signal.debates[0];
               if (!debate) {
                 return (
@@ -467,9 +523,9 @@ export async function SignalDetailContent({ id }: SignalDetailContentProps) {
                         {analystPos.evidence.length > 0 && (
                           <div>
                             <Metadata className="mb-2">Evidence</Metadata>
-                            <ul className="space-y-1 list-none">
+                            <ul className="space-y-2 list-none">
                               {analystPos.evidence.map((ev, idx) => (
-                                <li key={idx} className="text-sm border-l-2 border-agent-analyst pl-3">
+                                <li key={idx} className="text-sm border-l-2 border-agent-analyst pl-3 break-words whitespace-normal leading-relaxed">
                                   {ev}
                                 </li>
                               ))}
@@ -495,9 +551,9 @@ export async function SignalDetailContent({ id }: SignalDetailContentProps) {
                         {gossipPos.evidence.length > 0 && (
                           <div>
                             <Metadata className="mb-2">The Tells</Metadata>
-                            <ul className="space-y-1 list-none">
+                            <ul className="space-y-2 list-none">
                               {gossipPos.evidence.map((ev, idx) => (
-                                <li key={idx} className="text-sm border-l-2 border-agent-gossip pl-3">
+                                <li key={idx} className="text-sm border-l-2 border-agent-gossip pl-3 break-words whitespace-normal leading-relaxed">
                                   {ev}
                                 </li>
                               ))}
@@ -555,11 +611,13 @@ export async function SignalDetailContent({ id }: SignalDetailContentProps) {
                             {contention.evidence.length > 0 && (
                               <div>
                                 <Metadata className="mb-1">Evidence</Metadata>
-                                <div className="flex flex-wrap gap-1">
+                                <div className="flex flex-col gap-2">
                                   {contention.evidence.map((ev, j) => (
-                                    <Badge key={j} variant="outline" className="text-[11px]">
-                                      {ev}
-                                    </Badge>
+                                    <div key={j} className="border border-foreground px-3 py-2">
+                                      <span className="text-xs text-muted-foreground break-words whitespace-normal leading-relaxed">
+                                        {ev}
+                                      </span>
+                                    </div>
                                   ))}
                                 </div>
                               </div>
@@ -589,6 +647,58 @@ export async function SignalDetailContent({ id }: SignalDetailContentProps) {
             })()}
           </>
         )}
+
+        {/* Contradictions */}
+        {(() => {
+          const contradictions = signal.contradictions as Array<{
+            fact1: string;
+            fact2: string;
+            signal1Id: string;
+            signal2Id: string;
+            type: string;
+            severity: number;
+          }> | null;
+
+          if (!contradictions || contradictions.length === 0) return null;
+
+          return (
+            <div className="mb-6 space-y-4">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="h-5 w-5 text-destructive" />
+                <Headline level={2} size="section">Contradictions Detected</Headline>
+                <Badge variant="destructive">{contradictions.length}</Badge>
+              </div>
+              <div className="space-y-3">
+                {contradictions.map((contradiction, idx) => (
+                  <Card key={idx} className="border-destructive/50 bg-destructive/5">
+                    <CardContent className="pt-4">
+                      <div className="space-y-3">
+                        <div>
+                          <Metadata className="text-xs text-destructive font-semibold mb-1">
+                            {contradiction.type.replace(/_/g, " ").toUpperCase()}
+                          </Metadata>
+                          <div className="space-y-2">
+                            <div className="flex items-start gap-2">
+                              <Badge variant="outline" className="text-xs mt-0.5">Signal 1</Badge>
+                              <p className="text-sm flex-1">{contradiction.fact1}</p>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <Badge variant="outline" className="text-xs mt-0.5">Signal 2</Badge>
+                              <p className="text-sm flex-1">{contradiction.fact2}</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Metadata>Severity: {(contradiction.severity * 100).toFixed(0)}%</Metadata>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Related Inferences */}
         {relatedInferences.length > 0 && (

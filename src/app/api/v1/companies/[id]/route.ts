@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { inngest } from "@/lib/inngest/client";
 import { z } from "zod";
+import { requireAdmin } from "@/lib/auth-guard";
 
 const CompanyUpdateSchema = z.object({
   name: z.string().min(1).optional(),
@@ -80,6 +81,12 @@ export async function PATCH(
       return NextResponse.json(
         { error: "unauthorized", message: "Authentication required" },
         { status: 401 }
+      );
+    }
+    if (!requireAdmin(session)) {
+      return NextResponse.json(
+        { error: "forbidden", message: "Admin access required" },
+        { status: 403 }
       );
     }
 
@@ -174,6 +181,12 @@ export async function DELETE(
       return NextResponse.json(
         { error: "unauthorized", message: "Authentication required" },
         { status: 401 }
+      );
+    }
+    if (!requireAdmin(session)) {
+      return NextResponse.json(
+        { error: "forbidden", message: "Admin access required" },
+        { status: 403 }
       );
     }
 

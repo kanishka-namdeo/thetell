@@ -17,6 +17,7 @@ interface MomentumIndicatorProps {
   signalCount: number;
   className?: string;
   showLabel?: boolean;
+  momentumHistory?: number[];
 }
 
 const statusConfig: Record<
@@ -72,10 +73,28 @@ export function MomentumIndicator({
   signalCount,
   className,
   showLabel = true,
+  momentumHistory,
 }: MomentumIndicatorProps) {
   const config = statusConfig[status as MomentumStatus] ?? statusConfig.EMERGING;
   const { icon: Icon, color, bgColor, borderColor, label } = config;
   const momentumPercent = Math.round(momentum * 100);
+
+  // Calculate trend from momentum history
+  let trend: "rising" | "falling" | "stable" | null = null;
+  if (momentumHistory && momentumHistory.length >= 14) {
+    const recent7 = momentumHistory.slice(-7);
+    const previous7 = momentumHistory.slice(-14, -7);
+    const recentAvg = recent7.reduce((a, b) => a + b, 0) / 7;
+    const previousAvg = previous7.reduce((a, b) => a + b, 0) / 7;
+    const diff = recentAvg - previousAvg;
+    if (Math.abs(diff) < 0.05) {
+      trend = "stable";
+    } else if (diff > 0) {
+      trend = "rising";
+    } else {
+      trend = "falling";
+    }
+  }
 
   return (
     <TooltipProvider>
@@ -97,6 +116,13 @@ export function MomentumIndicator({
                 ({signalCount} signal{signalCount !== 1 ? "s" : ""})
               </span>
             )}
+            {trend && showLabel && (
+              <span className="text-[10px] ml-1">
+                {trend === "rising" && "↑"}
+                {trend === "falling" && "↓"}
+                {trend === "stable" && "→"}
+              </span>
+            )}
           </div>
         </TooltipTrigger>
         <TooltipContent>
@@ -110,6 +136,11 @@ export function MomentumIndicator({
             <p>
               Status: {label}
             </p>
+            {trend && (
+              <p>
+                Trend: {trend === "rising" ? "Rising" : trend === "falling" ? "Falling" : "Stable"}
+              </p>
+            )}
           </div>
         </TooltipContent>
       </Tooltip>
