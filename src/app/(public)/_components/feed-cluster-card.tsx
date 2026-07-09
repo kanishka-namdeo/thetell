@@ -2,7 +2,6 @@
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Metadata } from "@/components";
 import { MomentumArrow } from "./momentum-arrow";
 import Link from "next/link";
 import { motion } from "motion/react";

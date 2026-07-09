@@ -108,10 +108,12 @@ export function DeepAgentMessageList({
 
   // Cleanup message refs and timeout on unmount for defensive memory management
   useEffect(() => {
+    const refsToClear = messageRefs.current;
+    const timeoutToClear = searchTimeoutRef.current;
     return () => {
-      messageRefs.current.clear();
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
+      refsToClear.clear();
+      if (timeoutToClear) {
+        clearTimeout(timeoutToClear);
       }
     };
   }, []);

@@ -1,4 +1,4 @@
-import { Container, Section, Headline, Body, Metadata, Button } from "@/components";
+import { Headline, Body, Metadata, Button } from "@/components";
 import { Target, SearchX } from "lucide-react";
 import Link from "next/link";
 

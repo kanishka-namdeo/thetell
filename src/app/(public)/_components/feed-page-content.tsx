@@ -68,7 +68,7 @@ export async function FeedPageContent({ cursor, sourceType, highConsensus }: Fee
     recentSignals,
     activeClusters,
     signalCount,
-    companies,
+    _companies,
     sourceTypeCounts,
     missedDigestData,
     themeEvolutionData,
