@@ -59,7 +59,6 @@ export async function POST(request: NextRequest) {
     for (const id of ids) {
       try {
         const signal = await prisma.signal.findUnique({ where: { id } });
-        const article = await prisma.article.findUnique({ where: { id } });
 
         if (signal) {
           if (action === "approve") {
@@ -84,34 +83,6 @@ export async function POST(request: NextRequest) {
             details: {
               previousStatus: signal.status,
               newStatus: action === "approve" ? "ANALYZED" : "REJECTED",
-              reason,
-              bulk: true,
-            },
-            request,
-          });
-        } else if (article) {
-          if (action === "approve") {
-            await prisma.article.update({
-              where: { id },
-              data: { status: "PUBLISHED", publishedAt: new Date() },
-            });
-            results.approved++;
-          } else {
-            await prisma.article.update({
-              where: { id },
-              data: { status: "DRAFT" },
-            });
-            results.rejected++;
-          }
-
-          await logAuditEvent({
-            userId: session.user.id,
-            action: `moderation.article.${action}`,
-            resource: "article",
-            resourceId: id,
-            details: {
-              previousStatus: article.status,
-              newStatus: action === "approve" ? "PUBLISHED" : "DRAFT",
               reason,
               bulk: true,
             },

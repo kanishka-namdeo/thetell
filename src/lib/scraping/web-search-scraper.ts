@@ -186,8 +186,19 @@ export class WebSearchScraper {
     try {
       const results: SearchResult[] = [];
 
+      // Wrap DDG calls with Promise.race timeout since duck-duck-scrape doesn't support AbortSignal
+      const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error(`DuckDuckGo timeout after ${ms}ms`)), ms);
+        });
+        return Promise.race([promise, timeoutPromise]).finally(() => {
+          if (timeoutId) clearTimeout(timeoutId);
+        });
+      };
+
       if (searchType === "news") {
-        const newsResults = await ddgSearchNews(query);
+        const newsResults = await withTimeout(ddgSearchNews(query), 30000);
         for (const item of newsResults.results.slice(0, numResults)) {
           results.push({
             url: item.url,
@@ -199,9 +210,9 @@ export class WebSearchScraper {
       } else {
         // Import SafeSearchType enum
         const { SafeSearchType } = await import("duck-duck-scrape");
-        const webResults = await ddgSearch(query, {
+        const webResults = await withTimeout(ddgSearch(query, {
           safeSearch: SafeSearchType.OFF,
-        });
+        }), 30000);
         for (const item of webResults.results.slice(0, numResults)) {
           results.push({
             url: item.url,

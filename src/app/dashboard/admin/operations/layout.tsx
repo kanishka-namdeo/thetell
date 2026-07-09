@@ -9,7 +9,6 @@ const tabs = [
   { value: "jobs", label: "Jobs", href: "/dashboard/admin/operations/jobs" },
   { value: "pipelines", label: "Pipelines", href: "/dashboard/admin/operations/pipelines" },
   { value: "subreddits", label: "Subreddits", href: "/dashboard/admin/operations/subreddits" },
-  { value: "observability", label: "Observability", href: "/dashboard/admin/operations/observability" },
 ];
 
 function getActiveTab(pathname: string): string {
@@ -17,7 +16,6 @@ function getActiveTab(pathname: string): string {
   if (pathname.endsWith("/jobs")) return "jobs";
   if (pathname.includes("/pipelines")) return "pipelines";
   if (pathname.endsWith("/subreddits")) return "subreddits";
-  if (pathname.endsWith("/observability")) return "observability";
   return "health";
 }
 

@@ -58,12 +58,18 @@ export class BaseScraper {
   protected maxRetries: number;
   protected cache: TTLCache<string>;
   protected skipRobots: boolean;
-  private robotsCache = new Map<string, ReturnType<typeof robotsParser>>();
+  private robotsCache = new Map<string, { parser: ReturnType<typeof robotsParser>; expiresAt: number }>();
+  private static readonly ROBOTS_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
   // Domain-level circuit breaker: track consecutive failures per domain
   private static domainFailures = new Map<string, { count: number; lastFailure: number }>();
   private static readonly CIRCUIT_BREAKER_THRESHOLD = 5;
   private static readonly CIRCUIT_BREAKER_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
+  private static lastCleanupTime = 0;
+  private static readonly CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+  
+  // Robots cache cleanup tracking
+  private static lastRobotsCleanupTime = 0;
 
   // Provenance tracking: updated on each successful fetch()
   protected lastFetchAttempts: number = 0;
@@ -190,48 +196,74 @@ export class BaseScraper {
     const baseUrl = `${parsed.protocol}//${parsed.host}`;
     const robotsUrl = `${baseUrl}/robots.txt`;
 
-    if (!this.robotsCache.has(baseUrl)) {
-      // Evict oldest entries if cache is full
-      if (this.robotsCache.size >= MAX_ROBOTS_CACHE_SIZE) {
-        const firstKey = this.robotsCache.keys().next().value;
-        if (firstKey) this.robotsCache.delete(firstKey);
-      }
+    const now = Date.now();
 
-      try {
-        const response = await fetch(robotsUrl, {
-          headers: { "User-Agent": BaseScraper.USER_AGENT },
-          signal: AbortSignal.timeout(this.timeout),
-        });
-
-        if (response.ok) {
-          const text = await this.readBodyWithLimit(response);
-          const robots = robotsParser(robotsUrl, text);
-          this.robotsCache.set(baseUrl, robots);
-        } else {
-          // Consume body to release connection
-          await response.body?.cancel();
-          // If robots.txt is unavailable, assume allowed
-          return true;
+    // Periodic cleanup of expired robots.txt cache entries (throttled to once per hour)
+    if (now - BaseScraper.lastRobotsCleanupTime > BaseScraper.CLEANUP_INTERVAL_MS) {
+      BaseScraper.lastRobotsCleanupTime = now;
+      for (const [domain, entry] of this.robotsCache.entries()) {
+        if (entry.expiresAt <= now) {
+          this.robotsCache.delete(domain);
         }
-      } catch (error) {
-        logger.warn("Failed to fetch robots.txt", { url: robotsUrl, error: String(error) });
-        return true;
       }
     }
 
-    const robots = this.robotsCache.get(baseUrl)!;
-    return robots.isAllowed(url, "*") ?? true;
+    const cached = this.robotsCache.get(baseUrl);
+
+    if (cached && cached.expiresAt > now) {
+      return cached.parser.isAllowed(url, "*") ?? true;
+    }
+
+    // Evict oldest entries if cache is full
+    if (this.robotsCache.size >= MAX_ROBOTS_CACHE_SIZE && !cached) {
+      const firstKey = this.robotsCache.keys().next().value;
+      if (firstKey) this.robotsCache.delete(firstKey);
+    }
+
+    try {
+      const response = await fetch(robotsUrl, {
+        headers: { "User-Agent": BaseScraper.USER_AGENT },
+        signal: AbortSignal.timeout(this.timeout),
+      });
+
+      if (response.ok) {
+        const text = await this.readBodyWithLimit(response);
+        const robots = robotsParser(robotsUrl, text);
+        this.robotsCache.set(baseUrl, {
+          parser: robots,
+          expiresAt: now + BaseScraper.ROBOTS_CACHE_TTL_MS,
+        });
+        return robots.isAllowed(url, "*") ?? true;
+      } else {
+        await response.body?.cancel();
+        return true;
+      }
+    } catch (error) {
+      logger.warn("Failed to fetch robots.txt", { url: robotsUrl, error: String(error) });
+      return true;
+    }
   }
 
   /**
    * Check if a domain is circuit-broken (too many consecutive failures).
    */
   private isDomainCircuitBroken(url: string): boolean {
+    // Periodic cleanup of expired entries (throttled to once per hour)
+    const now = Date.now();
+    if (now - BaseScraper.lastCleanupTime > BaseScraper.CLEANUP_INTERVAL_MS) {
+      BaseScraper.lastCleanupTime = now;
+      for (const [domain, state] of BaseScraper.domainFailures.entries()) {
+        if (now - state.lastFailure > BaseScraper.CIRCUIT_BREAKER_COOLDOWN_MS) {
+          BaseScraper.domainFailures.delete(domain);
+        }
+      }
+    }
+
     const domain = this.extractDomain(url);
     const state = BaseScraper.domainFailures.get(domain);
     if (!state) return false;
     if (state.count < BaseScraper.CIRCUIT_BREAKER_THRESHOLD) return false;
-    const elapsed = Date.now() - state.lastFailure;
+    const elapsed = now - state.lastFailure;
     return elapsed < BaseScraper.CIRCUIT_BREAKER_COOLDOWN_MS;
   }
 
@@ -305,8 +337,9 @@ export class BaseScraper {
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       await this.rateLimiter.wait();
 
+      let response: Response | undefined;
       try {
-        const response = await fetch(url, {
+        response = await fetch(url, {
           headers: { "User-Agent": BaseScraper.USER_AGENT },
           signal: AbortSignal.timeout(this.timeout),
           redirect: "follow",
@@ -346,6 +379,9 @@ export class BaseScraper {
       } catch (error) {
         lastError = error as Error;
         const waitTime = Math.min(2 ** attempt * 1000, 60000);
+
+        // Cancel response body if still open (e.g. timeout during streaming)
+        try { await response?.body?.cancel(); } catch { /* ignore */ }
 
         logger.warn("Request error", {
           url,

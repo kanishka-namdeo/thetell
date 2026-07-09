@@ -170,6 +170,7 @@ export default function SourcesManagementPage() {
   }, [search, sourceTypeFilter, discoveryMethodFilter, healthFilter, companyIdFilter]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchSources();
     return () => controllerRef.current?.abort();
   }, [fetchSources]);
@@ -359,7 +360,8 @@ export default function SourcesManagementPage() {
   function formatDate(dateStr: string | null) {
     if (!dateStr) return "Never";
     const date = new Date(dateStr);
-    const daysAgo = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
+    const now = new Date();
+    const daysAgo = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
     if (daysAgo === 0) return "Today";
     if (daysAgo === 1) return "Yesterday";
     if (daysAgo < 7) return `${daysAgo} days ago`;

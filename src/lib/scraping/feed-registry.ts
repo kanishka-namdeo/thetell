@@ -22,6 +22,107 @@ export interface FeedConfig {
 }
 
 /**
+ * CIK numbers for major US-listed companies.
+ * Used to generate per-company SEC EDGAR filing feeds.
+ */
+const CIK_MAP: Record<string, string | null> = {
+  apple: "0000320193",
+  microsoft: "0000789019",
+  alphabet: "0001652044",
+  amazon: "0001018724",
+  meta: "0001326801",
+  nvidia: "0001045810",
+  tesla: "0001318605",
+  "johnson-johnson": "0000206252",
+  pfizer: "0000078003",
+  "eli-lilly": "0000059476",
+  jpmorgan: "0000019617",
+  "goldman-sachs": "0000886982",
+  "bank-of-america": "0000070858",
+  "wells-fargo": "0000072971",
+  "berkshire-hathaway": "0001067983",
+  blackrock: "0001364742",
+  visa: "0001403161",
+  mastercard: "0001141391",
+  "exxon-mobil": "0000034088",
+  chevron: "0000093410",
+  boeing: "0000012927",
+  "procter-gamble": "0000080424",
+  walmart: "0000104169",
+  costco: "0000909832",
+  netflix: "0001065280",
+  adobe: "0000796343",
+  salesforce: "0001108524",
+  ibm: "0000051143",
+  intel: "0000050863",
+  amd: "0000002488",
+  cisco: "0000858877",
+  oracle: "0001341439",
+  paypal: "0001633917",
+  "morgan-stanley": "0000895421",
+  citigroup: "0000831001",
+  unitedhealth: "0000731766",
+  merck: "0000310158",
+  moderna: "0001682852",
+  abbvie: "0001551152",
+  samsung: "0001603296",
+  sony: "0000940034",
+  spotify: "0001639920",
+  uber: "0001543151",
+  airbnb: "0001559720",
+  stripe: null,
+  shopify: "0001599901",
+  palantir: "0001321655",
+  snowflake: "0001640147",
+  crowdstrike: "0001535527",
+  databricks: null,
+  cloudflare: "0001990664",
+  datadog: "0001567679",
+  hashicorp: "0001409493",
+  mongodb: "0001447028",
+  servicenow: "0001373715",
+  twilio: "0001447596",
+  openai: null,
+  huggingface: null,
+  "google-deepmind": null,
+  vercel: null,
+  supabase: null,
+  github: null,
+  "product-hunt": null,
+};
+
+/**
+ * Generate SEC EDGAR per-company filing feeds from CIK map.
+ * Returns feeds for 8-K (current reports) and 10-K (annual reports).
+ */
+function getSecEdgarFeeds(companyId: string): FeedConfig[] {
+  const cik = CIK_MAP[companyId];
+  if (!cik) return [];
+
+  return [
+    {
+      url: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${cik}&type=8-K&count=40&output=atom`,
+      label: "SEC EDGAR 8-K Filings",
+      sourceType: "FILING",
+    },
+    {
+      url: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${cik}&type=10-K&count=40&output=atom`,
+      label: "SEC EDGAR 10-K Filings",
+      sourceType: "FILING",
+    },
+  ];
+}
+
+/**
+ * Augment a company's feeds with SEC EDGAR filing feeds if a CIK is available.
+ */
+function augmentWithSecFeeds(feeds: CompanyFeed): CompanyFeed {
+  const secFeeds = getSecEdgarFeeds(feeds.companyId);
+  if (secFeeds.length === 0) return feeds;
+  return { ...feeds, feeds: [...feeds.feeds, ...secFeeds] };
+}
+
+/**
  * Registry of known company and source RSS feeds.
  * Add new companies/feeds here to expand coverage.
  */
@@ -211,6 +312,11 @@ const FEED_REGISTRY: CompanyFeed[] = [
       {
         url: "https://investors.broadcom.com/rss.xml",
         label: "Broadcom Investor Relations",
+        sourceType: "NEWS",
+      },
+      {
+        url: "https://www.broadcom.com/company/news/rss",
+        label: "Broadcom News",
         sourceType: "NEWS",
       },
     ],
@@ -1076,17 +1182,6 @@ const FEED_REGISTRY: CompanyFeed[] = [
 
   // ─── Additional Technology ────────────────────────────────────────────────
   {
-    companyId: "broadcom",
-    companyName: "Broadcom",
-    feeds: [
-      {
-        url: "https://www.broadcom.com/company/news/rss",
-        label: "Broadcom News",
-        sourceType: "NEWS",
-      },
-    ],
-  },
-  {
     companyId: "github",
     companyName: "GitHub",
     feeds: [
@@ -1583,22 +1678,245 @@ const FEED_REGISTRY: CompanyFeed[] = [
       },
     ],
   },
+
+  // ─── Wikipedia Article History ────────────────────────────────────────
+  {
+    companyId: "wikipedia-apple",
+    companyName: "Apple (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Apple_Inc.&action=history&feed=rss",
+        label: "Wikipedia: Apple Inc.",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-microsoft",
+    companyName: "Microsoft (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Microsoft&action=history&feed=rss",
+        label: "Wikipedia: Microsoft",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-alphabet",
+    companyName: "Alphabet (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Alphabet_Inc.&action=history&feed=rss",
+        label: "Wikipedia: Alphabet Inc.",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-amazon",
+    companyName: "Amazon (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Amazon_(company)&action=history&feed=rss",
+        label: "Wikipedia: Amazon (company)",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-meta",
+    companyName: "Meta (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Meta_Platforms&action=history&feed=rss",
+        label: "Wikipedia: Meta Platforms",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-nvidia",
+    companyName: "NVIDIA (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Nvidia&action=history&feed=rss",
+        label: "Wikipedia: Nvidia",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-tesla",
+    companyName: "Tesla (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Tesla,_Inc.&action=history&feed=rss",
+        label: "Wikipedia: Tesla, Inc.",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-netflix",
+    companyName: "Netflix (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Netflix&action=history&feed=rss",
+        label: "Wikipedia: Netflix",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-samsung",
+    companyName: "Samsung (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Samsung&action=history&feed=rss",
+        label: "Wikipedia: Samsung",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-sony",
+    companyName: "Sony (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Sony&action=history&feed=rss",
+        label: "Wikipedia: Sony",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-ibm",
+    companyName: "IBM (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=IBM&action=history&feed=rss",
+        label: "Wikipedia: IBM",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-intel",
+    companyName: "Intel (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Intel&action=history&feed=rss",
+        label: "Wikipedia: Intel",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-oracle",
+    companyName: "Oracle (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Oracle_Corporation&action=history&feed=rss",
+        label: "Wikipedia: Oracle Corporation",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-adobe",
+    companyName: "Adobe (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Adobe_Inc.&action=history&feed=rss",
+        label: "Wikipedia: Adobe Inc.",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-salesforce",
+    companyName: "Salesforce (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Salesforce&action=history&feed=rss",
+        label: "Wikipedia: Salesforce",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-boeing",
+    companyName: "Boeing (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Boeing&action=history&feed=rss",
+        label: "Wikipedia: Boeing",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-walmart",
+    companyName: "Walmart (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Walmart&action=history&feed=rss",
+        label: "Wikipedia: Walmart",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-jpmorgan",
+    companyName: "JPMorgan (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=JPMorgan_Chase&action=history&feed=rss",
+        label: "Wikipedia: JPMorgan Chase",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-goldman-sachs",
+    companyName: "Goldman Sachs (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Goldman_Sachs&action=history&feed=rss",
+        label: "Wikipedia: Goldman Sachs",
+        sourceType: "NEWS",
+      },
+    ],
+  },
+  {
+    companyId: "wikipedia-berkshire-hathaway",
+    companyName: "Berkshire Hathaway (Wikipedia)",
+    feeds: [
+      {
+        url: "https://en.wikipedia.org/w/index.php?title=Berkshire_Hathaway&action=history&feed=rss",
+        label: "Wikipedia: Berkshire Hathaway",
+        sourceType: "NEWS",
+      },
+    ],
+  },
 ];
 
 /**
  * Get all registered company feeds.
  */
 export function getAllFeeds(): CompanyFeed[] {
-  return FEED_REGISTRY;
+  return FEED_REGISTRY.map(augmentWithSecFeeds);
 }
 
 /**
  * Get feeds for a specific company by ID (case-insensitive match).
  */
 export function getFeedsByCompanyId(companyId: string): CompanyFeed | undefined {
-  return FEED_REGISTRY.find(
+  const found = FEED_REGISTRY.find(
     (cf) => cf.companyId.toLowerCase() === companyId.toLowerCase()
   );
+  return found ? augmentWithSecFeeds(found) : undefined;
 }
 
 /**
@@ -1608,10 +1926,11 @@ export function getFeedsByCompanyId(companyId: string): CompanyFeed | undefined 
 export function getFeedsByCompanyName(companyName: string): CompanyFeed | undefined {
   const normalized = companyName.toLowerCase().replace(/\s+(inc\.?|corp\.?|ltd\.?|llc)$/i, '').trim();
   
-  return FEED_REGISTRY.find((cf) => {
+  const found = FEED_REGISTRY.find((cf) => {
     const registryName = cf.companyName.toLowerCase().replace(/\s+(inc\.?|corp\.?|ltd\.?|llc)$/i, '').trim();
     return registryName === normalized || registryName.includes(normalized) || normalized.includes(registryName);
   });
+  return found ? augmentWithSecFeeds(found) : undefined;
 }
 
 /**

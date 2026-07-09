@@ -1,166 +1,127 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { requireAdmin } from "@/lib/auth-guard";
 import { prisma } from "@/lib/db";
-import { logger } from "@/lib/logger";
+import { auth } from "@/lib/auth";
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
-  if (!requireAdmin(session)) {
-    return NextResponse.json(
-      { error: "forbidden", message: "Admin access required" },
-      { status: 403 }
-    );
-  }
-
-  const requestId = crypto.randomUUID();
-  const log = logger.child({ requestId, route: "control-center" });
-
   try {
-    log.info("api.control_center.start");
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
+    // Check if user is admin
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { role: true },
+    });
+
+    if (!user || user.role !== "ADMIN") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    // Get pipeline metrics from database
     const [
-      // Sources stage
       totalSources,
-      healthySources,
-      failedSources,
-      lastSourceHealthCheck,
-
-      // Enrichment stage
-      lastEnrichmentRun,
-      companiesEnriched,
-
-      // Discovery stage
-      lastDiscoveryRun,
+      verifiedSources,
+      pendingSources,
       signalsDiscovered24h,
       signalsPending,
-
-      // Analysis stage
       signalsAnalyzed,
-      signalsPendingAnalysis,
-      avgConfidenceResult,
-
-      // Correlation stage
-      lastCorrelationRun,
+      avgConfidence,
       themesDetected,
-      inferencesGenerated,
-
-      // Articles stage
-      articlesGenerated,
-      articlesPending,
+      companiesEnriched,
+      pendingEnrichment,
     ] = await Promise.all([
-      // Sources
+      // Source metrics
       prisma.companyDataSource.count(),
-      prisma.companyDataSource.count({ where: { isActive: true, consecutiveFailures: 0 } }),
-      prisma.companyDataSource.count({ where: { consecutiveFailures: { gte: 3 } } }),
-      prisma.pipelineRun.findFirst({
-        where: { scraperName: "source-health-check" },
-        orderBy: { createdAt: "desc" },
-        select: { completedAt: true, status: true },
-      }),
-
-      // Enrichment
-      prisma.companyEnrichmentLog.findFirst({
-        orderBy: { createdAt: "desc" },
-        select: { createdAt: true },
-      }),
-      prisma.companyEnrichmentLog.count(),
-
-      // Discovery
-      prisma.pipelineRun.findFirst({
-        orderBy: { createdAt: "desc" },
-        select: { completedAt: true, status: true },
-      }),
+      prisma.companyDataSource.count({ where: { validatedAt: { not: null } } }),
+      prisma.companyDataSource.count({ where: { validatedAt: null } }),
+      // Discovery metrics (last 24h)
       prisma.signal.count({
-        where: { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+        where: {
+          createdAt: {
+            gte: new Date(Date.now() - 24 * 60 * 60 * 1000),
+          },
+        },
       }),
       prisma.signal.count({ where: { status: "PENDING" } }),
-
-      // Analysis
+      // Analysis metrics
       prisma.signal.count({ where: { status: "ANALYZED" } }),
-      prisma.signal.count({ where: { status: "PENDING" } }),
       prisma.analysis.aggregate({
         _avg: { confidence: true },
       }),
-
-      // Correlation
-      prisma.pipelineRun.findFirst({
-        where: { scraperName: "correlation" },
-        orderBy: { createdAt: "desc" },
-        select: { completedAt: true, status: true },
-      }),
+      // Correlation metrics
       prisma.signalTheme.count(),
-      prisma.inference.count(),
-
-      // Articles
-      prisma.article.count({ where: { status: "PUBLISHED" } }),
-      prisma.article.count({ where: { status: "DRAFT" } }),
+      // Enrichment metrics (use companyEnrichmentLog to count enriched companies)
+      prisma.companyEnrichmentLog
+        .findMany({
+          distinct: ["companyId"],
+          select: { companyId: true },
+        })
+        .then((logs) => logs.length),
+      prisma.company.count(),
     ]);
 
-    const avgConfidence = avgConfidenceResult._avg.confidence ?? 0;
-
-    const response = {
-      stages: {
-        sources: {
-          lastRun: lastSourceHealthCheck?.completedAt?.toISOString() ?? null,
-          status: deriveStatus(lastSourceHealthCheck),
-          metrics: { totalSources, healthySources, failedSources },
-        },
-        enrichment: {
-          lastRun: lastEnrichmentRun?.createdAt?.toISOString() ?? null,
-          status: lastEnrichmentRun ? "completed" : "idle",
-          metrics: { companiesEnriched, pendingEnrichment: 0 },
-        },
-        discovery: {
-          lastRun: lastDiscoveryRun?.completedAt?.toISOString() ?? null,
-          status: deriveStatus(lastDiscoveryRun),
-          metrics: { signalsDiscovered24h, signalsPending },
-        },
-        analysis: {
-          lastRun: null,
-          status: "idle",
-          metrics: {
-            signalsAnalyzed,
-            signalsPending: signalsPendingAnalysis,
-            avgConfidence: Math.round(avgConfidence * 100) / 100,
-          },
-        },
-        correlation: {
-          lastRun: lastCorrelationRun?.completedAt?.toISOString() ?? null,
-          status: deriveStatus(lastCorrelationRun),
-          metrics: { themesDetected, inferencesGenerated },
-        },
-        articles: {
-          lastRun: null,
-          status: "idle",
-          metrics: { articlesGenerated, articlesPending },
+    const stages = {
+      "source-discovery": {
+        status: "idle",
+        lastRun: null,
+        metrics: {
+          totalSources,
+          pendingSources,
+          verifiedSources,
         },
       },
-      activeJobs: 0,
-      recentActivity: [],
+      sources: {
+        status: "idle",
+        lastRun: null,
+        metrics: {
+          totalSources,
+          healthySources: verifiedSources,
+          failedSources: 0, // TODO: track failed health checks
+        },
+      },
+      enrichment: {
+        status: "idle",
+        lastRun: null,
+        metrics: {
+          companiesEnriched,
+          pendingEnrichment,
+        },
+      },
+      discovery: {
+        status: "idle",
+        lastRun: null,
+        metrics: {
+          signalsDiscovered24h,
+          signalsPending,
+        },
+      },
+      analysis: {
+        status: "idle",
+        lastRun: null,
+        metrics: {
+          signalsAnalyzed,
+          signalsPending,
+          avgConfidence: avgConfidence._avg.confidence || 0,
+        },
+      },
+      correlation: {
+        status: "idle",
+        lastRun: null,
+        metrics: {
+          themesDetected,
+          analysesGenerated: signalsAnalyzed,
+        },
+      },
     };
 
-    log.info("api.control_center.success");
-    return NextResponse.json(response);
+    return NextResponse.json({ stages });
   } catch (error) {
-    log.error("api.control_center.error", { error: String(error) });
+    console.error("Control center API error:", error);
     return NextResponse.json(
-      { error: "internal_error", message: "Failed to fetch control center data" },
+      { error: "Failed to fetch pipeline metrics" },
       { status: 500 }
     );
   }
-}
-
-function deriveStatus(run: { completedAt: Date | null; status: string } | null): string {
-  if (!run) return "idle";
-  if (run.status === "running") return "running";
-  if (run.status === "failed") return "error";
-  if (run.completedAt) {
-    const minutesAgo = (Date.now() - new Date(run.completedAt).getTime()) / 60_000;
-    if (minutesAgo < 30) return "recently_completed";
-  }
-  return "idle";
 }

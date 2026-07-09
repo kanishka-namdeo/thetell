@@ -1,13 +1,16 @@
 "use client";
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { Radar, Square, CheckCircle, XCircle, MessageSquare, Play, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { ChatMessage } from "@/components/admin/chat-message";
 import { SourceBadge } from "@/components/admin/source-badge";
 import { usePipelineStream, type DiscoveredSource } from "@/hooks/use-pipeline-stream";
+
+type CompanyOption = { id: string; name: string; ticker: string | null };
 
 interface PipelineChatProps {
   companyId?: string;
@@ -16,12 +19,51 @@ interface PipelineChatProps {
 }
 
 export function PipelineChat({
-  companyId,
+  companyId: initialCompanyId,
   onApply,
   onClose,
 }: PipelineChatProps) {
   const [inputCompanyName, setInputCompanyName] = useState("");
+  const [selectedCompany, setSelectedCompany] = useState<CompanyOption | null>(null);
+  const [effectiveCompanyId, setEffectiveCompanyId] = useState<string | undefined>(initialCompanyId);
+  const [companies, setCompanies] = useState<CompanyOption[]>([]);
+  const [loadingCompanies, setLoadingCompanies] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/v1/admin/companies/list")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (!cancelled && Array.isArray(data)) {
+          setCompanies(data);
+        }
+      })
+      .catch(() => {
+        // ignore - list stays empty, manual entry still works
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingCompanies(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSelectCompany = (company: CompanyOption) => {
+    setSelectedCompany(company);
+    setInputCompanyName(company.name);
+    setEffectiveCompanyId(company.id);
+  };
+
+  const handleManualInput = (value: string) => {
+    setInputCompanyName(value);
+    // If user edits away from the selected company's name, clear selection
+    if (selectedCompany && value !== selectedCompany.name) {
+      setSelectedCompany(null);
+      setEffectiveCompanyId(initialCompanyId);
+    }
+  };
 
   const {
     events,
@@ -35,7 +77,7 @@ export function PipelineChat({
     clear,
   } = usePipelineStream({
     companyName: inputCompanyName,
-    companyId,
+    companyId: effectiveCompanyId,
   });
 
   // Auto-scroll to bottom
@@ -48,8 +90,10 @@ export function PipelineChat({
     scrollToBottom();
   }, [events, scrollToBottom]);
 
+  const canStart = inputCompanyName.trim().length > 0;
+
   const handleStart = () => {
-    if (!inputCompanyName.trim()) return;
+    if (!canStart) return;
     start();
   };
 
@@ -113,9 +157,9 @@ export function PipelineChat({
                 id="companyName"
                 placeholder="e.g., Apple, Tesla, Microsoft"
                 value={inputCompanyName}
-                onChange={(e) => setInputCompanyName(e.target.value)}
+                onChange={(e) => handleManualInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && inputCompanyName.trim()) {
+                  if (e.key === "Enter" && canStart) {
                     handleStart();
                   }
                 }}
@@ -125,13 +169,60 @@ export function PipelineChat({
 
             <Button
               onClick={handleStart}
-              disabled={!inputCompanyName.trim()}
+              disabled={!canStart}
               className="w-full"
               size="lg"
             >
               <Play className="h-4 w-4 mr-2" />
               Start Discovery
             </Button>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Or select a tracked company</span>
+                {loadingCompanies && (
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Loading
+                  </span>
+                )}
+              </div>
+              {companies.length > 0 ? (
+                <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
+                  {companies.map((company) => {
+                    const isSelected = selectedCompany?.id === company.id;
+                    return (
+                      <Button
+                        key={company.id}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleSelectCompany(company)}
+                        className={cn(
+                          "justify-between h-auto py-2 px-3 font-normal",
+                          isSelected &&
+                            "border-primary bg-primary/10 text-primary ring-1 ring-primary"
+                        )}
+                      >
+                        <span className="truncate">{company.name}</span>
+                        {company.ticker && (
+                          <Badge
+                            variant={isSelected ? "default" : "outline"}
+                            className="ml-2 text-[10px] px-1.5"
+                          >
+                            {company.ticker}
+                          </Badge>
+                        )}
+                      </Button>
+                    );
+                  })}
+                </div>
+              ) : !loadingCompanies ? (
+                <p className="text-xs text-muted-foreground">
+                  No tracked companies yet. Type a name above to continue.
+                </p>
+              ) : null}
+            </div>
           </div>
 
           <div className="text-xs text-muted-foreground text-center space-y-1">

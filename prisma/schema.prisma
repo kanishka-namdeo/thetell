@@ -38,7 +38,6 @@ model User {
 
   accounts Account[]
   sessions Session[]
-  articles Article[]
   watchedCompanies WatchedCompany[]
   auditLogs AuditLog[]
   pipelineDiscoverySessions PipelineDiscoverySession[]
@@ -113,14 +112,6 @@ enum ThemeStatus {
   RESOLVED
 }
 
-enum InferenceStatus {
-  EMERGING
-  DEVELOPING
-  CONFIRMED
-  REFUTED
-  RESOLVED
-}
-
 enum HypothesisStatus {
   ACTIVE
   ARCHIVED
@@ -150,12 +141,6 @@ enum Sentiment {
   NEUTRAL
 }
 
-enum ArticleStatus {
-  DRAFT
-  PUBLISHED
-  PENDING_REVIEW
-}
-
 enum AgentPersona {
   ANALYST
   GOSSIP_GIRL
@@ -181,16 +166,13 @@ model Company {
   updatedAt   DateTime @updatedAt
 
   signals           Signal[]
-  articles          Article[]
   watchedBy         WatchedCompany[]
   pipelineRuns      PipelineRun[]
-  inferences        Inference[]
   signalThemes      SignalTheme[]
   hypotheses        CompanyHypothesis[]
   trackedSubreddits TrackedSubreddit[]
   dataSources       CompanyDataSource[]
   enrichmentLogs    CompanyEnrichmentLog[]
-  clusterArticles   ClusterArticle[]
   alerts            SignalAlert[]
 }
 
@@ -247,6 +229,7 @@ model Signal {
   clusterId String?
   cluster   SignalTheme? @relation("SignalCluster", fields: [clusterId], references: [id])
   contradictions Json?
+  analysisMetrics AnalysisMetrics[]
 
   @@index([companyId])
   @@index([sourceType])
@@ -276,6 +259,7 @@ model Analysis {
   sourceMatchPreference Boolean?
 
   signal Signal @relation(fields: [signalId], references: [id], onDelete: Cascade)
+  analysisMetrics AnalysisMetrics?
 
   @@unique([signalId, agentPersona])
   @@index([signalId])
@@ -303,6 +287,99 @@ model AgentDebate {
   @@index([generatedAt])
 }
 
+// ─── Pipeline Metrics ───────────────────────────────────────────────────────
+
+model AnalysisMetrics {
+  id                  String   @id @default(cuid())
+  analysisId          String   @unique
+  signalId            String
+
+  // Quality gate scores
+  qualityScore        Float?
+  qualityPass         Boolean?
+  substanceScore      Float?
+  infoDensity         Float?
+  companyStrength     Float?
+
+  // Routing
+  analysisPath        String?   // "cluster" or "standalone"
+  clusterSimilarity   Float?
+  clusterId           String?
+
+  // Token usage (per analysis, both agents combined)
+  tokensIn            Int      @default(0)
+  tokensOut           Int      @default(0)
+  llmCallCount        Int      @default(0)
+
+  // Latency (milliseconds)
+  totalLatencyMs      Int?
+  nlpLatencyMs        Int?
+  llmLatencyMs        Int?
+
+  // Hallucination guard
+  groundingScore      Float?
+  validFactCount      Int?
+  invalidFactCount    Int?
+
+  // Confidence breakdown
+  sourceCredibility   Float?
+  contentQuality      Float?
+  factConfidence      Float?
+  themeEvidence       Float?
+
+  analyzedAt          DateTime @default(now())
+
+  analysis   Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  signal     Signal   @relation(fields: [signalId], references: [id], onDelete: Cascade)
+
+  @@index([signalId])
+  @@index([analyzedAt])
+  @@index([analysisPath])
+}
+
+model DailyPipelineMetrics {
+  id                  String   @id @default(cuid())
+  date                DateTime @db.Date
+
+  // Signal volumes
+  signalsScraped      Int      @default(0)
+  signalsAnalyzed     Int      @default(0)
+  signalsRejected     Int      @default(0)  // quality gate failures
+  duplicatesSkipped   Int      @default(0)
+
+  // Quality gate
+  qualityGatePassRate Float?   // % of signals passing quality gate
+
+  // Routing
+  clusterAnalyses     Int      @default(0)
+  standaloneAnalyses  Int      @default(0)
+
+  // Token usage
+  totalTokensIn       Int      @default(0)
+  totalTokensOut      Int      @default(0)
+  totalLlmCalls       Int      @default(0)
+
+  // Confidence
+  avgConfidence       Float?
+  medianConfidence    Float?
+
+  // Latency
+  avgAnalysisLatencyMs Int?
+  p95AnalysisLatencyMs Int?
+
+  // Hallucination guard
+  avgGroundingScore   Float?
+  totalFactsRejected  Int      @default(0)
+
+  // Per-source breakdown (JSON)
+  bySourceType        Json?    // { "NEWS": { count: 50, avgConfidence: 0.72 }, ... }
+
+  createdAt           DateTime @default(now())
+
+  @@unique([date])
+  @@index([date])
+}
+
 // ─── Cross-Signal Correlation ──────────────────────────────────────────────
 
 model SignalTheme {
@@ -321,8 +398,6 @@ model SignalTheme {
   company           Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   signals           Signal[]
   clusteredSignals  Signal[]          @relation("SignalCluster")
-  inferences        Inference[]
-  clusterArticles   ClusterArticle[]
   clusterDebates    AgentDebate[]     @relation("ClusterDebate")
 
   @@index([companyId])
@@ -330,125 +405,6 @@ model SignalTheme {
   @@index([momentum])
   @@index([companyId, status])
   @@index([companyId, momentum])
-}
-
-model Inference {
-  id                       String           @id @default(cuid())
-  companyId                String
-  themeId                  String?
-  title                    String
-  hypothesis               String           @db.Text
-  confidence               Float
-  supportingSignalIds      Json             @default("[]")
-  contradictingSignalIds   Json             @default("[]")
-  sourceTypesInvolved      Json             @default("[]")
-  status                   InferenceStatus  @default(EMERGING)
-  predictedOutcome         String?          @db.Text
-  resolvedAt               DateTime?
-  wasCorrect               Boolean?
-  agentAnalyses            Json?
-  debateId                 String?
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
-
-  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  theme    SignalTheme?  @relation(fields: [themeId], references: [id], onDelete: SetNull)
-  articles Article[]
-  calibrations InferenceCalibration[]
-  debate   CrossSignalDebate? @relation("InferenceDebate")
-
-  @@index([companyId])
-  @@index([status])
-  @@index([confidence])
-}
-
-model InferenceCalibration {
-  id                String    @id @default(cuid())
-  inferenceId       String
-  prediction        String    @db.Text
-  predictedAt       DateTime  @default(now())
-  resolvedAt        DateTime?
-  wasCorrect        Boolean?
-  sourceReliability Float     @default(0.5)
-  notes             String?   @db.Text
-
-  inference Inference @relation(fields: [inferenceId], references: [id], onDelete: Cascade)
-
-  @@index([inferenceId])
-  @@index([predictedAt])
-}
-
-model CrossSignalDebate {
-  id                  String         @id @default(cuid())
-  inferenceId         String         @unique
-  debateTranscript    String         @db.Text
-  consensusReached    Boolean        @default(false)
-  finalConfidence     Float?
-  status              DebateStatus   @default(ACTIVE)
-  analystClaim        String         @default("") @db.Text
-  analystEvidence     Json           @default("[]")
-  analystConfidence   Float          @default(0.5)
-  gossipClaim         String         @default("") @db.Text
-  gossipEvidence      Json           @default("[]")
-  gossipTellStrength  Float          @default(0.5)
-  agreements          Json           @default("[]")
-  contentions         Json           @default("[]")
-  synthesisText       String         @default("") @db.Text
-  evidenceProvenance  Json?
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
-
-  inference Inference @relation("InferenceDebate", fields: [inferenceId], references: [id], onDelete: Cascade)
-
-  @@index([status])
-  @@index([createdAt])
-}
-
-model Article {
-  id            String        @id @default(cuid())
-  title         String
-  slug          String        @unique
-  summary       String        @db.Text
-  body          String        @db.Text
-  companyId     String
-  agentPersona  AgentPersona
-  analysisIds   Json          @default("[]")
-  inferenceId   String?
-  publishedAt   DateTime?
-  status        ArticleStatus @default(DRAFT)
-  authorId      String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-
-  company   Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  author    User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
-  inference Inference?   @relation(fields: [inferenceId], references: [id], onDelete: SetNull)
-
-  @@index([companyId])
-  @@index([status])
-  @@index([publishedAt])
-  @@index([agentPersona])
-}
-
-model ClusterArticle {
-  id            String        @id @default(cuid())
-  themeId       String
-  theme         SignalTheme   @relation(fields: [themeId], references: [id], onDelete: Cascade)
-  companyId     String
-  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  title         String
-  slug          String        @unique
-  summary       String        @db.Text
-  body          String        @db.Text
-  agentPersona  AgentPersona
-  signalCount   Int           @default(0)
-  status        ArticleStatus @default(DRAFT)
-  publishedAt   DateTime?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-
-  @@unique([themeId, agentPersona])
-  @@index([companyId, status])
 }
 
 model WatchedCompany {
@@ -543,8 +499,6 @@ model SystemConfig {
   correlationConfidenceThreshold  Float    @default(0.6)
   clusterRoutingEnabled           Boolean  @default(false)
   clusterMatchThreshold           Float    @default(0.75)
-  clusterArticleAutoRegenerate    Boolean  @default(true)
-  clusterArticleRegenThresholds   Json     @default("[3,5,10,20]")
   clusterAnalysisModel            String   @default("qwen3-coder-next")
   updatedAt                       DateTime @updatedAt
 }
@@ -786,4 +740,19 @@ model DeepAgentShare {
   @@index([token])
   @@index([sessionId])
   @@index([expiresAt])
+}
+
+model DeepAgentTemplate {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?  @db.Text
+  systemPrompt   String   @db.Text
+  model          String
+  initialContext Json?
+  createdBy      String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([createdBy])
+  @@index([createdAt])
 }

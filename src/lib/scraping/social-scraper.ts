@@ -7,6 +7,7 @@ import * as cheerio from "cheerio";
 import { logger } from "@/lib/logger";
 import { BaseScraper } from "./base-scraper";
 import { TwitterScraper } from "./twitter-scraper";
+import { stripHtmlTags } from "./html-utils";
 
 export interface SocialPostData {
   url: string;
@@ -369,7 +370,7 @@ export class SocialScraper extends BaseScraper {
           if (!comment || comment.deleted || !comment.text || !comment.by) continue;
 
           // Strip HTML tags from comment text
-          const plainText = cheerio.load(comment.text).text().trim();
+          const plainText = stripHtmlTags(comment.text);
           comments.push(`${comment.by}: ${plainText.slice(0, 500)}`);
         } catch {
           continue;
@@ -465,7 +466,7 @@ export class SocialScraper extends BaseScraper {
       if (!status || !status.content) return null;
 
       // Strip HTML tags from content
-      const bodyText = cheerio.load(status.content).text().trim();
+      const bodyText = stripHtmlTags(status.content);
       if (!bodyText) return null;
 
       const account = status.account;
@@ -555,7 +556,7 @@ export class SocialScraper extends BaseScraper {
         for (const status of data.statuses) {
           if (!status.id || !status.content || !status.url) continue;
 
-          const plainContent = cheerio.load(status.content).text().trim();
+          const plainContent = stripHtmlTags(status.content);
           if (!plainContent) continue;
 
           results.push({
@@ -620,7 +621,7 @@ export class SocialScraper extends BaseScraper {
         for (const status of statuses) {
           if (!status.id || !status.content || !status.url) continue;
 
-          const plainContent = cheerio.load(status.content).text().trim();
+          const plainContent = stripHtmlTags(status.content);
           if (!plainContent) continue;
 
           results.push({
@@ -691,7 +692,7 @@ export class SocialScraper extends BaseScraper {
       for (const status of statuses) {
         if (!status.id || !status.content || !status.url) continue;
 
-        const plainContent = cheerio.load(status.content).text().trim();
+        const plainContent = stripHtmlTags(status.content);
         if (!plainContent) continue;
 
         results.push({

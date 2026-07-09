@@ -48,6 +48,8 @@ export interface UseDeepAgentReturn {
 /**
  * Hook for managing DeepAgent streaming conversations
  */
+const MAX_MESSAGES = 500;
+
 export function useDeepAgent(options: UseDeepAgentOptions): UseDeepAgentReturn {
   const { threadId, autoConnect = false, onConnect, onDisconnect, onError } = options;
 
@@ -151,13 +153,17 @@ export function useDeepAgent(options: UseDeepAgentOptions): UseDeepAgentReturn {
       const data = JSON.parse(event.data);
       setMessages((prev) => {
         const lastMsg = prev[prev.length - 1];
+        let updated = prev;
         if (lastMsg?.role === "assistant") {
-          return [
+          updated = [
             ...prev.slice(0, -1),
             { ...lastMsg, id: data.messageId, isStreaming: false },
           ];
         }
-        return prev;
+        if (updated.length > MAX_MESSAGES) {
+          return updated.slice(updated.length - MAX_MESSAGES);
+        }
+        return updated;
       });
       setIsLoading(false);
       isLoadingRef.current = false;
@@ -304,13 +310,17 @@ export function useDeepAgent(options: UseDeepAgentOptions): UseDeepAgentReturn {
         const data = JSON.parse(event.data);
         setMessages((prev) => {
           const lastMsg = prev[prev.length - 1];
+          let updated = prev;
           if (lastMsg?.role === "assistant") {
-            return [
+            updated = [
               ...prev.slice(0, -1),
               { ...lastMsg, id: data.messageId, isStreaming: false },
             ];
           }
-          return prev;
+          if (updated.length > MAX_MESSAGES) {
+            return updated.slice(updated.length - MAX_MESSAGES);
+          }
+          return updated;
         });
         setIsLoading(false);
         isLoadingRef.current = false;

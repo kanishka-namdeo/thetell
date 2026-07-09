@@ -11,12 +11,12 @@
 import { logger } from "@/lib/logger";
 import { getProviderWithFailover } from "../provider";
 import type { ProviderName } from "../provider";
-import type { AgentAnalysisInput } from "./pipeline";
+import type { AgentAnalysisInput, PipelineMetrics } from "./pipeline";
 import type { AgentPersona, AnalystFact, GossipFact } from "./types";
 import { AnalystFactSchema, GossipFactSchema } from "./types";
 import { z } from "zod";
 import { classifySentimentLocal, extractEntities, extractKeyPhrases } from "@/lib/nlp";
-import { calculateConfidence } from "../confidence";
+import { calculateConfidenceDetailed } from "../confidence";
 import { buildClusterFactExtractionPrompt } from "./prompts";
 
 export interface ClusterAnalysisResult {
@@ -72,7 +72,7 @@ export async function analyzeSignalForCluster(
   agentPersona: AgentPersona,
   providerName: ProviderName = "openai",
   model?: string
-): Promise<ClusterAnalysisResult> {
+): Promise<{ analysis: ClusterAnalysisResult; metrics: PipelineMetrics }> {
   const log = logger.child({
     signalId: signal.id,
     clusterLabel: existingCluster.label,
@@ -88,11 +88,13 @@ export async function analyzeSignalForCluster(
 
   try {
     // Run local NLP in parallel (no LLM cost)
+    const nlpStartTime = Date.now();
     const [sentimentResult, entities, keyPhrases] = await Promise.all([
       classifySentimentLocal(signal.rawContent),
       extractEntities(signal.rawContent),
       extractKeyPhrases(signal.rawContent, 10),
     ]);
+    const nlpLatencyMs = Date.now() - nlpStartTime;
 
     // Build entity context for prompt
     const entityContext = [
@@ -119,7 +121,7 @@ export async function analyzeSignalForCluster(
 
     // Single LLM call to extract facts, themes, and summary
     const { provider } = getProviderWithFailover(providerName);
-    const llmResult = await provider.completeStructured(
+    const llmResultWithUsage = await provider.completeStructuredWithUsage(
       messages,
       ClusterFactExtractionSchema,
       {
@@ -127,9 +129,10 @@ export async function analyzeSignalForCluster(
         temperature: agentPersona === "ANALYST" ? 0.3 : 0.5,
       }
     );
+    const llmResult = llmResultWithUsage.data;
 
     // Calculate confidence with cluster context bonus
-    const baseConfidence = calculateConfidence({
+    const baseConfidenceDetailed = calculateConfidenceDetailed({
       sourceType: signal.sourceType,
       contentLength: signal.rawContent.length,
       facts: llmResult.facts.map((f: AnalystFact | GossipFact) => {
@@ -165,7 +168,7 @@ export async function analyzeSignalForCluster(
 
     // Add cluster context bonus (more signals in cluster = higher confidence)
     const clusterBonus = Math.min(0.1, existingCluster.signalCount * 0.02);
-    const confidence = Math.min(1.0, baseConfidence + clusterBonus);
+    const confidence = Math.min(1.0, baseConfidenceDetailed.score + clusterBonus);
 
     // Determine sentiment
     const sentiment =
@@ -197,16 +200,31 @@ export async function analyzeSignalForCluster(
       },
     };
 
-    const duration = Date.now() - startTime;
+    const totalLatencyMs = Date.now() - startTime;
+    const llmLatencyMs = totalLatencyMs - nlpLatencyMs;
+
     log.info("cluster_analysis.complete", {
       factCount: novelFacts,
       themeCount: novelThemes,
       confidence,
-      duration,
+      duration: totalLatencyMs,
       extendsExistingThemes,
     });
 
-    return result;
+    const metrics: PipelineMetrics = {
+      tokensIn: llmResultWithUsage.usage.inputTokens,
+      tokensOut: llmResultWithUsage.usage.outputTokens,
+      llmCallCount: 1,
+      totalLatencyMs,
+      nlpLatencyMs,
+      llmLatencyMs,
+      groundingScore: 0,
+      validFactCount: llmResult.facts.length,
+      invalidFactCount: 0,
+      confidenceBreakdown: baseConfidenceDetailed.breakdown,
+    };
+
+    return { analysis: result, metrics };
   } catch (error) {
     log.error("cluster_analysis.failed", {
       error: error instanceof Error ? error.message : String(error),

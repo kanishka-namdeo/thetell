@@ -8,6 +8,8 @@ import { parseFeed } from "feedsmith";
 import * as cheerio from "cheerio";
 import { BaseScraper } from "./base-scraper";
 import { logger } from "@/lib/logger";
+import { scrapeWithFallback } from "./adaptive-scraper";
+import { BlogScraper } from "./blog-scraper";
 
 export interface FeedItem {
   title: string;
@@ -72,6 +74,8 @@ export class RssScraper extends BaseScraper {
 
   /**
    * Fetch full article content for feed items that only have summaries.
+   * Uses adaptive scraping chain (fast HTTP → Jina Reader → stealth browser)
+   * when basic extraction fails or returns insufficient content.
    * Updates items in-place with full content when available.
    */
   private async enrichWithFullArticles(metadata: FeedMetadata): Promise<void> {
@@ -99,21 +103,55 @@ export class RssScraper extends BaseScraper {
       capped: itemsToFetch.length >= MAX_FULL_ARTICLES,
     });
 
-    // Fetch articles in parallel with rate limiting
-    const fetchPromises = itemsToFetch.map(async (item) => {
+    // Fetch articles sequentially to respect rate limiting
+    for (const item of itemsToFetch) {
       try {
+        // First try basic HTTP + cheerio extraction
         const html = await this.fetch(item.link);
-        if (!html) return;
+        if (html) {
+          const $ = cheerio.load(html);
+          const fullContent = this.extractArticleContent($);
 
-        const $ = cheerio.load(html);
-        const fullContent = this.extractArticleContent($);
+          if (fullContent && fullContent.length > item.content.length) {
+            item.content = fullContent;
+            logger.debug("Enriched item with full article content (basic)", {
+              url: item.link,
+              originalLength: item.content.length,
+              newLength: fullContent.length,
+            });
+            continue; // Skip adaptive scraping if basic extraction succeeded
+          }
+        }
 
-        if (fullContent && fullContent.length > item.content.length) {
-          item.content = fullContent;
-          logger.debug("Enriched item with full article content", {
+        // If basic extraction failed or returned insufficient content,
+        // fall back to adaptive scraper chain (Jina Reader → stealth browser)
+        logger.debug("Basic extraction insufficient, trying adaptive scraper", {
+          url: item.link,
+          currentLength: item.content.length,
+        });
+
+        const blogScraper = new BlogScraper();
+        const result = await scrapeWithFallback(
+          item.link,
+          (url) => blogScraper.scrapeArticle(url)
+        );
+
+        if (result.article && result.article.bodyText) {
+          const fullContent = result.article.bodyText;
+          if (fullContent.length > item.content.length) {
+            item.content = fullContent;
+            logger.debug("Enriched item with full article content (adaptive)", {
+              url: item.link,
+              method: result.method,
+              originalLength: item.content.length,
+              newLength: fullContent.length,
+            });
+          }
+        } else {
+          logger.warn("Adaptive scraper failed to extract content", {
             url: item.link,
-            originalLength: item.content.length,
-            newLength: fullContent.length,
+            method: result.method,
+            reason: result.reason,
           });
         }
       } catch (error) {
@@ -122,9 +160,7 @@ export class RssScraper extends BaseScraper {
           error: String(error),
         });
       }
-    });
-
-    await Promise.all(fetchPromises);
+    }
   }
 
   /**

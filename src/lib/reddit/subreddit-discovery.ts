@@ -52,7 +52,7 @@ function normalizeLLMResponse(raw: z.infer<typeof RawSubredditSuggestionSchema>)
 
   for (const entry of raw.subreddits) {
     // Normalize name: remove r/ prefix, trim, lowercase
-    let name = entry.name.replace(/^r\//i, "").trim().toLowerCase();
+    const name = entry.name.replace(/^r\//i, "").trim().toLowerCase();
     
     // Skip empty names or names with invalid characters
     if (!name || !/^[a-zA-Z0-9_]+$/.test(name)) {

@@ -57,6 +57,7 @@ interface DiscoveryEvent {
   mode: "manual" | "automated";
   hypothesisAware: boolean;
   stealthFallback: boolean;
+  scrapeOnly?: boolean;
 }
 
 interface DiscoveryResults {
@@ -208,6 +209,7 @@ async function applyContentGate(
 export const discoverSignalsUnifiedFunction = inngest.createFunction(
   {
     id: "discover-signals-unified",
+    concurrency: { limit: 1, key: "signal-discovery" },
     triggers: { event: "signal/discovery.requested" },
     retries: 2,
     timeouts: {
@@ -216,6 +218,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
   },
   async ({ event, step }) => {
     const data = event.data as DiscoveryEvent;
+    const scrapeOnly = data.scrapeOnly === true;
     const log = logger.child({ function: "discover-signals-unified", mode: data.mode });
 
     if (data.mode === "automated") {
@@ -316,7 +319,8 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
                   feed.label,
                   rssScraper.getProvenance(),
                   rssScraper.scraperName,
-                  company ? { name: company.name, ticker: company.ticker, description: company.description, sector: company.sector, industry: company.industry } : undefined
+                  company ? { name: company.name, ticker: company.ticker, description: company.description, sector: company.sector, industry: company.industry } : undefined,
+                  scrapeOnly
                 );
                 runSignalsCreated += results.signalsCreated - beforeCreated;
                 runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
@@ -377,7 +381,8 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
                   feed.label,
                   rssScraper.getProvenance(),
                   rssScraper.scraperName,
-                  { name: company.name, ticker: company.ticker, description: company.description, sector: company.sector, industry: company.industry }
+                  { name: company.name, ticker: company.ticker, description: company.description, sector: company.sector, industry: company.industry },
+                  scrapeOnly
                 );
                 runSignalsCreated += results.signalsCreated - beforeCreated;
                 runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
@@ -464,7 +469,8 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
                   results,
                   runId,
                   blogScraper.getProvenance(),
-                  blogScraper.scraperName
+                  blogScraper.scraperName,
+                  scrapeOnly
                 );
                 runSignalsCreated += results.signalsCreated - beforeCreated;
                 runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
@@ -504,7 +510,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
             const fastScrape = async (url: string) => blogScraper.scrapeArticle(url);
             const result = await scrapeWithFallback(signal.sourceUrl, fastScrape);
 
-            if (result.method === "stealth" && result.article) {
+            if ((result.method === "jina" || result.method === "stealth") && result.article) {
               await prisma.signal.update({
                 where: { id: signal.id },
                 data: {
@@ -512,7 +518,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
                   title: result.article.title || signal.title,
                   author: result.article.author || signal.author,
                   publishedAt: result.article.publishedAt || signal.publishedAt,
-                  scraperName: "stealth-browser",
+                  scraperName: result.method === "jina" ? "jina-reader" : "stealth-browser",
                 },
               });
               results.stealthFallbackSuccesses++;
@@ -549,7 +555,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
             for (const filing of filingData.filings.slice(0, 5)) {
               const beforeCreated = results.signalsCreated;
               const beforeDuplicates = results.duplicatesSkipped;
-              await processFiling(filing, company.id, company.name, results, runId, filingScraper.getProvenance(), filingScraper.scraperName);
+              await processFiling(filing, company.id, company.name, results, runId, filingScraper.getProvenance(), filingScraper.scraperName, scrapeOnly);
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
             }
@@ -588,7 +594,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
               };
               const beforeCreated = results.signalsCreated;
               const beforeDuplicates = results.duplicatesSkipped;
-              await createSignalFromScraper(mapped, company.id, "TECH_SIGNAL", results, runId, githubScraper.getProvenance(), githubScraper.scraperName);
+              await createSignalFromScraper(mapped, company.id, "TECH_SIGNAL", results, runId, githubScraper.getProvenance(), githubScraper.scraperName, scrapeOnly);
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
             }
@@ -627,7 +633,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
               };
               const beforeCreated = results.signalsCreated;
               const beforeDuplicates = results.duplicatesSkipped;
-              await createSignalFromScraper(mapped, company.id, "TECH_SIGNAL", results, runId, certScraper.getProvenance(), certScraper.scraperName);
+              await createSignalFromScraper(mapped, company.id, "TECH_SIGNAL", results, runId, certScraper.getProvenance(), certScraper.scraperName, scrapeOnly);
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
             }
@@ -709,7 +715,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
               author: signal.author ?? undefined,
               metadata: signal.metadata,
             };
-            await createSignalFromScraper(mapped, company.id, "SOCIAL", results, runData.runId, redditScraper.getProvenance(), redditScraper.scraperName);
+            await createSignalFromScraper(mapped, company.id, "SOCIAL", results, runData.runId, redditScraper.getProvenance(), redditScraper.scraperName, scrapeOnly);
 
             runData.signalsCreated += results.signalsCreated - beforeCreated;
             runData.duplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
@@ -767,7 +773,8 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
                 `r/${tracked.subreddit}`,
                 rssScraper.getProvenance(),
                 rssScraper.scraperName,
-                companyInfo
+                companyInfo,
+                scrapeOnly
               );
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
@@ -867,7 +874,8 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
                 results,
                 runId,
                 twitterScraper.getProvenance(),
-                twitterScraper.scraperName
+                twitterScraper.scraperName,
+                scrapeOnly
               );
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
@@ -1008,7 +1016,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
               author: signal.author ?? undefined,
               metadata: (signal.metadata as Record<string, unknown>) ?? undefined,
             };
-            await createSignalFromScraper(mapped, company.id, "SOCIAL", results, runData.runId, mastodonScraper.getProvenance(), mastodonScraper.scraperName);
+            await createSignalFromScraper(mapped, company.id, "SOCIAL", results, runData.runId, mastodonScraper.getProvenance(), mastodonScraper.scraperName, scrapeOnly);
 
             runData.signalsCreated += results.signalsCreated - beforeCreated;
             runData.duplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
@@ -1082,7 +1090,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
             const beforeCreated = results.signalsCreated;
             const beforeDuplicates = results.duplicatesSkipped;
 
-            await createSignalFromScraper(mapped, company.id, "PRESS_RELEASE", results, runData.runId, pressScraper.getProvenance(), pressScraper.scraperName);
+            await createSignalFromScraper(mapped, company.id, "PRESS_RELEASE", results, runData.runId, pressScraper.getProvenance(), pressScraper.scraperName, scrapeOnly);
 
             runData.signalsCreated += results.signalsCreated - beforeCreated;
             runData.duplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
@@ -1120,7 +1128,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
 
               const beforeCreated = results.signalsCreated;
               const beforeDuplicates = results.duplicatesSkipped;
-              await createSignalFromScraper(signal, company.id, "PATENT", results, runId, usptoScraper.getProvenance(), usptoScraper.scraperName);
+              await createSignalFromScraper(signal, company.id, "PATENT", results, runId, usptoScraper.getProvenance(), usptoScraper.scraperName, scrapeOnly);
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
             }
@@ -1158,7 +1166,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
 
               const beforeCreated = results.signalsCreated;
               const beforeDuplicates = results.duplicatesSkipped;
-              await createSignalFromScraper(signal, company.id, "LITIGATION", results, runId, courtScraper.getProvenance(), courtScraper.scraperName);
+              await createSignalFromScraper(signal, company.id, "LITIGATION", results, runId, courtScraper.getProvenance(), courtScraper.scraperName, scrapeOnly);
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
             }
@@ -1195,7 +1203,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
 
               const beforeCreated = results.signalsCreated;
               const beforeDuplicates = results.duplicatesSkipped;
-              await createSignalFromScraper(signal, company.id, "FDA", results, runId, fdaScraper.getProvenance(), fdaScraper.scraperName);
+              await createSignalFromScraper(signal, company.id, "FDA", results, runId, fdaScraper.getProvenance(), fdaScraper.scraperName, scrapeOnly);
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
             }
@@ -1207,7 +1215,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
 
               const beforeCreated = results.signalsCreated;
               const beforeDuplicates = results.duplicatesSkipped;
-              await createSignalFromScraper(signal, company.id, "FDA", results, runId, fdaScraper.getProvenance(), fdaScraper.scraperName);
+              await createSignalFromScraper(signal, company.id, "FDA", results, runId, fdaScraper.getProvenance(), fdaScraper.scraperName, scrapeOnly);
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
             }
@@ -1245,7 +1253,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
 
               const beforeCreated = results.signalsCreated;
               const beforeDuplicates = results.duplicatesSkipped;
-              await createSignalFromScraper(signal, company.id, "CONTRACT", results, runId, samScraper.getProvenance(), samScraper.scraperName);
+              await createSignalFromScraper(signal, company.id, "CONTRACT", results, runId, samScraper.getProvenance(), samScraper.scraperName, scrapeOnly);
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
             }
@@ -1278,7 +1286,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
             for (const signal of signals) {
               const beforeCreated = results.signalsCreated;
               const beforeDuplicates = results.duplicatesSkipped;
-              await createSignalFromScraper(signal, company.id, "WEB_ARCHIVE", results, runId, waybackScraper.getProvenance(), waybackScraper.scraperName);
+              await createSignalFromScraper(signal, company.id, "WEB_ARCHIVE", results, runId, waybackScraper.getProvenance(), waybackScraper.scraperName, scrapeOnly);
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
             }
@@ -1340,7 +1348,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
 
               const beforeCreated = results.signalsCreated;
               const beforeDuplicates = results.duplicatesSkipped;
-              await createSignalFromScraper(mapped, company.id, "LEGISLATION", results, runId, congressScraper.getProvenance(), congressScraper.scraperName);
+              await createSignalFromScraper(mapped, company.id, "LEGISLATION", results, runId, congressScraper.getProvenance(), congressScraper.scraperName, scrapeOnly);
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
             }
@@ -1422,7 +1430,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
 
               const beforeCreated = results.signalsCreated;
               const beforeDuplicates = results.duplicatesSkipped;
-              await createSignalFromScraper(mapped, company.id, "ACADEMIC", results, runId, academicScraper.getProvenance(), academicScraper.scraperName);
+              await createSignalFromScraper(mapped, company.id, "ACADEMIC", results, runId, academicScraper.getProvenance(), academicScraper.scraperName, scrapeOnly);
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
             }
@@ -1474,7 +1482,8 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
                   results,
                   runId,
                   lobbyingScraper.getProvenance(),
-                  lobbyingScraper.scraperName
+                  lobbyingScraper.scraperName,
+                  scrapeOnly
                 );
                 runSignalsCreated += results.signalsCreated - beforeCreated;
                 runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
@@ -1521,7 +1530,8 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
                   results,
                   runId,
                   supplierScraper.getProvenance(),
-                  supplierScraper.scraperName
+                  supplierScraper.scraperName,
+                  scrapeOnly
                 );
                 runSignalsCreated += results.signalsCreated - beforeCreated;
                 runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
@@ -1575,7 +1585,8 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
                   results,
                   runId,
                   execScraper.getProvenance(),
-                  execScraper.scraperName
+                  execScraper.scraperName,
+                  scrapeOnly
                 );
                 runSignalsCreated += results.signalsCreated - beforeCreated;
                 runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
@@ -1619,7 +1630,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
 
               const beforeCreated = results.signalsCreated;
               const beforeDuplicates = results.duplicatesSkipped;
-              await createSignalFromScraper(mapped, company.id, "TECH_SIGNAL", results, runId, appStoreScraper.getProvenance(), appStoreScraper.scraperName);
+              await createSignalFromScraper(mapped, company.id, "TECH_SIGNAL", results, runId, appStoreScraper.getProvenance(), appStoreScraper.scraperName, scrapeOnly);
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
             }
@@ -1661,7 +1672,7 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
 
               const beforeCreated = results.signalsCreated;
               const beforeDuplicates = results.duplicatesSkipped;
-              await createSignalFromScraper(mapped, company.id, "CONFERENCE", results, runId, conferenceScraper.getProvenance(), conferenceScraper.scraperName);
+              await createSignalFromScraper(mapped, company.id, "CONFERENCE", results, runId, conferenceScraper.getProvenance(), conferenceScraper.scraperName, scrapeOnly);
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
             }
@@ -1713,7 +1724,8 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
                   results,
                   runId,
                   domainTracker.getProvenance(),
-                  domainTracker.scraperName
+                  domainTracker.scraperName,
+                  scrapeOnly
                 );
                 runSignalsCreated += results.signalsCreated - beforeCreated;
                 runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
@@ -1878,7 +1890,8 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
                 results,
                 runId,
                 undefined,
-                "web-search-scraper"
+                "web-search-scraper",
+                scrapeOnly
               );
 
               runSignalsCreated += results.signalsCreated - beforeCreated;
@@ -1956,7 +1969,8 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
                   results,
                   runId,
                   jobScraper.getProvenance(),
-                  jobScraper.scraperName
+                  jobScraper.scraperName,
+                  scrapeOnly
                 );
                 runSignalsCreated += results.signalsCreated - beforeCreated;
                 runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
@@ -2043,7 +2057,8 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
                   results,
                   runId,
                   transcriptScraper.getProvenance(),
-                  transcriptScraper.scraperName
+                  transcriptScraper.scraperName,
+                  scrapeOnly
                 );
                 runSignalsCreated += results.signalsCreated - beforeCreated;
                 runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
@@ -2109,7 +2124,8 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
                 results,
                 runId,
                 appStoreTracker.getProvenance(),
-                appStoreTracker.scraperName
+                appStoreTracker.scraperName,
+                scrapeOnly
               );
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
@@ -2172,7 +2188,8 @@ export const discoverSignalsUnifiedFunction = inngest.createFunction(
                 results,
                 runId,
                 agendaScraper.getProvenance(),
-                agendaScraper.scraperName
+                agendaScraper.scraperName,
+                scrapeOnly
               );
               runSignalsCreated += results.signalsCreated - beforeCreated;
               runDuplicatesSkipped += results.duplicatesSkipped - beforeDuplicates;
@@ -2256,6 +2273,7 @@ async function processFeedItem(
   provenance?: { scrapeAttempts: number; rawContentHash: string | null },
   scraperName?: string,
   companyInfo?: { name: string; ticker: string | null; description: string | null; sector: string | null; industry: string | null },
+  scrapeOnly: boolean = false,
 ): Promise<void> {
   const log = logger.child({ function: "processFeedItem", itemUrl: item.link, companyId });
 
@@ -2356,17 +2374,19 @@ async function processFeedItem(
     results.signalsCreated++;
     if (runId) await addPipelineLog(runId, "info", `Created signal: ${item.title}`, { url: item.link, signalId: signal.id });
 
-    try {
-      await inngest.send({ name: "signal/analysis.requested", data: { signalId: signal.id } });
-    } catch (error) {
-      log.error("Failed to trigger analysis, marking signal for retry", { signalId: signal.id, error: String(error) });
+    if (!scrapeOnly) {
       try {
-        await prisma.signal.update({
-          where: { id: signal.id },
-          data: { status: "FAILED" },
-        });
-      } catch (updateError) {
-        log.error("Failed to mark signal for retry", { signalId: signal.id, error: String(updateError) });
+        await inngest.send({ name: "signal/analysis.requested", data: { signalId: signal.id } });
+      } catch (error) {
+        log.error("Failed to trigger analysis, marking signal for retry", { signalId: signal.id, error: String(error) });
+        try {
+          await prisma.signal.update({
+            where: { id: signal.id },
+            data: { status: "FAILED" },
+          });
+        } catch (updateError) {
+          log.error("Failed to mark signal for retry", { signalId: signal.id, error: String(updateError) });
+        }
       }
     }
   } catch (embedError) {
@@ -2404,17 +2424,19 @@ async function processFeedItem(
     results.signalsCreated++;
     if (runId) await addPipelineLog(runId, "info", `Created signal: ${item.title}`, { url: item.link, signalId: signal.id });
 
-    try {
-      await inngest.send({ name: "signal/analysis.requested", data: { signalId: signal.id } });
-    } catch (error) {
-      log.error("Failed to trigger analysis, marking signal for retry", { signalId: signal.id, error: String(error) });
+    if (!scrapeOnly) {
       try {
-        await prisma.signal.update({
-          where: { id: signal.id },
-          data: { status: "FAILED" },
-        });
-      } catch (updateError) {
-        log.error("Failed to mark signal for retry", { signalId: signal.id, error: String(updateError) });
+        await inngest.send({ name: "signal/analysis.requested", data: { signalId: signal.id } });
+      } catch (error) {
+        log.error("Failed to trigger analysis, marking signal for retry", { signalId: signal.id, error: String(error) });
+        try {
+          await prisma.signal.update({
+            where: { id: signal.id },
+            data: { status: "FAILED" },
+          });
+        } catch (updateError) {
+          log.error("Failed to mark signal for retry", { signalId: signal.id, error: String(updateError) });
+        }
       }
     }
   }
@@ -2437,6 +2459,7 @@ async function processFiling(
   runId?: string | null,
   provenance?: { scrapeAttempts: number; rawContentHash: string | null },
   scraperName?: string,
+  scrapeOnly: boolean = false,
 ): Promise<void> {
   const log = logger.child({ function: "processFiling", filingUrl: filing.filingUrl, companyId });
 
@@ -2487,17 +2510,19 @@ async function processFiling(
     results.signalsCreated++;
     if (runId) await addPipelineLog(runId, "info", `Created signal: ${filing.form} - ${companyName}`, { url: filing.filingUrl, signalId: signal.id });
 
-    try {
-      await inngest.send({ name: "signal/analysis.requested", data: { signalId: signal.id } });
-    } catch (error) {
-      log.error("Failed to trigger analysis, marking signal for retry", { signalId: signal.id, error: String(error) });
+    if (!scrapeOnly) {
       try {
-        await prisma.signal.update({
-          where: { id: signal.id },
-          data: { status: "FAILED" },
-        });
-      } catch (updateError) {
-        log.error("Failed to mark signal for retry", { signalId: signal.id, error: String(updateError) });
+        await inngest.send({ name: "signal/analysis.requested", data: { signalId: signal.id } });
+      } catch (error) {
+        log.error("Failed to trigger analysis, marking signal for retry", { signalId: signal.id, error: String(error) });
+        try {
+          await prisma.signal.update({
+            where: { id: signal.id },
+            data: { status: "FAILED" },
+          });
+        } catch (updateError) {
+          log.error("Failed to mark signal for retry", { signalId: signal.id, error: String(updateError) });
+        }
       }
     }
   } catch (embedError) {
@@ -2533,17 +2558,19 @@ async function processFiling(
     results.signalsCreated++;
     if (runId) await addPipelineLog(runId, "info", `Created signal: ${filing.form} - ${companyName}`, { url: filing.filingUrl, signalId: signal.id });
 
-    try {
-      await inngest.send({ name: "signal/analysis.requested", data: { signalId: signal.id } });
-    } catch (error) {
-      log.error("Failed to trigger analysis, marking signal for retry", { signalId: signal.id, error: String(error) });
+    if (!scrapeOnly) {
       try {
-        await prisma.signal.update({
-          where: { id: signal.id },
-          data: { status: "FAILED" },
-        });
-      } catch (updateError) {
-        log.error("Failed to mark signal for retry", { signalId: signal.id, error: String(updateError) });
+        await inngest.send({ name: "signal/analysis.requested", data: { signalId: signal.id } });
+      } catch (error) {
+        log.error("Failed to trigger analysis, marking signal for retry", { signalId: signal.id, error: String(error) });
+        try {
+          await prisma.signal.update({
+            where: { id: signal.id },
+            data: { status: "FAILED" },
+          });
+        } catch (updateError) {
+          log.error("Failed to mark signal for retry", { signalId: signal.id, error: String(updateError) });
+        }
       }
     }
   }
@@ -2565,6 +2592,7 @@ async function createSignalFromScraper(
   runId?: string | null,
   provenance?: { scrapeAttempts: number; rawContentHash: string | null },
   scraperName?: string,
+  scrapeOnly: boolean = false,
 ): Promise<{ created: boolean }> {
   const log = logger.child({ function: "createSignalFromScraper", sourceUrl: scraperSignal.sourceUrl, companyId, sourceType });
 
@@ -2634,17 +2662,19 @@ async function createSignalFromScraper(
     results.signalsCreated++;
     if (runId) await addPipelineLog(runId, "info", `Created signal: ${scraperSignal.title}`, { url: scraperSignal.sourceUrl, signalId: signal.id });
 
-    try {
-      await inngest.send({ name: "signal/analysis.requested", data: { signalId: signal.id } });
-    } catch (error) {
-      log.error("Failed to trigger analysis, marking signal for retry", { signalId: signal.id, error: String(error) });
+    if (!scrapeOnly) {
       try {
-        await prisma.signal.update({
-          where: { id: signal.id },
-          data: { status: "FAILED" },
-        });
-      } catch (updateError) {
-        log.error("Failed to mark signal for retry", { signalId: signal.id, error: String(updateError) });
+        await inngest.send({ name: "signal/analysis.requested", data: { signalId: signal.id } });
+      } catch (error) {
+        log.error("Failed to trigger analysis, marking signal for retry", { signalId: signal.id, error: String(error) });
+        try {
+          await prisma.signal.update({
+            where: { id: signal.id },
+            data: { status: "FAILED" },
+          });
+        } catch (updateError) {
+          log.error("Failed to mark signal for retry", { signalId: signal.id, error: String(updateError) });
+        }
       }
     }
 
@@ -2685,17 +2715,19 @@ async function createSignalFromScraper(
     results.signalsCreated++;
     if (runId) await addPipelineLog(runId, "info", `Created signal: ${scraperSignal.title}`, { url: scraperSignal.sourceUrl, signalId: signal.id });
 
-    try {
-      await inngest.send({ name: "signal/analysis.requested", data: { signalId: signal.id } });
-    } catch (error) {
-      log.error("Failed to trigger analysis, marking signal for retry", { signalId: signal.id, error: String(error) });
+    if (!scrapeOnly) {
       try {
-        await prisma.signal.update({
-          where: { id: signal.id },
-          data: { status: "FAILED" },
-        });
-      } catch (updateError) {
-        log.error("Failed to mark signal for retry", { signalId: signal.id, error: String(updateError) });
+        await inngest.send({ name: "signal/analysis.requested", data: { signalId: signal.id } });
+      } catch (error) {
+        log.error("Failed to trigger analysis, marking signal for retry", { signalId: signal.id, error: String(error) });
+        try {
+          await prisma.signal.update({
+            where: { id: signal.id },
+            data: { status: "FAILED" },
+          });
+        } catch (updateError) {
+          log.error("Failed to mark signal for retry", { signalId: signal.id, error: String(updateError) });
+        }
       }
     }
 

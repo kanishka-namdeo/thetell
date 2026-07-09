@@ -19,7 +19,6 @@ export interface ClusterMetrics {
   byStatus: Record<string, number>;
   avgMomentum: number;
   avgSignalCount: number;
-  clustersWithArticles: number;
   topClusters: Array<{
     themeId: string;
     label: string;
@@ -46,14 +45,12 @@ export async function getClusterMetrics(
       statusCounts,
       momentumAvg,
       signalCounts,
-      articlesCount,
       topClusters,
     ] = await Promise.all([
       prisma.signalTheme.count(),
       computeStatusCounts(),
       prisma.signalTheme.aggregate({ _avg: { momentum: true } }),
       computeSignalCounts(),
-      prisma.clusterArticle.count({ where: { status: "PUBLISHED" } }),
       prisma.signalTheme.findMany({
         where: { status: { in: ["EMERGING", "ACCELERATING"] } },
         select: {
@@ -73,7 +70,6 @@ export async function getClusterMetrics(
       byStatus: statusCounts,
       avgMomentum: momentumAvg._avg.momentum ?? 0,
       avgSignalCount: signalCounts.avg,
-      clustersWithArticles: articlesCount,
       topClusters: topClusters.map((c) => ({
         themeId: c.id,
         label: c.label,

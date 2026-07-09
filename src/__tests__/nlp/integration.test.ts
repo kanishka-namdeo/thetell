@@ -38,22 +38,31 @@ vi.mock("@/lib/ai/provider", () => ({
 
 vi.mock("@/lib/ai/fact-extraction", () => ({
   extractFactsWithPrompt: vi.fn().mockResolvedValue({
-    facts: [{ text: "Test fact", confidence: 0.8, category: "financial", source_sentence: "Test" }],
+    data: {
+      facts: [{ text: "Test fact", confidence: 0.8, category: "financial", source_sentence: "Test" }],
+    },
+    usage: { inputTokens: 100, outputTokens: 50 },
   }),
 }));
 
 vi.mock("@/lib/ai/sentiment", () => ({
   classifySentimentWithPrompt: vi.fn().mockResolvedValue({
-    sentiment: "POSITIVE",
-    confidence: 0.85,
-    strength: "STRONGLY",
-    key_phrases: ["revenue"],
+    data: {
+      sentiment: "POSITIVE",
+      confidence: 0.85,
+      strength: "STRONGLY",
+      key_phrases: ["revenue"],
+    },
+    usage: { inputTokens: 80, outputTokens: 30 },
   }),
 }));
 
 vi.mock("@/lib/ai/themes", () => ({
   identifyThemesWithPrompt: vi.fn().mockResolvedValue({
-    themes: [{ label: "Growth", evidence: ["revenue up"], correlation_hints: [] }],
+    data: {
+      themes: [{ label: "Growth", evidence: ["revenue up"], correlation_hints: [] }],
+    },
+    usage: { inputTokens: 120, outputTokens: 60 },
   }),
 }));
 
@@ -128,13 +137,18 @@ describe("NLP Integration Tests", () => {
       const result = await analyzeSignalWithAgent(sampleSignal, ANALYST_CONFIG);
 
       expect(result).toBeDefined();
-      expect(result.agentPersona).toBe("ANALYST");
-      expect(result.summary).toBeDefined();
-      expect(result.keyFacts).toBeDefined();
-      expect(result.sentiment).toBeDefined();
-      expect(result.strategicThemes).toBeDefined();
-      expect(result.confidence).toBeGreaterThan(0);
-      expect(result.confidence).toBeLessThanOrEqual(1);
+      expect(result.analysis).toBeDefined();
+      expect(result.metrics).toBeDefined();
+      expect(result.analysis.agentPersona).toBe("ANALYST");
+      expect(result.analysis.summary).toBeDefined();
+      expect(result.analysis.keyFacts).toBeDefined();
+      expect(result.analysis.sentiment).toBeDefined();
+      expect(result.analysis.strategicThemes).toBeDefined();
+      expect(result.analysis.confidence).toBeGreaterThan(0);
+      expect(result.analysis.confidence).toBeLessThanOrEqual(1);
+      expect(result.metrics.tokensIn).toBeGreaterThan(0);
+      expect(result.metrics.tokensOut).toBeGreaterThan(0);
+      expect(result.metrics.llmCallCount).toBeGreaterThan(0);
     });
 
     it("should use local sentiment for Analyst when confidence >= 0.7", async () => {
@@ -154,9 +168,9 @@ describe("NLP Integration Tests", () => {
       const result = await analyzeSignalWithAgent(sampleSignal, ANALYST_CONFIG);
 
       // Should use local sentiment (confidence 0.88 >= 0.7)
-      expect(result.sentiment).toBeDefined();
-      if ("sentiment" in result.sentiment) {
-        expect(result.sentiment.sentiment).toBe("POSITIVE");
+      expect(result.analysis.sentiment).toBeDefined();
+      if ("sentiment" in result.analysis.sentiment) {
+        expect(result.analysis.sentiment.sentiment).toBe("POSITIVE");
       }
     });
 
@@ -177,7 +191,7 @@ describe("NLP Integration Tests", () => {
       const result = await analyzeSignalWithAgent(sampleSignal, ANALYST_CONFIG);
 
       // Should fall back to LLM sentiment (local confidence 0.62 < 0.7)
-      expect(result.sentiment).toBeDefined();
+      expect(result.analysis.sentiment).toBeDefined();
     });
 
     it("should always use LLM sentiment for Gossip Girl", async () => {
@@ -197,8 +211,8 @@ describe("NLP Integration Tests", () => {
       const result = await analyzeSignalWithAgent(sampleSignal, GOSSIP_GIRL_CONFIG);
 
       // Gossip Girl always uses LLM sentiment
-      expect(result.sentiment).toBeDefined();
-      expect(result.agentPersona).toBe("GOSSIP_GIRL");
+      expect(result.analysis.sentiment).toBeDefined();
+      expect(result.analysis.agentPersona).toBe("GOSSIP_GIRL");
     });
 
     it("should extract entities and pass to LLM prompts", async () => {
@@ -222,8 +236,8 @@ describe("NLP Integration Tests", () => {
       const result = await analyzeSignalWithAgent(sampleSignal, ANALYST_CONFIG);
 
       // Entities should be extracted and used
-      expect(result).toBeDefined();
-      expect(result.confidence).toBeGreaterThan(0);
+      expect(result.analysis).toBeDefined();
+      expect(result.analysis.confidence).toBeGreaterThan(0);
     });
 
     it("should extract key phrases for Analyst persona", async () => {
@@ -243,9 +257,9 @@ describe("NLP Integration Tests", () => {
       const result = await analyzeSignalWithAgent(sampleSignal, ANALYST_CONFIG);
 
       // Key phrases should be extracted
-      expect(result.sentiment).toBeDefined();
-      if ("key_phrases" in result.sentiment) {
-        expect(Array.isArray(result.sentiment.key_phrases)).toBe(true);
+      expect(result.analysis.sentiment).toBeDefined();
+      if ("key_phrases" in result.analysis.sentiment) {
+        expect(Array.isArray(result.analysis.sentiment.key_phrases)).toBe(true);
       }
     });
   });

@@ -185,7 +185,7 @@ const GossipPositionSchema = z.object({
 export const AgentDebateSchema = z.preprocess(
   (val) => {
     if (typeof val !== "object" || val === null) return val;
-    const obj = val as Record<string, unknown>;
+    const obj = { ...val } as Record<string, unknown>;
     
     // Normalize field name variations
     if (!obj.analystPosition && obj.analyst_position) {

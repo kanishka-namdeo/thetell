@@ -67,10 +67,8 @@ export async function POST(req: Request) {
       },
     });
 
-    // Invalidate all existing sessions for this user
-    await prisma.session.deleteMany({
-      where: { userId: user.id },
-    });
+    // JWT sessions are invalidated via passwordChangedAt check in auth.ts jwt callback.
+    // No database session cleanup needed — JWT strategy is stateless.
 
     await prisma.verificationToken.delete({
       where: { token },

@@ -56,6 +56,7 @@ export async function POST(request: Request) {
         name,
         email,
         passwordHash,
+        role: "USER", // Explicitly set role to prevent privilege escalation
       },
     });
 

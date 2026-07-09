@@ -26,11 +26,13 @@ export function SentimentTrends({ companyId, days = 30 }: SentimentTrendsProps) 
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 
   useEffect(() => {
     if (status !== "authenticated") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(status === "loading");
       if (status === "unauthenticated") {
         setError("Authentication required. Please sign in.");

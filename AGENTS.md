@@ -13,14 +13,13 @@ This version has breaking changes â€” APIs, conventions, and file structure
 **Built:**
 - Design system (newsprint aesthetic, shadcn/ui components, typography, layout)
 - Public signal feed (casual browsing without login, replaces static landing page)
-- Public signal, article, and inference detail pages (read-only, no auth required)
+- Public signal detail pages (read-only, no auth required)
 - Component library (UI primitives, layout, typography, icons)
 - Project structure and configuration
 - Database layer (Prisma schema with 27 models, migrations)
 - Signal dashboard with filtering and search
 - User authentication (NextAuth v5)
 - AI analysis engine (TypeScript, OpenAI/Anthropic)
-- Article generation from analysis results
 - Web scraping pipeline (cheerio-based)
 - Background job processing (Inngest)
 - LLM provider abstraction (OpenAI/Anthropic)
@@ -30,15 +29,14 @@ This version has breaking changes â€” APIs, conventions, and file structure
 - **Agent abstraction layer** (persona configs, prompt builders, cross-referencing)
 - **Extended scrapers** (blog, social media, job postings)
 - **Hypothesis-driven collection system** (LLM-generated investigative questions guide targeted signal collection)
-- **Cross-signal debate engine** (dual agents debate accumulated evidence across multiple signals to refine inferences)
-- **Correlation engine with dual-agent awareness** (connects themes across signals, tracks momentum, generates strategic inferences)
+- **Cross-signal debate engine** (dual agents debate accumulated evidence across multiple signals to refine analyses)
+- **Correlation engine with dual-agent awareness** (connects themes across signals, tracks momentum)
 - **25 scrapers total** (core 7 + extended 7 + government 6 + new 5) + 2 trackers (AppStore, Domain)
 - **NLP layer** (local Transformers.js embeddings, entity extraction, sentiment classification, keyphrase extraction, language detection, quality gate)
 - **Enrichment pipeline** (website probe, blog discovery, social discovery, ticker lookup)
 - **Reddit integration** (LLM-driven subreddit discovery, tracked subreddits, engagement metrics)
-- **Unified dashboard** (simplified 4-item navigation: Overview with Analytics/Articles tabs, Signals, Companies with Watchlist filter, Strategic Insights; Profile + Settings merged)
+- **Unified dashboard** (simplified 4-item navigation: Overview with Analytics tab, Signals, Companies with Watchlist filter, Strategic Insights; Profile + Settings merged)
 - **Admin dashboard** (simplified 7-item navigation: Overview, Control Center with pipeline triggers, Content moderation, Intelligence, System monitoring, DeepAgent, Settings)
-- **Calibration feedback loop** (weekly prediction accuracy checking via embedding similarity)
 
 **Aspirational (rules exist but features not implemented):**
 - LangGraph agent layer for multi-step analysis
@@ -64,12 +62,12 @@ The Tell uses two distinct AI personas to analyze signals from different perspec
 ### Data Flow
 
 ```
-Signal â†’ Agent Pipeline â†’ Analysis â†’ Article
-  â†“         â†“              â†“          â†“
-Scraped   Persona-specific  Facts,    Headline,
-content   prompts with     sentiment,  summary,
-          agent voice      themes,    body in
-                           confidence agent voice
+Signal â†’ Agent Pipeline â†’ Analysis
+  â†“         â†“              â†“
+Scraped   Persona-specific  Facts,
+content   prompts with     sentiment,
+          agent voice      themes,
+                           confidence
 ```
 
 ### Architecture
@@ -79,8 +77,6 @@ content   prompts with     sentiment,  summary,
 - `personas.ts` - Persona configurations (ANALYST_CONFIG, GOSSIP_GIRL_CONFIG)
 - `prompts.ts` - Prompt builders that inject agent voice into analysis
 - `pipeline.ts` - `analyzeSignalWithAgent()` runs full analysis with persona
-- `article-generator.ts` - `generateArticleWithAgent()` creates articles in agent voice
-- `cross-signal-debate.ts` - Dual-agent debate over accumulated evidence across signals
 
 **Hypothesis Layer** (`src/lib/ai/hypothesis-generator.ts`)
 - Generates investigative questions from signal patterns using LLM
@@ -91,7 +87,6 @@ content   prompts with     sentiment,  summary,
 - Agents can reference each other's analyses
 - `crossRefAnalyses` parameter allows agents to build on each other's work
 - Enables multi-perspective synthesis
-- Cross-signal debate has agents argue for/against hypotheses using accumulated evidence
 
 ### Extended Scrapers
 
@@ -112,13 +107,11 @@ content   prompts with     sentiment,  summary,
 | Term | Definition |
 |------|-----------|
 | **Signal** | A piece of public information about a company (news article, earnings call transcript, SEC filing, social media post, job posting, patent filing) |
-| **Inference** | AI analysis that extracts strategic insights from signals â€” predicts corporate intent, not just summarizes content |
 | **Company** | An organization being monitored for signals (public company, private startup, government agency) |
 | **Signal Source** | The origin/channel where a signal was found (Reuters, SEC EDGAR, Twitter/X, company blog, job board) |
-| **Confidence** | AI-assessed probability that an inference is correct (0.0-1.0) |
+| **Confidence** | AI-assessed probability that an analysis is correct (0.0-1.0) |
 | **Sentiment** | Emotional tone of a signal (positive/negative/neutral) |
 | **Analysis** | The process of extracting insights from a signal (fact extraction, sentiment classification, strategic implications) |
-| **Article** | News-style output generated from analysis results |
 
 ## Module Map
 
@@ -137,35 +130,27 @@ content   prompts with     sentiment,  summary,
 - **Analysis**: `src/lib/ai/agent/pipeline.ts` -> `prompts.ts` -> `personas.ts`
 - **Cluster Analysis**: `src/lib/ai/agent/cluster-analysis.ts` (lightweight analysis for clustered signals with cluster context)
 - **Cluster Update**: `src/lib/ai/agent/cluster-update.ts` (cluster summary merger with fact/theme deduplication)
-- **Article Gen**: `src/lib/ai/agent/article-generator.ts`
-- **Cluster Article Gen**: `src/lib/ai/agent/cluster-article-generator.ts` (synthesis article generation from multiple signals)
 - **Hypothesis Layer**: `src/lib/ai/hypothesis-generator.ts` -> `src/lib/inngest/hypothesis.ts`
-- **Correlation**: `src/lib/inngest/correlation.ts` (theme clustering, momentum, inference generation)
-- **Cross-Signal Debate**: `src/lib/ai/agent/cross-signal-debate.ts`
-- **Calibration**: `src/lib/inngest/calibration.ts` (weekly prediction accuracy)
+- **Correlation**: `src/lib/inngest/correlation.ts` (theme clustering, momentum)
 - **Background**: `src/lib/inngest/functions.ts` -> `signal-discovery.ts`, `discovery.ts` (cron), `enrichment.ts`, `subreddit-discovery.ts`
 
 ### Key Entry Points
 - **Public feed**: `src/app/(public)/page.tsx` -> `feed-content.tsx` -> `feed-signal-card.tsx`
 - **Public signal detail**: `src/app/(public)/signals/[id]/page.tsx` -> `signal-detail-content.tsx`
-- **Public article detail**: `src/app/(public)/articles/[id]/page.tsx`
-- **Public inference detail**: `src/app/(public)/inferences/[id]/page.tsx` -> `inference-detail-content.tsx`
-- **Dashboard**: `src/app/dashboard/layout.tsx` -> 4-item navigation (Overview, Signals, Companies, Strategic Insights)
+- **Dashboard**: `src/app/dashboard/layout.tsx` -> 3-item navigation (Overview, Signals, Companies)
 - **Admin dashboard**: `src/app/dashboard/admin/` -> 7-item navigation (Overview, Control Center, Content, Intelligence, System, DeepAgent, Settings)
-- **Control Center**: `src/app/dashboard/admin/control-center/page.tsx` -> `ControlCenterClient.tsx` (pipeline visualization with 6 stages and manual triggers)
-- **API routes**: `src/app/api/v1/{signals,articles,search,inferences,themes}/route.ts`
-- **Cluster API**: `src/app/api/v1/clusters/[id]/route.ts` (cluster detail endpoint with evidence chain), `src/app/api/v1/clusters/[themeId]/articles/route.ts` (cluster article management)
+- **Control Center**: `src/app/dashboard/admin/control-center/page.tsx` -> `ControlCenterClient.tsx` (pipeline visualization with stages and manual triggers)
+- **API routes**: `src/app/api/v1/{signals,search,themes}/route.ts`
+- **Cluster API**: `src/app/api/v1/clusters/[id]/route.ts` (cluster detail endpoint)
 - **Admin API**: `src/app/api/v1/admin/` (consolidated routes for content, moderation, pipelines, scrapers, users)
-- **Control Center API**: `src/app/api/v1/admin/control-center/route.ts` (aggregated pipeline status for all 6 stages)
-- **Timeline API**: `src/app/api/v1/companies/[id]/timeline/`
-- **Correlations API**: `src/app/api/v1/signals/[id]/correlations/`
+- **Control Center API**: `src/app/api/v1/admin/control-center/route.ts` (aggregated pipeline status)
 - **Company enrichment**: `src/app/api/v1/companies/[id]/enrich/`
 - **Subreddit discovery**: `src/app/api/v1/companies/[id]/subreddits/`
 
 ### Data Layer
-- **Schema**: `prisma/schema.prisma` (27 models: User, Account, Session, VerificationToken, Company, Signal, Analysis, AgentDebate, SignalTheme, Inference, InferenceCalibration, CrossSignalDebate, Article, WatchedCompany, ScrapeCache, AuditLog, SystemConfig, ModerationSettings, Job, PipelineRun, PipelineLog, TrackedSubreddit, SubredditDiscoveryLog, CompanyDataSource, CompanyEnrichmentLog, CompanyHypothesis, VerificationToken)
+- **Schema**: `prisma/schema.prisma` (22 models: User, Account, Session, VerificationToken, Company, Signal, Analysis, AgentDebate, SignalTheme, WatchedCompany, ScrapeCache, AuditLog, SystemConfig, ModerationSettings, Job, PipelineRun, PipelineLog, TrackedSubreddit, SubredditDiscoveryLog, CompanyDataSource, CompanyEnrichmentLog, CompanyHypothesis, VerificationToken)
 - **DB access**: Prisma client via `src/lib/db.ts`
-- **Enums**: 12 enums (Role, UserStatus, SourceType [18 values], ThemeStatus, InferenceStatus, HypothesisStatus, DebateStatus, SignalStatus, Sentiment, ArticleStatus, AgentPersona, DataOrigin)
+- **Enums**: 10 enums (Role, UserStatus, SourceType [18 values], ThemeStatus, HypothesisStatus, DebateStatus, SignalStatus, Sentiment, AgentPersona, DataOrigin)
 
 ### Cross-Cutting
 - **Auth**: `src/lib/auth.ts` (NextAuth v5) - used in dashboard layout, API routes
@@ -202,7 +187,7 @@ content   prompts with     sentiment,  summary,
 - `functions.ts` - Main job definitions
 - `signal-discovery.ts` - Unified signal discovery (handles both manual and automated discovery for all companies/scrapers, consolidates Pipeline Orchestrator and Re-Discover flows)
 - `discovery.ts` - Cron trigger (daily 2 AM UTC) that sends unified discovery event
-- `correlation.ts` - Cross-signal correlation engine (theme clustering, momentum tracking, inference generation)
+- `correlation.ts` - Cross-signal correlation engine (theme clustering, momentum tracking)
 - `calibration.ts` - Weekly prediction accuracy checking
 - `hypothesis.ts` - Hypothesis generation jobs
 - `enrichment.ts` - Company enrichment jobs
@@ -272,10 +257,9 @@ The `.cursor/` directory contains 34 rules and 16 skills that guide agent behavi
 
 ### Skills (`.cursor/skills/`)
 
-**Domain skills** (11):
+**Domain skills** (10):
 - `adding-signal-source/` - Add new signal source types to the pipeline
 - `api-design/` - Next.js Route Handler patterns, request/response schemas, versioning
-- `article-generation/` - Transform analysis into news-style articles
 - `data-modeling/` - TypeScript types, Zod schemas, layered validation
 - `langgraph-orchestration/` - LangGraph.js workflows, state machines, cross-signal inference
 - `llm-abstraction/` - Provider-agnostic LLM interface (OpenAI/Anthropic)

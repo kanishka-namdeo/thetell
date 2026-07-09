@@ -7,8 +7,10 @@ import { logger } from "@/lib/logger";
 import { extractFactsWithPrompt } from "../fact-extraction";
 import { classifySentimentWithPrompt } from "../sentiment";
 import { identifyThemesWithPrompt } from "../themes";
-import { calculateConfidence } from "../confidence";
+import { calculateConfidenceDetailed } from "../confidence";
+import type { ConfidenceDetailedResult } from "../confidence";
 import { getProviderWithFailover } from "../provider";
+import type { LLMUsage } from "../provider";
 import {
   buildAgentFactExtractionPrompt,
   buildAgentSentimentPrompt,
@@ -75,6 +77,23 @@ export interface CrossRefAnalysis {
 }
 
 /**
+ * Metrics collected during analysis pipeline execution.
+ * Used for persistence to AnalysisMetrics table.
+ */
+export interface PipelineMetrics {
+  tokensIn: number;
+  tokensOut: number;
+  llmCallCount: number;
+  totalLatencyMs: number;
+  nlpLatencyMs: number;
+  llmLatencyMs: number;
+  groundingScore: number;
+  validFactCount: number;
+  invalidFactCount: number;
+  confidenceBreakdown: ConfidenceDetailedResult["breakdown"];
+}
+
+/**
  * Run the full analysis pipeline with an agent's specific voice and prompts.
  *
  * Steps:
@@ -84,7 +103,7 @@ export interface CrossRefAnalysis {
  * 4. Generate summary in agent voice
  * 5. Calculate composite confidence
  * 6. Build cross-references if other analyses provided
- * 7. Return structured agent analysis
+ * 7. Return structured agent analysis with metrics
  */
 export async function analyzeSignalWithAgent(
   signal: AgentAnalysisInput,
@@ -92,7 +111,7 @@ export async function analyzeSignalWithAgent(
   crossRefAnalyses?: CrossRefAnalysis[],
   providerName: ProviderName = "openai",
   model?: string
-): Promise<AgentAnalysis> {
+): Promise<{ analysis: AgentAnalysis; metrics: PipelineMetrics }> {
   const startTime = Date.now();
   const log = logger.child({
     signalId: signal.id,
@@ -105,8 +124,14 @@ export async function analyzeSignalWithAgent(
     contentLength: signal.rawContent.length,
   });
 
+  // Validate rawContent is not empty
+  if (!signal.rawContent || signal.rawContent.trim().length === 0) {
+    throw new Error("Cannot analyze signal with empty rawContent");
+  }
+
   try {
     // Task 3.5 + 3.6 + 3.8: Run local NLP models in parallel before LLM calls
+    const nlpStartTime = Date.now();
     const [localEntities, localSentiment, localKeyPhrases] = await Promise.all([
       // Task 3.6: Extract entities for LLM prompt enhancement
       extractEntities(signal.rawContent, signal.sourceType).catch((err) => {
@@ -124,6 +149,7 @@ export async function analyzeSignalWithAgent(
         return [];
       }),
     ]);
+    const nlpLatencyMs = Date.now() - nlpStartTime;
 
     log.debug("agent.pipeline.local_nlp_complete", {
       entities: {
@@ -172,30 +198,74 @@ export async function analyzeSignalWithAgent(
       agentConfig.persona
     );
 
+    // Truncate content to prevent excessive token usage in LLM calls
+    const MAX_LLM_CONTENT_LENGTH = 50000;
+    const contentForLLM = signal.rawContent.length > MAX_LLM_CONTENT_LENGTH
+      ? signal.rawContent.slice(0, MAX_LLM_CONTENT_LENGTH) + "\n\n[Content truncated]"
+      : signal.rawContent;
+
+    // Track token usage across all LLM calls in this pipeline
+    let totalTokensIn = 0;
+    let totalTokensOut = 0;
+    let llmCallCount = 0;
+
+    const llmStartTime = Date.now();
     const [factsResult, llmSentimentResult, themesResult] = await Promise.all([
       extractFactsWithPrompt(
-        buildAgentFactExtractionPrompt(signal.rawContent, agentConfig, entityContext, sourceContext, signal.publishedAt),
+        buildAgentFactExtractionPrompt(contentForLLM, agentConfig, entityContext, sourceContext, signal.publishedAt),
         z.object({ facts: z.array(factSchema) }),
         providerName,
         agentConfig.temperature,
         model
-      ),
+      ).then(result => {
+        totalTokensIn += result.usage.inputTokens;
+        totalTokensOut += result.usage.outputTokens;
+        llmCallCount++;
+        return { facts: result.data.facts };
+      }).catch((err) => {
+        log.warn("agent.pipeline.fact_extraction_failed", { error: String(err) });
+        return { facts: [] };
+      }),
       // Always run LLM sentiment (needed for Gossip Girl, and fallback for Analyst)
       classifySentimentWithPrompt(
-        buildAgentSentimentPrompt(signal.rawContent, agentConfig, entityContext, localSentiment, sourceContext, signal.publishedAt),
+        buildAgentSentimentPrompt(contentForLLM, agentConfig, entityContext, localSentiment, sourceContext, signal.publishedAt),
         sentimentSchema,
         providerName,
         agentConfig.temperature,
         model
-      ),
+      ).then(result => {
+        totalTokensIn += result.usage.inputTokens;
+        totalTokensOut += result.usage.outputTokens;
+        llmCallCount++;
+        return result.data;
+      }).catch((err) => {
+        log.warn("agent.pipeline.sentiment_classification_failed", { error: String(err) });
+        return {
+          sentiment: "NEUTRAL" as const,
+          confidence: 0.5,
+          key_phrases: [] as string[],
+          strength: undefined,
+          surface_reading: "neutral-surface" as const,
+          tell_strength: 0.5,
+        };
+      }),
       identifyThemesWithPrompt(
-        buildAgentThemesPrompt(signal.rawContent, agentConfig, entityContext, sourceContext, signal.publishedAt),
+        buildAgentThemesPrompt(contentForLLM, agentConfig, entityContext, sourceContext, signal.publishedAt),
         z.object({ themes: z.array(themeSchema) }),
         providerName,
         agentConfig.temperature,
         model
-      ),
+      ).then(result => {
+        totalTokensIn += result.usage.inputTokens;
+        totalTokensOut += result.usage.outputTokens;
+        llmCallCount++;
+        return { themes: result.data.themes };
+      }).catch((err) => {
+        log.warn("agent.pipeline.theme_identification_failed", { error: String(err) });
+        return { themes: [] };
+      }),
     ]);
+    const llmLatencyMs = Date.now() - llmStartTime;
 
     // Task 3.5: Choose sentiment result based on persona and local confidence
     let sentimentResult: AnalystSentiment | GossipSentiment;
@@ -275,16 +345,20 @@ export async function analyzeSignalWithAgent(
     const { provider } = getProviderWithFailover(providerName);
     const companyName = signal.company?.name ?? "the company";
     const summaryMessages = buildAgentSummaryPrompt(
-      signal.rawContent,
+      contentForLLM,
       companyName,
       agentConfig,
       signal.publishedAt
     );
-    const summaryResult = await provider.completeStructured(
+    const summaryResultWithUsage = await provider.completeStructuredWithUsage(
       summaryMessages,
       AgentSummarySchema,
       { model, temperature: agentConfig.temperature }
     );
+    const summaryResult = summaryResultWithUsage.data;
+    totalTokensIn += summaryResultWithUsage.usage.inputTokens;
+    totalTokensOut += summaryResultWithUsage.usage.outputTokens;
+    llmCallCount++;
 
     const modelUsed = model ?? process.env.FAST_MODEL ?? "unknown";
     
@@ -345,8 +419,8 @@ export async function analyzeSignalWithAgent(
       confidenceBoost: sourceMatchesPreference ? "1.15x" : "none",
     });
 
-    // Task 3.7: Pass NER results to confidence calculation
-    const confidence = calculateConfidence({
+    // Task 3.7: Pass NER results to confidence calculation (with detailed breakdown for metrics)
+    const confidenceDetailed = calculateConfidenceDetailed({
       sourceType: signal.sourceType,
       contentLength: signal.rawContent.length,
       content: signal.rawContent,
@@ -358,6 +432,7 @@ export async function analyzeSignalWithAgent(
       sourceMatchesPreference,
       publishedAt: signal.publishedAt,
     });
+    const confidence = confidenceDetailed.score;
 
     const crossReferences = crossRefAnalyses?.length
       ? crossRefAnalyses.map((a) => ({
@@ -367,12 +442,26 @@ export async function analyzeSignalWithAgent(
         }))
       : null;
 
-    const latencyMs = Date.now() - startTime;
+    const totalLatencyMs = Date.now() - startTime;
 
     log.info("agent.pipeline.complete", {
       confidence: Math.round(confidence * 1000) / 1000,
-      latency_ms: latencyMs,
+      latency_ms: totalLatencyMs,
     });
+
+    // Build metrics object for persistence
+    const metrics: PipelineMetrics = {
+      tokensIn: totalTokensIn,
+      tokensOut: totalTokensOut,
+      llmCallCount,
+      totalLatencyMs,
+      nlpLatencyMs,
+      llmLatencyMs,
+      groundingScore: factsValidation.groundingScore,
+      validFactCount: factsValidation.validFacts.length,
+      invalidFactCount: factsValidation.invalidFacts.length,
+      confidenceBreakdown: confidenceDetailed.breakdown,
+    };
 
     // Build return value with persona-specific shapes
     if (agentConfig.persona === "ANALYST") {
@@ -381,27 +470,30 @@ export async function analyzeSignalWithAgent(
       const analystSentiment = sentimentResult as AnalystSentiment;
       
       return {
-        id: crypto.randomUUID(),
-        signalId: signal.id,
-        agentPersona: agentConfig.persona,
-        summary: summaryResult.summary,
-        keyFacts: analystFacts.map((f) => ({
-          text: f.text,
-          category: f.category,
-          confidence: f.confidence,
-          source_sentence: f.source_sentence,
-        })),
-        sentiment: analystSentiment,
-        strategicThemes: analystThemes.map((t) => ({
-          label: t.label,
-          evidence: t.evidence,
-          correlation_hints: t.correlation_hints,
-        })),
-        confidence,
-        crossReferences,
-        modelUsed,
-        analyzedAt: new Date(),
-        sourceMatchPreference: sourceMatchesPreference,
+        analysis: {
+          id: crypto.randomUUID(),
+          signalId: signal.id,
+          agentPersona: agentConfig.persona,
+          summary: summaryResult.summary,
+          keyFacts: analystFacts.map((f) => ({
+            text: f.text,
+            category: f.category,
+            confidence: f.confidence,
+            source_sentence: f.source_sentence,
+          })),
+          sentiment: analystSentiment,
+          strategicThemes: analystThemes.map((t) => ({
+            label: t.label,
+            evidence: t.evidence,
+            correlation_hints: t.correlation_hints,
+          })),
+          confidence,
+          crossReferences,
+          modelUsed,
+          analyzedAt: new Date(),
+          sourceMatchPreference: sourceMatchesPreference,
+        },
+        metrics,
       };
     } else {
       const gossipFacts = facts as GossipFact[];
@@ -409,28 +501,31 @@ export async function analyzeSignalWithAgent(
       const gossipSentiment = sentimentResult as GossipSentiment;
       
       return {
-        id: crypto.randomUUID(),
-        signalId: signal.id,
-        agentPersona: agentConfig.persona,
-        summary: summaryResult.summary,
-        keyFacts: gossipFacts.map((f) => ({
-          text: f.text,
-          tell_type: f.tell_type,
-          tell_strength: f.tell_strength,
-          subtext: f.subtext,
-          source_sentence: f.source_sentence,
-        })),
-        sentiment: gossipSentiment,
-        strategicThemes: gossipThemes.map((t) => ({
-          label: t.label,
-          evidence: t.evidence,
-          narrative_hook: t.narrative_hook,
-        })),
-        confidence,
-        crossReferences,
-        modelUsed,
-        analyzedAt: new Date(),
-        sourceMatchPreference: sourceMatchesPreference,
+        analysis: {
+          id: crypto.randomUUID(),
+          signalId: signal.id,
+          agentPersona: agentConfig.persona,
+          summary: summaryResult.summary,
+          keyFacts: gossipFacts.map((f) => ({
+            text: f.text,
+            tell_type: f.tell_type,
+            tell_strength: f.tell_strength,
+            subtext: f.subtext,
+            source_sentence: f.source_sentence,
+          })),
+          sentiment: gossipSentiment,
+          strategicThemes: gossipThemes.map((t) => ({
+            label: t.label,
+            evidence: t.evidence,
+            narrative_hook: t.narrative_hook,
+          })),
+          confidence,
+          crossReferences,
+          modelUsed,
+          analyzedAt: new Date(),
+          sourceMatchPreference: sourceMatchesPreference,
+        },
+        metrics,
       };
     }
   } catch (error) {

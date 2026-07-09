@@ -177,6 +177,19 @@ When library versions change in `package.json`:
 4. **Update relevant skills**: Revise workflow phases that depend on changed APIs
 5. **Add migration section**: If breaking changes affect existing code patterns
 
+## Automated Reviews with /loop
+
+The "periodic review" above is advisory. Use `/loop` to enforce it:
+
+| Review | /loop Command | Interval |
+|---|---|---|
+| Lessons-learned staleness | `/loop check lessons-learned.md for entries older than 5 sessions without update` | Every 5 dev sessions |
+| Rule/skill drift | `/loop audit .cursor/rules/ for patterns referencing outdated library versions` | Every 10 dev sessions |
+| Ponytail debt harvest | `/loop grep repo for ponytail: comments, update debt ledger` | Every 15 dev sessions |
+| Feature doc sync | `/loop check docs/features-built.md against git diff for new/changed features` | End of each feature session |
+
+These are suggestions — the agent should use judgment about when monitoring is valuable vs. overhead.
+
 ## Enforcement
 
 **After fixing any bug or receiving review feedback, ask**:

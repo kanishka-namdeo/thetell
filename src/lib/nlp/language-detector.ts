@@ -19,10 +19,14 @@ export interface LanguageDetectionResult {
 }
 
 const LANGUAGE_CONFIDENCE_THRESHOLD = 0.9;
+const MODEL_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const MODEL_LOAD_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 
 // Singleton model instance - loads on first use and caches in memory
 let lidModel: LanguageIdentificationModel | null = null;
 let modelLoadPromise: Promise<LanguageIdentificationModel> | null = null;
+let lastAccessTime: number = 0;
+let idleCheckInterval: ReturnType<typeof setInterval> | null = null;
 
 /**
  * Get or initialize the FastText LID model.
@@ -42,17 +46,27 @@ async function getModel(): Promise<LanguageIdentificationModel> {
     const startTime = Date.now();
     logger.debug("nlp.language.model.loading");
 
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new Error(`FastText model load timeout after ${MODEL_LOAD_TIMEOUT_MS}ms`)),
+        MODEL_LOAD_TIMEOUT_MS,
+      );
+    });
+
     try {
-      const model = await getLIDModel();
+      const model = await Promise.race([getLIDModel(), timeoutPromise]);
+      clearTimeout(timeoutId!);
       await model.load();
       const elapsed = Date.now() - startTime;
 
       logger.info("nlp.language.model.loaded", { elapsedMs: elapsed });
 
       lidModel = model;
+      lastAccessTime = Date.now();
+      startIdleCheck();
       return model;
     } catch (error) {
-      // Reset so next call retries
       modelLoadPromise = null;
       logger.error("nlp.language.model.load.failed", {
         error: String(error),
@@ -62,6 +76,30 @@ async function getModel(): Promise<LanguageIdentificationModel> {
   })();
 
   return modelLoadPromise;
+}
+
+function startIdleCheck(): void {
+  if (idleCheckInterval) return;
+  idleCheckInterval = setInterval(() => {
+    if (lidModel && lastAccessTime > 0 && Date.now() - lastAccessTime > MODEL_IDLE_TIMEOUT_MS) {
+      logger.info("nlp.language.model.unloaded_idle");
+      lidModel = null;
+      modelLoadPromise = null;
+    }
+  }, 5 * 60 * 1000);
+  idleCheckInterval.unref?.();
+}
+
+/**
+ * Unload the language detection model if it has been idle.
+ * Called periodically to free WASM memory.
+ */
+export function unloadLanguageModel(): void {
+  if (lidModel && lastAccessTime > 0 && Date.now() - lastAccessTime > MODEL_IDLE_TIMEOUT_MS) {
+    lidModel = null;
+    modelLoadPromise = null;
+    logger.info("nlp.language.model.unloaded");
+  }
 }
 
 /**
@@ -81,6 +119,7 @@ export async function detectLanguage(
 
   try {
     const model = await getModel();
+    lastAccessTime = Date.now();
 
     // FastText works best with text truncated to ~1000 chars for language detection
     // Replace newlines with spaces (FastText expects single-line input)

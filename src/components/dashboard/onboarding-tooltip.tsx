@@ -66,7 +66,9 @@ export function OnboardingTooltip({
    
   useEffect(() => {
     const dismissed = localStorage.getItem(storageKey);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsDismissed(dismissed === "true");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLoading(false);
   }, [storageKey]);
 
@@ -140,19 +142,9 @@ export const ONBOARDING_CONTENT = {
     content:
       "Raw public information — news, filings, social posts — collected and analyzed by AI agents",
   },
-  articles: {
-    title: "What are Articles?",
-    content:
-      "AI-generated intelligence reports analyzing individual signals from The Analyst or Gossip Girl perspectives",
-  },
-  inferences: {
-    title: "What are Strategic Insights?",
-    content:
-      "Predictions about corporate intent, generated when 3+ signals from 2+ source types converge on a strategic theme",
-  },
   overview: {
     title: "How it works",
     content:
-      "Signals are collected from public sources, analyzed by AI, and synthesized into Articles (single-signal) or Strategic Insights (cross-signal patterns)",
+      "Signals are collected from public sources, analyzed by AI, and synthesized into Strategic Insights (cross-signal patterns)",
   },
 } as const;

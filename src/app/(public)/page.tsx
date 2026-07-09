@@ -5,15 +5,15 @@ import { FeedPageContent } from "./_components/feed-page-content";
 export const dynamic = "force-dynamic";
 
 interface PublicFeedPageProps {
-  searchParams: Promise<{ cursor?: string; view?: string; sourceType?: string; highConsensus?: string }>;
+  searchParams: Promise<{ cursor?: string; sourceType?: string; highConsensus?: string }>;
 }
 
 export default async function PublicFeedPage({ searchParams }: PublicFeedPageProps) {
-  const { cursor, view, sourceType, highConsensus } = await searchParams;
+  const { cursor, sourceType, highConsensus } = await searchParams;
 
   return (
     <Suspense fallback={<SkeletonFeed />}>
-      <FeedPageContent cursor={cursor} view={view} sourceType={sourceType} highConsensus={highConsensus === "true"} />
+      <FeedPageContent cursor={cursor} sourceType={sourceType} highConsensus={highConsensus === "true"} />
     </Suspense>
   );
 }

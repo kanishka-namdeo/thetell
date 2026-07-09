@@ -100,7 +100,6 @@ export default function CompaniesPage() {
                 ticker={company.ticker}
                 description={company.description}
                 signalCount={company._count.signals}
-                articleCount={company._count.articles}
                 isWatched={company.isWatched}
               />
             ))}

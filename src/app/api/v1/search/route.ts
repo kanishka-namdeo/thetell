@@ -17,8 +17,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         signals: [],
         companies: [],
-        articles: [],
-        inferences: [],
       });
     }
 
@@ -34,7 +32,7 @@ export async function GET(request: NextRequest) {
 
     // Run text search and semantic search in parallel
     const [
-      [textSignals, companies, articles, inferences, themes],
+      [textSignals, companies, themes],
       semanticResults,
     ] = await Promise.all([
       Promise.all([
@@ -68,42 +66,6 @@ export async function GET(request: NextRequest) {
           take: 5,
           orderBy: { name: "asc" },
         }),
-        shouldSearchType("article")
-          ? prisma.article.findMany({
-              where: {
-                status: "PUBLISHED",
-                title: { contains: q, mode: "insensitive" },
-              },
-              take: 5,
-              select: {
-                id: true,
-                title: true,
-                publishedAt: true,
-                company: { select: { id: true, name: true } },
-              },
-              orderBy: { publishedAt: "desc" },
-            })
-          : Promise.resolve([]),
-        shouldSearchType("inference")
-          ? prisma.inference.findMany({
-              where: {
-                OR: [
-                  { title: { contains: q, mode: "insensitive" } },
-                  { hypothesis: { contains: q, mode: "insensitive" } },
-                ],
-              },
-              take: 5,
-              select: {
-                id: true,
-                title: true,
-                hypothesis: true,
-                confidence: true,
-                company: { select: { id: true, name: true, ticker: true, slug: true } },
-                theme: { select: { id: true, label: true, status: true } },
-              },
-              orderBy: { confidence: "desc" },
-            })
-          : Promise.resolve([]),
         shouldSearchType("theme")
           ? prisma.signalTheme.findMany({
               where: {
@@ -155,8 +117,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       signals: combinedSignals,
       companies,
-      articles,
-      inferences,
       themes: formattedThemes,
     });
   } catch (error) {

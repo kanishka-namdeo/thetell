@@ -25,7 +25,7 @@ async function ThemesContent() {
   const themes = await prisma.signalTheme.findMany({
     include: {
       company: { select: { id: true, name: true, ticker: true } },
-      _count: { select: { signals: true, inferences: true } },
+      _count: { select: { signals: true } },
     },
     orderBy: { lastUpdated: "desc" },
     take: 50,

@@ -1,5 +1,4 @@
 import NextAuth from "next-auth";
-import Credentials from "next-auth/providers/credentials";
 import type { Role } from "@prisma/client";
 
 /**
@@ -10,7 +9,10 @@ import type { Role } from "@prisma/client";
 
 export const { auth: authEdge } = NextAuth({
   trustHost: true,
-  session: { strategy: "jwt" },
+  session: {
+    strategy: "jwt",
+    maxAge: 7 * 24 * 60 * 60, // 7 days (reduced from 30 days for security)
+  },
   cookies: {
     sessionToken: {
       name: `next-auth.session-token`,
@@ -22,20 +24,7 @@ export const { auth: authEdge } = NextAuth({
       },
     },
   },
-  providers: [
-    Credentials({
-      name: "credentials",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      // Edge runtime cannot access Prisma, so authorize is stubbed here
-      // Actual auth happens in API route via full auth.ts
-      async authorize() {
-        return null;
-      },
-    }),
-  ],
+  providers: [], // No providers needed — edge only validates JWTs
   callbacks: {
     async jwt({ token }) {
       return token;

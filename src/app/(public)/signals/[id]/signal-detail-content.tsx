@@ -85,30 +85,15 @@ export async function SignalDetailContent({ id }: SignalDetailContentProps) {
     (a) => a.agentPersona === "ANALYST"
   );
 
-  // Parallelize related inferences + current themes (independent queries)
-  const [relatedInferences, currentThemes] = await Promise.all([
-    prisma.inference.findMany({
-      where: {
-        supportingSignalIds: {
-          array_contains: signal.id,
-        },
+  // Parallelize current themes (independent queries)
+  const currentThemes = await prisma.signalTheme.findMany({
+    where: {
+      signals: {
+        some: { id: signal.id },
       },
-      include: {
-        company: true,
-        theme: true,
-      },
-      take: 5,
-      orderBy: { confidence: "desc" },
-    }),
-    prisma.signalTheme.findMany({
-      where: {
-        signals: {
-          some: { id: signal.id },
-        },
-      },
-      select: { id: true },
-    }),
-  ]);
+    },
+    select: { id: true },
+  });
 
   const themeIds = currentThemes.map((t) => t.id);
 
@@ -699,36 +684,6 @@ export async function SignalDetailContent({ id }: SignalDetailContentProps) {
             </div>
           );
         })()}
-
-        {/* Related Inferences */}
-        {relatedInferences.length > 0 && (
-          <div className="mb-6 space-y-4">
-            <div className="flex items-center gap-3">
-              <Headline level={2} size="section">Related Inferences</Headline>
-            </div>
-            <div className="space-y-3">
-              {relatedInferences.map((inference) => (
-                <Card key={inference.id} className="border-2 border-foreground">
-                  <CardContent className="pt-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1">
-                        <Link href={`/inferences/${inference.id}`}>
-                          <h3 className="font-serif text-base font-semibold hover:underline">
-                            {inference.title}
-                          </h3>
-                        </Link>
-                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                          {inference.hypothesis}
-                        </p>
-                      </div>
-                      <ConfidenceBand confidence={inference.confidence} />
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Signal Timeline */}
         {relatedSignals.length > 0 && (

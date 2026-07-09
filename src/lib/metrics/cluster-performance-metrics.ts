@@ -45,6 +45,9 @@ class PerformanceTracker {
   private buffers = new Map<ClusterStage, Observation[]>();
   private cacheHits = new Map<string, number>();
   private cacheMisses = new Map<string, number>();
+  private recordCount = 0;
+  private static readonly MAX_CACHE_ENTRIES = 100;
+  private static readonly CLEANUP_THRESHOLD = 100;
 
   record(stage: ClusterStage, durationMs: number): void {
     const buf = this.buffers.get(stage) ?? [];
@@ -57,6 +60,10 @@ class PerformanceTracker {
 
   recordCacheHit(cacheName: string): void {
     this.cacheHits.set(cacheName, (this.cacheHits.get(cacheName) ?? 0) + 1);
+    this.recordCount++;
+    if (this.recordCount % PerformanceTracker.CLEANUP_THRESHOLD === 0) {
+      this.cleanupCacheMaps();
+    }
   }
 
   recordCacheMiss(cacheName: string): void {
@@ -64,6 +71,36 @@ class PerformanceTracker {
       cacheName,
       (this.cacheMisses.get(cacheName) ?? 0) + 1
     );
+    this.recordCount++;
+    if (this.recordCount % PerformanceTracker.CLEANUP_THRESHOLD === 0) {
+      this.cleanupCacheMaps();
+    }
+  }
+
+  private cleanupCacheMaps(): void {
+    // Remove entries with zero counts
+    for (const [key, count] of this.cacheHits.entries()) {
+      if (count === 0) this.cacheHits.delete(key);
+    }
+    for (const [key, count] of this.cacheMisses.entries()) {
+      if (count === 0) this.cacheMisses.delete(key);
+    }
+
+    // Cap map sizes if they exceed the limit
+    if (this.cacheHits.size > PerformanceTracker.MAX_CACHE_ENTRIES) {
+      const entries = Array.from(this.cacheHits.entries());
+      this.cacheHits.clear();
+      entries.slice(-PerformanceTracker.MAX_CACHE_ENTRIES).forEach(([k, v]) => {
+        this.cacheHits.set(k, v);
+      });
+    }
+    if (this.cacheMisses.size > PerformanceTracker.MAX_CACHE_ENTRIES) {
+      const entries = Array.from(this.cacheMisses.entries());
+      this.cacheMisses.clear();
+      entries.slice(-PerformanceTracker.MAX_CACHE_ENTRIES).forEach(([k, v]) => {
+        this.cacheMisses.set(k, v);
+      });
+    }
   }
 
   getStats(stage: ClusterStage): StageStats | null {

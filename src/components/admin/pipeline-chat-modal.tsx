@@ -18,14 +18,20 @@ interface PipelineChatModalProps {
   companyId?: string;
   trigger?: React.ReactNode;
   onApply?: (result: { success: boolean; applied: number; errors: string[] }) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function PipelineChatModal({
   companyId,
   trigger,
   onApply,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
 }: PipelineChatModalProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = controlledOnOpenChange ?? setInternalOpen;
   const [isApplying, setIsApplying] = useState(false);
   const [applyResult, setApplyResult] = useState<{
     success: boolean;
@@ -97,16 +103,23 @@ export function PipelineChatModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger>
-        {trigger || (
-          <Button size="sm" variant="outline">
-            <MessageSquare className="h-3 w-3 mr-1" />
-            Pipeline Orchestrator
-          </Button>
-        )}
-      </DialogTrigger>
-      <DialogContent className="max-w-2xl">
+    <Dialog open={open} onOpenChange={(isOpen) => {
+      setOpen(isOpen);
+      if (!isOpen) {
+        setApplyResult(null);
+      }
+    }}>
+      {controlledOpen === undefined && (
+        <DialogTrigger>
+          {trigger || (
+            <Button size="sm" variant="outline">
+              <MessageSquare className="h-3 w-3 mr-1" />
+              Pipeline Orchestrator
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>Pipeline Orchestrator</DialogTitle>
         </DialogHeader>

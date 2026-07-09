@@ -9,6 +9,7 @@ import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/db";
 import { BaseScraper } from "./base-scraper";
 import { normalizeUrl, computeContentHash } from "./url-normalizer";
+import { stripHtmlTags } from "./html-utils";
 
 /**
  * Signal type representing a Reddit financial post.
@@ -191,7 +192,7 @@ export class RedditFinancialScraper extends BaseScraper {
       const upvoteRatio = this.extractUpvoteRatio(content);
 
       // Extract body text from HTML content
-      const bodyText = cheerio.load(content).text().trim();
+      const bodyText = stripHtmlTags(content);
 
       const normalizedUrl = normalizeUrl(link);
       const contentHash = computeContentHash(

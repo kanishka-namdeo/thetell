@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     type OrderBy = { [key: string]: unknown };
     const orderBy: OrderBy = (() => {
       if (sort === "signalCount") {
-        return { clusteredSignals: { _count: "desc" as const } };
+        return { signals: { _count: "desc" as const } };
       }
       if (sort === "lastUpdated") {
         return { lastUpdated: "desc" as const };
@@ -62,9 +62,7 @@ export async function GET(req: NextRequest) {
         },
         _count: {
           select: {
-            clusteredSignals: true,
-            inferences: true,
-            clusterArticles: true,
+            signals: true,
           },
         },
       },

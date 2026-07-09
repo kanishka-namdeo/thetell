@@ -325,6 +325,8 @@ export class CongressScraper extends BaseScraper {
 
   /**
    * Search for committee reports by keyword.
+   * Note: The Congress.gov committee-report endpoint does not support text search,
+   * so we fetch recent reports and filter client-side by title match.
    */
   async searchCommitteeReports(options: CongressSearchOptions): Promise<CongressSignal[]> {
     if (!this.isConfigured()) {
@@ -333,8 +335,8 @@ export class CongressScraper extends BaseScraper {
 
     const { query, congress, limit = 50, offset = 0 } = options;
     
+    // committee-report endpoint does NOT support 'query' param — only congress, conference, offset, limit
     const params = new URLSearchParams({
-      query,
       limit: String(Math.min(limit, 100)),
       offset: String(offset),
     });
@@ -361,7 +363,16 @@ export class CongressScraper extends BaseScraper {
         return [];
       }
 
-      return data.committeeReports.map((report) => this.mapReportToSignal(report));
+      // Filter client-side by query keyword match on title (API doesn't support text search)
+      const reports = data.committeeReports;
+      const filtered = query
+        ? reports.filter((r) => {
+            const title = (r.title || "").toLowerCase();
+            return title.includes(query.toLowerCase());
+          })
+        : reports;
+
+      return filtered.map((report) => this.mapReportToSignal(report));
     } catch (error) {
       logger.error("Failed to parse committee reports response", { error: String(error) });
       return [];

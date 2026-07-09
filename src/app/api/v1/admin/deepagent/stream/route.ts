@@ -13,8 +13,10 @@ declare global {
 
 // In-memory event buffer for reconnect/replay (per session)
 const eventBuffers = new Map<string, Array<{ seq: number; event: string; data: unknown }>>();
-const MAX_BUFFER_SIZE = 1000;
+const MAX_BUFFER_SIZE = 200;
+const MAX_EVENT_DATA_SIZE = 10_000; // 10KB per event max
 const BUFFER_TTL_MS = 10 * 60 * 1000; // 10 minutes TTL for event buffers
+const MAX_SESSIONS = 50; // Maximum number of concurrent session buffers
 
 // Periodic cleanup of stale event buffers (runs on each request)
 function cleanupStaleBuffers() {
@@ -39,6 +41,18 @@ function cleanupStaleBuffers() {
   const timestamps = globalThis.__bufferTimestamps as Map<string, number>;
   for (const [sessionId, timestamp] of timestamps.entries()) {
     if (now - timestamp > BUFFER_TTL_MS) {
+      eventBuffers.delete(sessionId);
+      timestamps.delete(sessionId);
+    }
+  }
+  
+  // Enforce maximum session count by removing oldest sessions
+  if (eventBuffers.size > MAX_SESSIONS) {
+    const sortedSessions = Array.from(timestamps.entries())
+      .sort((a, b) => a[1] - b[1])
+      .slice(0, eventBuffers.size - MAX_SESSIONS);
+    
+    for (const [sessionId] of sortedSessions) {
       eventBuffers.delete(sessionId);
       timestamps.delete(sessionId);
     }
@@ -215,7 +229,11 @@ export async function GET(req: NextRequest) {
           // Buffer event for potential replay
           const buffer = eventBuffers.get(sessionId);
           if (buffer) {
-            buffer.push({ seq: seqCounter, event, data: eventData });
+            const serialized = JSON.stringify(eventData);
+            const bufferedData = serialized.length > MAX_EVENT_DATA_SIZE
+              ? { ...(data as object), _seq: seqCounter, _eventId: eventId, _truncated: true }
+              : eventData;
+            buffer.push({ seq: seqCounter, event, data: bufferedData });
             if (buffer.length > MAX_BUFFER_SIZE) {
               buffer.shift(); // Remove oldest
             }

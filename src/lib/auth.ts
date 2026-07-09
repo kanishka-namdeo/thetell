@@ -6,12 +6,15 @@ import { Role } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
 
+const roleCache = new Map<string, { role: string; status: string; fetchedAt: number }>();
+const ROLE_CACHE_TTL = 60_000;
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
   trustHost: true,
   session: {
     strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+    maxAge: 7 * 24 * 60 * 60, // 7 days (reduced from 30 days for security)
   },
   cookies: {
     sessionToken: {
@@ -125,25 +128,35 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.role = user.role;
         token.iat = Math.floor(Date.now() / 1000);
       }
-      // Refresh role from DB on every request to prevent stale roles
-      // (e.g., demoted admin retaining access until token expires)
+      // Refresh role from DB with short cache to reduce per-request DB load
       if (token.userId && !user) {
+        const cached = roleCache.get(token.userId as string);
+        const now = Date.now();
+        if (cached && now - cached.fetchedAt < ROLE_CACHE_TTL) {
+          token.role = cached.role;
+          if (cached.status === "SUSPENDED") return {};
+          return token;
+        }
+        let timeoutId: NodeJS.Timeout | undefined;
         try {
           const dbPromise = prisma.user.findUnique({
             where: { id: token.userId as string },
             select: { role: true, status: true, passwordChangedAt: true },
           });
-          const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("JWT callback DB timeout after 5s")), 5000)
-          );
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error("JWT callback DB timeout after 5s")), 5000);
+          });
           const dbUser = await Promise.race([dbPromise, timeoutPromise]);
           if (dbUser) {
             token.role = dbUser.role;
-            // Invalidate session if user is suspended
+            roleCache.set(token.userId as string, {
+              role: dbUser.role,
+              status: dbUser.status,
+              fetchedAt: now,
+            });
             if (dbUser.status === "SUSPENDED") {
               return {};
             }
-            // Invalidate token if issued before password change
             if (dbUser.passwordChangedAt && token.iat) {
               const tokenIssuedAt = new Date((token.iat as number) * 1000);
               if (tokenIssuedAt < dbUser.passwordChangedAt) {
@@ -153,7 +166,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           }
         } catch (err) {
           logger.warn("auth.jwt.db_lookup_failed", { userId: token.userId, error: err instanceof Error ? err.message : String(err) });
-          // If DB query fails, keep existing role (graceful degradation)
+        } finally {
+          if (timeoutId) clearTimeout(timeoutId);
         }
       }
       return token;

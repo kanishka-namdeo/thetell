@@ -55,7 +55,6 @@ export async function GET() {
 
     const [
       totalSignals,
-      totalArticles,
       totalUsers,
       totalCompanies,
       recentSignals,
@@ -65,20 +64,13 @@ export async function GET() {
       pendingSignals,
       // Correlation metrics
       totalThemes,
-      activeInferences,
-      confirmedInferences,
-      refutedInferences,
+      activeThemes,
       lastCorrelationJob,
-      // Calibration metrics
-      totalCalibrations,
-      correctCalibrations,
       // Cluster metrics
       clusteredSignals,
       activeClusters,
-      clusterArticles,
     ] = await Promise.all([
       prisma.signal.count(),
-      prisma.article.count(),
       prisma.user.count(),
       prisma.company.count(),
       prisma.signal.count({ where: { scrapedAt: { gte: oneHourAgo } } }),
@@ -88,34 +80,22 @@ export async function GET() {
       prisma.signal.count({ where: { status: "PENDING" } }),
       // Correlation metrics
       prisma.signalTheme.count(),
-      prisma.inference.count({
-        where: { status: { in: ["EMERGING", "DEVELOPING"] } },
+      prisma.signalTheme.count({
+        where: { status: { in: ["EMERGING", "ACCELERATING"] } },
       }),
-      prisma.inference.count({ where: { status: "CONFIRMED" } }),
-      prisma.inference.count({ where: { status: "REFUTED" } }),
       prisma.pipelineRun.findFirst({
         where: { scraperName: "correlation", status: "completed" },
         orderBy: { completedAt: "desc" },
-      }),
-      // Calibration metrics
-      prisma.inferenceCalibration.count({
-        where: { resolvedAt: { not: null } },
-      }),
-      prisma.inferenceCalibration.count({
-        where: { wasCorrect: true },
       }),
       // Cluster metrics
       prisma.signal.count({ where: { clusterId: { not: null } } }),
       prisma.signalTheme.count({
         where: { status: { in: ["EMERGING", "ACCELERATING"] } },
       }),
-      prisma.clusterArticle.count(),
     ]);
 
     const totalProcessed = totalSignals - pendingSignals - failedSignals;
     const errorRate = totalSignals > 0 ? (failedSignals / totalSignals) * 100 : 0;
-    const calibrationAccuracy =
-      totalCalibrations > 0 ? (correctCalibrations / totalCalibrations) * 100 : null;
     const standaloneSignals = totalSignals - clusteredSignals;
     const avgClusterSize = activeClusters > 0 ? Math.round((clusteredSignals / activeClusters) * 10) / 10 : 0;
     // Each clustered signal saves ~10 LLM calls (14 full vs 4 lightweight)
@@ -128,7 +108,6 @@ export async function GET() {
       errorRate: Math.round(errorRate * 100) / 100,
       averageConfidence: avgConfidence._avg.confidence || 0,
       totalSignals,
-      totalArticles,
       totalUsers,
       totalCompanies,
       pendingSignals,
@@ -138,15 +117,7 @@ export async function GET() {
       correlation: {
         lastRunAt: lastCorrelationJob?.completedAt?.toISOString() || null,
         totalThemes,
-        activeInferences,
-        confirmedInferences,
-        refutedInferences,
-      },
-      // Calibration metrics
-      calibration: {
-        totalCalibrations,
-        correctCalibrations,
-        accuracy: calibrationAccuracy,
+        activeThemes,
       },
       // Cluster metrics
       cluster: {
@@ -155,7 +126,6 @@ export async function GET() {
         activeClusters,
         totalClusters: totalThemes,
         avgClusterSize,
-        clusterArticles,
         llmCallsSaved,
       },
     };

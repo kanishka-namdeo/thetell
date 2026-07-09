@@ -29,6 +29,10 @@ export async function loadSignalEmbedding(signalId: string): Promise<number[] | 
  */
 export async function loadSignalEmbeddings(signalIds: string[]): Promise<Map<string, number[]>> {
   if (signalIds.length === 0) return new Map();
+  if (signalIds.length > 5000) {
+    logger.warn("nlp.embedding.load.too_many", { count: signalIds.length, limit: 5000 });
+    signalIds = signalIds.slice(0, 5000);
+  }
   const result = await prisma.$queryRaw<Array<{ id: string; embedding: string | null }>>`
     SELECT id, embedding::text as embedding FROM "Signal" WHERE id = ANY(${signalIds}) AND embedding IS NOT NULL
   `;

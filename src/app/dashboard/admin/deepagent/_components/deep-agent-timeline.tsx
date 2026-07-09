@@ -71,6 +71,7 @@ export function DeepAgentTimeline({
 
   useEffect(() => {
     if (isOpen && sessionId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       loadCheckpoints();
     }
     return () => controllerRef.current?.abort();

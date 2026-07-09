@@ -74,7 +74,6 @@ const UpdateSchema = z.object({
     .object({
       clusterRoutingEnabled: z.boolean(),
       clusterMatchThreshold: z.number().min(0.5).max(0.95),
-      clusterArticleAutoRegenerate: z.boolean(),
       clusterAnalysisModel: z.string().min(1),
     })
     .optional(),
@@ -166,7 +165,6 @@ export async function GET() {
         cluster: {
           clusterRoutingEnabled: config.clusterRoutingEnabled,
           clusterMatchThreshold: config.clusterMatchThreshold,
-          clusterArticleAutoRegenerate: config.clusterArticleAutoRegenerate,
           clusterAnalysisModel: config.clusterAnalysisModel,
         },
         updatedAt: config.updatedAt,
@@ -270,7 +268,6 @@ export async function PATCH(request: NextRequest) {
     if (parsed.data.cluster) {
       data.clusterRoutingEnabled = parsed.data.cluster.clusterRoutingEnabled;
       data.clusterMatchThreshold = parsed.data.cluster.clusterMatchThreshold;
-      data.clusterArticleAutoRegenerate = parsed.data.cluster.clusterArticleAutoRegenerate;
       data.clusterAnalysisModel = parsed.data.cluster.clusterAnalysisModel;
       changes.cluster = parsed.data.cluster;
     }
@@ -362,7 +359,6 @@ export async function PATCH(request: NextRequest) {
         cluster: {
           clusterRoutingEnabled: updated.clusterRoutingEnabled,
           clusterMatchThreshold: updated.clusterMatchThreshold,
-          clusterArticleAutoRegenerate: updated.clusterArticleAutoRegenerate,
           clusterAnalysisModel: updated.clusterAnalysisModel,
         },
         updatedAt: updated.updatedAt,

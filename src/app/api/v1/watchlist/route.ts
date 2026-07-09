@@ -18,7 +18,6 @@ export async function GET() {
             _count: {
               select: {
                 signals: true,
-                articles: true,
               },
             },
             signals: {

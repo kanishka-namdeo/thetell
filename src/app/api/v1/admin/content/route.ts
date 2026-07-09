@@ -8,7 +8,7 @@ import { z } from "zod";
 const QuerySchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(20),
   cursor: z.string().optional(),
-  type: z.enum(["signal", "article"]).optional(),
+  type: z.enum(["signal"]).optional(),
   status: z.string().optional(),
   sortBy: z.enum(["createdAt", "updatedAt", "publishedAt"]).default("updatedAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
 
     const items: Array<{
       id: string;
-      type: "signal" | "article";
+      type: "signal" | "analysis";
       title: string;
       status: string;
       sourceType?: string;
@@ -49,14 +49,13 @@ export async function GET(request: NextRequest) {
     }> = [];
 
     const includeSignals = !query.type || query.type === "signal";
-    const includeArticles = !query.type || query.type === "article";
 
     // Get actual counts from database
-    const [signalCount, articleCount] = await Promise.all([
-      includeSignals ? prisma.signal.count({ where: query.status ? { status: query.status as any } : {} }) : 0,
-      includeArticles ? prisma.article.count({ where: query.status ? { status: query.status as any } : {} }) : 0,
+    const [signalCount, analysisCount] = await Promise.all([
+      includeSignals ? prisma.signal.count({ where: query.status ? { status: query.status as "PENDING" | "ANALYZING" | "ANALYZED" | "FAILED" | "LOW_QUALITY" | "NON_ENGLISH" } : {} }) : 0,
+      includeSignals ? prisma.analysis.count({ where: query.status ? { sentiment: query.status as "POSITIVE" | "NEGATIVE" | "NEUTRAL" } : {} }) : 0,
     ]);
-    const actualTotal = signalCount + articleCount;
+    const actualTotal = signalCount + analysisCount;
 
     if (includeSignals) {
       const signalWhere: Record<string, unknown> = {};
@@ -91,33 +90,32 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    if (includeArticles) {
-      const articleWhere: Record<string, unknown> = {};
-      if (query.status) {
-        articleWhere.status = query.status;
-      }
-
-      const articles = await prisma.article.findMany({
-        where: articleWhere,
-        take: query.limit + 1,
-        cursor: query.type === "article" && query.cursor ? { id: query.cursor } : undefined,
+    // Add analyses as content items
+    if (includeSignals) {
+      const analyses = await prisma.analysis.findMany({
+        where: {},
+        take: query.limit,
         include: {
-          company: true,
+          signal: {
+            include: {
+              company: true,
+            },
+          },
         },
-        orderBy: { [query.sortBy]: query.sortOrder },
+        orderBy: { analyzedAt: "desc" },
       });
 
       items.push(
-        ...articles.map((a) => ({
+        ...analyses.map((a) => ({
           id: a.id,
-          type: "article" as const,
-          title: a.title,
-          status: a.status,
-          agentPersona: a.agentPersona,
-          companyName: a.company.name,
-          createdAt: a.createdAt,
-          updatedAt: a.updatedAt,
-          publishedAt: a.publishedAt,
+          type: "analysis" as const,
+          title: a.signal.title,
+          status: a.sentiment,
+          sourceType: a.signal.sourceType,
+          companyName: a.signal.company.name,
+          createdAt: a.analyzedAt,
+          updatedAt: a.analyzedAt,
+          publishedAt: null,
         }))
       );
     }

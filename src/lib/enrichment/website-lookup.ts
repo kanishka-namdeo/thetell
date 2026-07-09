@@ -8,6 +8,19 @@ import { WebSearchScraper } from "@/lib/scraping/web-search-scraper";
 import { WebsiteSuggestionSchema, type WebsiteLookupResult } from "./types";
 
 const CONFIDENCE_THRESHOLD = 0.7;
+const LLM_TIMEOUT_MS = 30_000;
+
+/**
+ * Wraps a promise with a timeout. Rejects if the promise doesn't resolve in time.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label}_timeout`)), ms)
+    ),
+  ]);
+}
 
 /**
  * Discover a company's official website URL.
@@ -74,20 +87,24 @@ async function lookupViaLLM(
       ? `${companyName} (ticker: ${ticker})` 
       : companyName;
     
-    const result = await provider.completeStructured(
-      [
-        {
-          role: "system",
-          content:
-            "You are a corporate research assistant. You identify official company website URLs. Return the primary corporate/official website, not subsidiaries or regional sites.",
-        },
-        {
-          role: "user",
-          content: `What is the official website URL for "${contextInfo}"? Return your response as JSON with fields: websiteUrl (string URL or null), confidence (number 0-1). Return null websiteUrl if you cannot find a reliable official website.`,
-        },
-      ],
-      WebsiteSuggestionSchema,
-      { temperature: 0.3 }
+    const result = await withTimeout(
+      provider.completeStructured(
+        [
+          {
+            role: "system",
+            content:
+              "You are a corporate research assistant. You identify official company website URLs. Return the primary corporate/official website, not subsidiaries or regional sites.",
+          },
+          {
+            role: "user",
+            content: `What is the official website URL for "${contextInfo}"? Return your response as JSON with fields: websiteUrl (string URL or null), confidence (number 0-1). Return null websiteUrl if you cannot find a reliable official website.`,
+          },
+        ],
+        WebsiteSuggestionSchema,
+        { temperature: 0.3 }
+      ),
+      LLM_TIMEOUT_MS,
+      "website_llm"
     );
 
     return {
@@ -126,20 +143,24 @@ async function lookupViaWebSearch(
       .join("\n");
 
     const { provider } = getProviderWithFailover("openai");
-    const extracted = await provider.completeStructured(
-      [
-        {
-          role: "system",
-          content:
-            "You are a corporate research assistant. Extract the official company website URL from the search results. Return the primary corporate website, not news articles, social media, or subsidiary pages.",
-        },
-        {
-          role: "user",
-          content: `Based on these search results, what is the official website URL for "${companyName}"? Return your response as JSON with fields: websiteUrl (string URL or null), confidence (number 0-1).\n\nSearch results:\n${resultText}\n\nReturn null websiteUrl if you cannot determine the official website with confidence.`,
-        },
-      ],
-      WebsiteSuggestionSchema,
-      { temperature: 0.2 }
+    const extracted = await withTimeout(
+      provider.completeStructured(
+        [
+          {
+            role: "system",
+            content:
+              "You are a corporate research assistant. Extract the official company website URL from the search results. Return the primary corporate website, not news articles, social media, or subsidiary pages.",
+          },
+          {
+            role: "user",
+            content: `Based on these search results, what is the official website URL for "${companyName}"? Return your response as JSON with fields: websiteUrl (string URL or null), confidence (number 0-1).\n\nSearch results:\n${resultText}\n\nReturn null websiteUrl if you cannot determine the official website with confidence.`,
+          },
+        ],
+        WebsiteSuggestionSchema,
+        { temperature: 0.2 }
+      ),
+      LLM_TIMEOUT_MS,
+      "website_search_llm"
     );
 
     if (extracted.websiteUrl && extracted.confidence >= CONFIDENCE_THRESHOLD) {

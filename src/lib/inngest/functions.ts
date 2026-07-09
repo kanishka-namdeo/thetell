@@ -8,8 +8,6 @@ import { inngest } from "./client";
 import { prisma } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import { analyzeSignalWithAgent } from "@/lib/ai/agent/pipeline";
-import { generateArticleWithAgent } from "@/lib/ai/agent/article-generator";
-import { generateClusterArticle } from "@/lib/ai/agent/cluster-article-generator";
 import { ANALYST_CONFIG, GOSSIP_GIRL_CONFIG, isPreferredSourceType } from "@/lib/ai/agent/personas";
 import { logger } from "@/lib/logger";
 import type { CrossRefAnalysis } from "@/lib/ai/agent/pipeline";
@@ -18,9 +16,7 @@ import { extractSentimentLabel } from "@/lib/ai/agent/types";
 import type { ZodError } from "zod";
 import { discoverSignalsUnifiedFunction } from "./signal-discovery";
 import { correlateSignalsFunction } from "./correlation";
-import { calibrateInferencesFunction } from "./calibration";
 import { sourceHealthCheckFunction } from "./source-health";
-import { generateArticleFunction } from "./articles";
 import { mergeClustersFunction } from "./cluster-merge";
 import { detectLanguage, LANGUAGE_CONFIDENCE_THRESHOLD } from "@/lib/nlp";
 import { assessContentQuality } from "@/lib/nlp";
@@ -36,6 +32,10 @@ import { AUDIT_ACTIONS, logAuditEvent } from "@/lib/audit-logger";
 export const analyzeSignalFunction = inngest.createFunction(
   {
     id: "analyze-signal",
+    concurrency: [
+      { limit: 1, key: "event.data.signalId" },
+      { limit: 3 },
+    ],
     triggers: { event: "signal/analysis.requested" },
     retries: 3,
     timeouts: {
@@ -55,6 +55,29 @@ export const analyzeSignalFunction = inngest.createFunction(
 
     log.info("inngest.function.start", { event: event.name });
 
+    // Step 0: Concurrency guard — claim the signal to prevent concurrent analysis
+    // Accept signals that are not ANALYZING, OR are stale ANALYZING (>10min old)
+    // Moved into step.run() so it's checkpointed and doesn't run on resumed executions
+    const claimResult = await step.run("claim-signal", async () => {
+      const staleThreshold = new Date(Date.now() - 10 * 60 * 1000);
+      const claimed = await prisma.signal.updateMany({
+        where: {
+          id: signalId,
+          OR: [
+            { status: { not: "ANALYZING" } },
+            { status: "ANALYZING", updatedAt: { lt: staleThreshold } },
+          ],
+        },
+        data: { status: "ANALYZING" },
+      });
+      return { claimed: claimed.count > 0 };
+    });
+
+    if (!claimResult.claimed) {
+      log.warn("inngest.function.already_analyzing", { signalId });
+      return { success: false, reason: "already_analyzing" };
+    }
+
     // Step 1: Load signal with company
     const signal = await step.run("load-signal", async () => {
       const s = await prisma.signal.findUnique({
@@ -64,6 +87,10 @@ export const analyzeSignalFunction = inngest.createFunction(
 
       if (!s) {
         log.error("inngest.function.signal_not_found", { signalId });
+        await prisma.signal.update({
+          where: { id: signalId },
+          data: { status: "FAILED" },
+        });
         throw new NonRetriableError(`Signal not found: ${signalId}`);
       }
 
@@ -141,9 +168,28 @@ export const analyzeSignalFunction = inngest.createFunction(
       });
 
       await step.run("update-status-low-quality", async () => {
+        // Store quality gate scores in metadata for daily rollup analysis
+        const existingSignal = await prisma.signal.findUnique({
+          where: { id: signalId },
+          select: { metadata: true },
+        });
+        
+        const existingMetadata = (existingSignal?.metadata as Record<string, unknown>) || {};
+        const qualityMetadata = {
+          ...existingMetadata,
+          qualityGate: {
+            score: qualityCheck.score,
+            pass: qualityCheck.pass,
+            reasons: qualityCheck.reasons,
+          },
+        };
+
         await prisma.signal.update({
           where: { id: signalId },
-          data: { status: "LOW_QUALITY" },
+          data: { 
+            status: "LOW_QUALITY",
+            metadata: qualityMetadata,
+          },
         });
       });
 
@@ -237,7 +283,7 @@ export const analyzeSignalFunction = inngest.createFunction(
       try {
         // Run lightweight cluster analysis for both agents
         const clusterAnalysis = await step.run("run-cluster-analysis", async () => {
-          const analystResult = await analyzeSignalForCluster(
+          const analystClusterResult = await analyzeSignalForCluster(
             signalInput,
             {
               label: triageResult.cluster!.label,
@@ -248,7 +294,7 @@ export const analyzeSignalFunction = inngest.createFunction(
             "ANALYST"
           );
 
-          const gossipResult = await analyzeSignalForCluster(
+          const gossipClusterResult = await analyzeSignalForCluster(
             signalInput,
             {
               label: triageResult.cluster!.label,
@@ -259,7 +305,7 @@ export const analyzeSignalFunction = inngest.createFunction(
             "GOSSIP_GIRL"
           );
 
-          return { analyst: analystResult, gossip: gossipResult };
+          return { analyst: analystClusterResult.analysis, gossip: gossipClusterResult.analysis };
         });
 
         // Update cluster with new signal
@@ -289,240 +335,8 @@ export const analyzeSignalFunction = inngest.createFunction(
           });
         });
 
-        // Generate cluster articles if threshold crossed
-        if (updateResult.regenerateArticle) {
-          await step.run("regenerate-cluster-articles", async () => {
-            const cluster = await prisma.signalTheme.findUnique({
-              where: { id: triageResult.cluster!.themeId },
-              include: {
-                clusteredSignals: {
-                  select: {
-                    id: true,
-                    title: true,
-                    sourceType: true,
-                    analyses: { select: { keyFacts: true } },
-                  },
-                },
-                company: { select: { name: true, ticker: true } },
-              },
-            });
-
-            if (!cluster) return;
-
-            const clusterData = {
-              label: cluster.label,
-              summary: cluster.description || cluster.label,
-              signals: cluster.clusteredSignals.map((s) => ({
-                id: s.id,
-                title: s.title,
-                sourceType: s.sourceType,
-                facts: s.analyses.flatMap((a) =>
-                  Array.isArray(a.keyFacts)
-                    ? a.keyFacts.map((f) =>
-                        typeof f === "string" ? f : (f && typeof f === "object" && "text" in f ? f.text : String(f))
-                      )
-                    : []
-                ) as Array<string | { text?: string }>,
-              })),
-            };
-
-            const companyInfo = {
-              name: cluster.company.name,
-              ticker: cluster.company.ticker || undefined,
-            };
-
-            for (const [persona, config] of [
-              ["ANALYST", ANALYST_CONFIG],
-              ["GOSSIP_GIRL", GOSSIP_GIRL_CONFIG],
-            ] as const) {
-              try {
-                const article = await generateClusterArticle(clusterData, companyInfo, config);
-
-                await prisma.clusterArticle.upsert({
-                  where: {
-                    themeId_agentPersona: {
-                      themeId: cluster.id,
-                      agentPersona: persona,
-                    },
-                  },
-                  update: {
-                    title: article.title,
-                    slug: article.slug,
-                    summary: article.summary,
-                    body: article.body,
-                    signalCount: updateResult.newSignalCount,
-                    status: "PUBLISHED",
-                    publishedAt: new Date(),
-                  },
-                  create: {
-                    themeId: cluster.id,
-                    companyId: cluster.companyId,
-                    title: article.title,
-                    slug: article.slug,
-                    summary: article.summary,
-                    body: article.body,
-                    agentPersona: persona,
-                    signalCount: updateResult.newSignalCount,
-                    status: "PUBLISHED",
-                    publishedAt: new Date(),
-                  },
-                });
-
-                await logAuditEvent({
-                  userId: "system",
-                  action: AUDIT_ACTIONS.CLUSTER_ARTICLE_GENERATED,
-                  resource: "cluster_article",
-                  resourceId: cluster.id,
-                  details: { persona, signalCount: updateResult.newSignalCount },
-                });
-
-                log.info("inngest.function.cluster_article_regenerated", {
-                  clusterId: cluster.id,
-                  persona,
-                  signalCount: updateResult.newSignalCount,
-                });
-              } catch (error) {
-                log.error("inngest.function.cluster_article_generation_failed", {
-                  clusterId: cluster.id,
-                  persona,
-                  error: String(error),
-                });
-              }
-            }
-          });
-        }
-
-        // Generate cross-signal debate for the cluster
-        if (updateResult.regenerateArticle) {
-          await step.run("generate-cluster-debate", async () => {
-            const cluster = await prisma.signalTheme.findUnique({
-              where: { id: triageResult.cluster!.themeId },
-              include: {
-                clusteredSignals: {
-                  select: { id: true, title: true, sourceType: true, publishedAt: true, engagement: true },
-                },
-                company: { select: { name: true } },
-              },
-            });
-
-            if (!cluster || cluster.clusteredSignals.length < 2) return;
-
-            // Build signal metadata map for WeightedAnalysis construction
-            const signalMeta = new Map(cluster.clusteredSignals.map(s => [s.id, s]));
-
-            // Load all analyses from cluster signals
-            const analyses = await prisma.analysis.findMany({
-              where: {
-                signalId: { in: cluster.clusteredSignals.map(s => s.id) },
-              },
-              select: {
-                id: true,
-                signalId: true,
-                agentPersona: true,
-                summary: true,
-                keyFacts: true,
-                sentiment: true,
-                sentimentData: true,
-                strategicThemes: true,
-                confidence: true,
-                crossReferences: true,
-                modelUsed: true,
-                analyzedAt: true,
-                sourceMatchPreference: true,
-              },
-            });
-
-            // Separate by persona and construct WeightedAnalysis objects
-            const analystAnalyses = analyses
-              .filter(a => a.agentPersona === "ANALYST")
-              .map(a => {
-                const sig = signalMeta.get(a.signalId);
-                return {
-                  id: a.id,
-                  signalId: a.signalId,
-                  agentPersona: "ANALYST" as const,
-                  summary: a.summary || "",
-                  keyFacts: (a.keyFacts || []) as import("@/lib/ai/agent/types").AnalystFact[],
-                  sentiment: (a.sentimentData || { sentiment: a.sentiment, confidence: a.confidence, key_phrases: [] }) as import("@/lib/ai/agent/types").AnalystSentiment,
-                  strategicThemes: (a.strategicThemes || []) as import("@/lib/ai/agent/types").AnalystTheme[],
-                  confidence: a.confidence,
-                  crossReferences: a.crossReferences as Array<{ analysisId: string; agentPersona: "ANALYST" | "GOSSIP_GIRL"; connection: string }> | null,
-                  modelUsed: a.modelUsed,
-                  analyzedAt: a.analyzedAt,
-                  sourceMatchPreference: a.sourceMatchPreference,
-                  sourceType: sig?.sourceType,
-                  engagement: sig?.engagement as Record<string, unknown> | null,
-                  signalTitle: sig?.title,
-                  publishedAt: sig?.publishedAt,
-                };
-              });
-
-            const gossipAnalyses = analyses
-              .filter(a => a.agentPersona === "GOSSIP_GIRL")
-              .map(a => {
-                const sig = signalMeta.get(a.signalId);
-                return {
-                  id: a.id,
-                  signalId: a.signalId,
-                  agentPersona: "GOSSIP_GIRL" as const,
-                  summary: a.summary || "",
-                  keyFacts: (a.keyFacts || []) as import("@/lib/ai/agent/types").GossipFact[],
-                  sentiment: (a.sentimentData || { surface_reading: "neutral-surface" as const, tell_strength: a.confidence, key_phrases: [] }) as import("@/lib/ai/agent/types").GossipSentiment,
-                  strategicThemes: (a.strategicThemes || []) as import("@/lib/ai/agent/types").GossipTheme[],
-                  confidence: a.confidence,
-                  crossReferences: a.crossReferences as Array<{ analysisId: string; agentPersona: "ANALYST" | "GOSSIP_GIRL"; connection: string }> | null,
-                  modelUsed: a.modelUsed,
-                  analyzedAt: a.analyzedAt,
-                  sourceMatchPreference: a.sourceMatchPreference,
-                  sourceType: sig?.sourceType,
-                  engagement: sig?.engagement as Record<string, unknown> | null,
-                  signalTitle: sig?.title,
-                  publishedAt: sig?.publishedAt,
-                };
-              });
-
-            if (analystAnalyses.length === 0 && gossipAnalyses.length === 0) return;
-
-            try {
-              const { generateCrossSignalDebate } = await import("@/lib/ai/agent/cross-signal-debate");
-              const debateResult = await generateCrossSignalDebate(
-                analystAnalyses,
-                gossipAnalyses,
-                triageResult.cluster!.label,
-                cluster.company.name
-              );
-
-              // Delete any existing cluster debate
-              await prisma.agentDebate.deleteMany({
-                where: { clusterId: triageResult.cluster!.themeId },
-              });
-
-              // Create new cluster debate (signalId is required but we'll use the current signal)
-              await prisma.agentDebate.create({
-                data: {
-                  signalId,
-                  clusterId: triageResult.cluster!.themeId,
-                  analystPosition: debateResult.debate.analystPosition,
-                  gossipGirlPosition: debateResult.debate.gossipGirlPosition,
-                  pointsOfAgreement: debateResult.debate.pointsOfAgreement,
-                  pointsOfContention: debateResult.debate.pointsOfContention,
-                  synthesis: debateResult.debate.synthesis,
-                },
-              });
-
-              log.info("inngest.function.cluster_debate_generated", {
-                clusterId: triageResult.cluster!.themeId,
-                analystCount: analystAnalyses.length,
-                gossipCount: gossipAnalyses.length,
-              });
-            } catch (error) {
-              log.error("inngest.function.cluster_debate_failed", {
-                clusterId: triageResult.cluster!.themeId,
-                error: String(error),
-              });
-            }
-          });
-        }
+        // Cross-signal cluster debate generation removed - per-signal debates remain
+        // AgentDebate records are created during per-signal analysis
 
         // Update signal status to ANALYZED
         await step.run("update-status-analyzed-cluster", async () => {
@@ -538,7 +352,6 @@ export const analyzeSignalFunction = inngest.createFunction(
           clusterId: triageResult.cluster.themeId,
           novelFacts: updateResult.novelFactsAdded,
           novelThemes: updateResult.novelThemesAdded,
-          articleRegenerated: updateResult.regenerateArticle,
         });
 
         return {
@@ -550,10 +363,15 @@ export const analyzeSignalFunction = inngest.createFunction(
       } catch (error) {
         log.error("inngest.function.cluster_path_failed", {
           signalId,
-          clusterId: triageResult.cluster.themeId,
+          clusterId: triageResult.cluster?.themeId,
           error: String(error),
         });
-        // Fall through to standalone path
+        // Mark signal as FAILED instead of falling through to standalone path
+        await prisma.signal.update({
+          where: { id: signalId },
+          data: { status: "FAILED" },
+        });
+        return { success: false, reason: "cluster_path_failed", error: String(error) };
       }
     }
 
@@ -565,9 +383,10 @@ export const analyzeSignalFunction = inngest.createFunction(
 
     // Step 3: Run Analyst agent pipeline
     try {
-      analystAnalysis = await step.run("run-analyst-agent", async () => {
+      const analystResult = await step.run("run-analyst-agent", async () => {
         return await analyzeSignalWithAgent(signalInput, ANALYST_CONFIG);
       });
+      analystAnalysis = analystResult.analysis;
 
       // Extract simple sentiment label for DB enum field
       const analystSentimentLabel = extractSentimentLabel(analystAnalysis!);
@@ -672,13 +491,14 @@ export const analyzeSignalFunction = inngest.createFunction(
           ]
         : [];
 
-      gossipGirlAnalysis = await step.run("run-gossip-girl-agent", async () => {
+      const gossipResult = await step.run("run-gossip-girl-agent", async () => {
         return await analyzeSignalWithAgent(
           signalInput,
           GOSSIP_GIRL_CONFIG,
           crossRefAnalyses
         );
       });
+      gossipGirlAnalysis = gossipResult.analysis;
 
       // Extract simple sentiment label for DB enum field
       const gossipSentimentLabel = extractSentimentLabel(gossipGirlAnalysis!);
@@ -778,265 +598,6 @@ export const analyzeSignalFunction = inngest.createFunction(
       );
     }
 
-    // Step 5: Generate articles for both agents with bidirectional cross-references
-    // Both analyses must be complete before generating articles
-
-    // Generate Analyst article (with cross-reference to Gossip Girl if available)
-    if (analystAnalysis) {
-      try {
-        const articleInput = {
-          companyId: signal.companyId,
-          companyName: signal.company?.name ?? "Unknown",
-          analyses: [
-            {
-              summary: analystAnalysis.summary,
-              keyFacts: analystAnalysis.keyFacts.map((f) => ({ text: f.text })),
-              sentiment: "sentiment" in analystAnalysis.sentiment
-                ? analystAnalysis.sentiment.sentiment
-                : "NEUTRAL",
-              strategicThemes: analystAnalysis.strategicThemes.map((t) => ({
-                label: t.label,
-              })),
-            },
-          ],
-        };
-
-        // Add cross-reference to Gossip Girl's analysis if available
-        const crossRefForAnalystArticle = gossipGirlAnalysis
-          ? [
-              {
-                summary: gossipGirlAnalysis.summary,
-                agentPersona: gossipGirlAnalysis.agentPersona,
-                keyFacts: gossipGirlAnalysis.keyFacts.map((f) => f.text),
-              },
-            ]
-          : undefined;
-
-        const articleResult = await step.run(
-          "generate-analyst-article",
-          async () => {
-            return await generateArticleWithAgent(
-              articleInput,
-              ANALYST_CONFIG,
-              crossRefForAnalystArticle
-            );
-          }
-        );
-
-        await step.run("create-analyst-article-record", async () => {
-          // Skip if article generation was skipped
-          if (articleResult.skipped) {
-            log.info("inngest.function.analyst_article_skipped", {
-              reason: articleResult.skipReason,
-            });
-            return;
-          }
-
-          // Find an inference that includes this signal in supportingSignalIds
-          const inferences = await prisma.inference.findMany({
-            where: { companyId: signal.companyId },
-            select: { id: true, supportingSignalIds: true },
-            orderBy: { createdAt: "desc" },
-            take: 20,
-          });
-
-          const matchingInference = inferences.find((inf) => {
-            const ids = Array.isArray(inf.supportingSignalIds)
-              ? inf.supportingSignalIds
-              : [];
-            return ids.includes(signalId);
-          });
-
-          // Check if article already exists for this signal+persona to prevent duplicates
-          // Find all analysis IDs for this signal, then check if any article references them
-          const signalAnalyses = await prisma.analysis.findMany({
-            where: { signalId, agentPersona: "ANALYST" },
-            select: { id: true },
-          });
-          const signalAnalysisIds = new Set(signalAnalyses.map((a) => a.id));
-
-          const existingArticles = await prisma.article.findMany({
-            where: { companyId: signal.companyId, agentPersona: "ANALYST" },
-            select: { id: true, analysisIds: true },
-          });
-
-          const existingArticle = existingArticles.find((article) => {
-            const ids = Array.isArray(article.analysisIds) ? article.analysisIds : [];
-            return ids.some((id: unknown) => typeof id === "string" && signalAnalysisIds.has(id));
-          });
-
-          if (existingArticle) {
-            // Update existing article instead of creating duplicate
-            await prisma.article.update({
-              where: { id: existingArticle.id },
-              data: {
-                title: articleResult.title,
-                slug: articleResult.slug,
-                summary: articleResult.summary,
-                body: articleResult.body,
-                inferenceId: matchingInference?.id ?? null,
-                status: "PUBLISHED",
-              },
-            });
-            log.info("inngest.function.analyst_article_updated", {
-              articleId: existingArticle.id,
-              slug: articleResult.slug,
-            });
-          } else {
-            await prisma.article.create({
-              data: {
-                title: articleResult.title,
-                slug: articleResult.slug,
-                summary: articleResult.summary,
-                body: articleResult.body,
-                companyId: signal.companyId,
-                agentPersona: "ANALYST",
-                analysisIds: [analystAnalysis!.id],
-                inferenceId: matchingInference?.id ?? null,
-                status: "PUBLISHED",
-              },
-            });
-            log.info("inngest.function.analyst_article_created", {
-              slug: articleResult.slug,
-              inferenceId: matchingInference?.id ?? null,
-            });
-          }
-        });
-      } catch (error) {
-        log.error("inngest.function.analyst_article_failed", {
-          error: String(error),
-        });
-      }
-    }
-
-    // Generate Gossip Girl article (with cross-reference to Analyst if available)
-    if (gossipGirlAnalysis) {
-      try {
-        const analysesForArticle = [
-          {
-            summary: gossipGirlAnalysis.summary,
-            keyFacts: gossipGirlAnalysis.keyFacts.map((f) => ({
-              text: f.text,
-            })),
-            sentiment: "surface_reading" in gossipGirlAnalysis.sentiment
-              ? ({ "bullish-spin": "POSITIVE", "bearish-subtext": "NEGATIVE", "neutral-surface": "NEUTRAL", "mixed-signals": "NEUTRAL" } as Record<string, string>)[gossipGirlAnalysis.sentiment.surface_reading] ?? "NEUTRAL"
-              : "NEUTRAL",
-            strategicThemes: gossipGirlAnalysis.strategicThemes.map((t) => ({
-              label: t.label,
-            })),
-          },
-        ];
-
-        const crossRefForArticle = analystAnalysis
-          ? [
-              {
-                summary: analystAnalysis.summary,
-                agentPersona: analystAnalysis.agentPersona,
-                keyFacts: analystAnalysis.keyFacts.map((f) => f.text),
-              },
-            ]
-          : undefined;
-
-        const articleResult = await step.run(
-          "generate-gossip-girl-article",
-          async () => {
-            return await generateArticleWithAgent(
-              {
-                companyId: signal.companyId,
-                companyName: signal.company?.name ?? "Unknown",
-                analyses: analysesForArticle,
-              },
-              GOSSIP_GIRL_CONFIG,
-              crossRefForArticle
-            );
-          }
-        );
-
-        await step.run("create-gossip-girl-article-record", async () => {
-          // Skip if article generation was skipped
-          if (articleResult.skipped) {
-            log.info("inngest.function.gossip_girl_article_skipped", {
-              reason: articleResult.skipReason,
-            });
-            return;
-          }
-
-          // Find an inference that includes this signal in supportingSignalIds
-          const inferences = await prisma.inference.findMany({
-            where: { companyId: signal.companyId },
-            select: { id: true, supportingSignalIds: true },
-            orderBy: { createdAt: "desc" },
-            take: 20,
-          });
-
-          const matchingInference = inferences.find((inf) => {
-            const ids = Array.isArray(inf.supportingSignalIds)
-              ? inf.supportingSignalIds
-              : [];
-            return ids.includes(signalId);
-          });
-
-          // Check if article already exists for this signal+persona to prevent duplicates
-          const signalAnalyses = await prisma.analysis.findMany({
-            where: { signalId, agentPersona: "GOSSIP_GIRL" },
-            select: { id: true },
-          });
-          const signalAnalysisIds = new Set(signalAnalyses.map((a) => a.id));
-
-          const existingArticles = await prisma.article.findMany({
-            where: { companyId: signal.companyId, agentPersona: "GOSSIP_GIRL" },
-            select: { id: true, analysisIds: true },
-          });
-
-          const existingArticle = existingArticles.find((article) => {
-            const ids = Array.isArray(article.analysisIds) ? article.analysisIds : [];
-            return ids.some((id: unknown) => typeof id === "string" && signalAnalysisIds.has(id));
-          });
-
-          if (existingArticle) {
-            // Update existing article instead of creating duplicate
-            await prisma.article.update({
-              where: { id: existingArticle.id },
-              data: {
-                title: articleResult.title,
-                slug: articleResult.slug,
-                summary: articleResult.summary,
-                body: articleResult.body,
-                inferenceId: matchingInference?.id ?? null,
-                status: "PUBLISHED",
-              },
-            });
-            log.info("inngest.function.gossip_girl_article_updated", {
-              articleId: existingArticle.id,
-              slug: articleResult.slug,
-            });
-          } else {
-            await prisma.article.create({
-              data: {
-                title: articleResult.title,
-                slug: articleResult.slug,
-                summary: articleResult.summary,
-                body: articleResult.body,
-                companyId: signal.companyId,
-                agentPersona: "GOSSIP_GIRL",
-                analysisIds: [gossipGirlAnalysis!.id],
-                inferenceId: matchingInference?.id ?? null,
-                status: "PUBLISHED",
-              },
-            });
-            log.info("inngest.function.gossip_girl_article_created", {
-              slug: articleResult.slug,
-              inferenceId: matchingInference?.id ?? null,
-            });
-          }
-        });
-      } catch (error) {
-        log.error("inngest.function.gossip_girl_article_failed", {
-          error: String(error),
-        });
-      }
-    }
-
     // Step 6.5: Check for high-conviction alerts
     if (analystAnalysis && gossipGirlAnalysis) {
       try {
@@ -1110,162 +671,6 @@ export const analyzeSignalFunction = inngest.createFunction(
         });
       } catch (error) {
         log.error("inngest.function.debate_failed", {
-          error: String(error),
-        });
-      }
-    }
-
-    // Step 7: Check if signal belongs to a cluster and update cluster article if needed
-    if (signal.clusterId) {
-      try {
-        await step.run("update-cluster-article", async () => {
-          const clusterStart = Date.now();
-
-          const cluster = await prisma.signalTheme.findUnique({
-            where: { id: signal.clusterId! },
-            include: {
-              clusteredSignals: {
-                select: {
-                  id: true,
-                  title: true,
-                  sourceType: true,
-                  analyses: {
-                    select: { keyFacts: true },
-                  },
-                },
-              },
-              company: {
-                select: { name: true, ticker: true },
-              },
-              clusterArticles: {
-                select: { signalCount: true, agentPersona: true },
-              },
-            },
-          });
-
-          if (!cluster) {
-            log.warn("inngest.function.cluster_not_found", { clusterId: signal.clusterId });
-            return;
-          }
-
-          // Check if we should regenerate the article
-          const currentSignalCount = cluster.clusteredSignals.length;
-          const existingAnalystArticle = cluster.clusterArticles.find(
-            (a) => a.agentPersona === "ANALYST"
-          );
-          const existingGossipArticle = cluster.clusterArticles.find(
-            (a) => a.agentPersona === "GOSSIP_GIRL"
-          );
-
-          const lastAnalystCount = existingAnalystArticle?.signalCount ?? 0;
-          const lastGossipCount = existingGossipArticle?.signalCount ?? 0;
-
-          // Regenerate if signal count crossed threshold (3, 5, 10, 20) or increased by 50%
-          const thresholds = [3, 5, 10, 20];
-          const shouldRegenerateAnalyst =
-            !existingAnalystArticle ||
-            thresholds.some((t) => lastAnalystCount < t && currentSignalCount >= t) ||
-            currentSignalCount >= lastAnalystCount * 1.5;
-
-          const shouldRegenerateGossip =
-            !existingGossipArticle ||
-            thresholds.some((t) => lastGossipCount < t && currentSignalCount >= t) ||
-            currentSignalCount >= lastGossipCount * 1.5;
-
-          if (!shouldRegenerateAnalyst && !shouldRegenerateGossip) {
-            log.info("inngest.function.cluster_article_skip", {
-              clusterId: signal.clusterId,
-              signalCount: currentSignalCount,
-            });
-            return;
-          }
-
-          // Prepare cluster data for article generation
-          const clusterData = {
-            label: cluster.label,
-            summary: cluster.description || cluster.label,
-            signals: cluster.clusteredSignals.map((s) => ({
-              id: s.id,
-              title: s.title,
-              sourceType: s.sourceType,
-              facts: s.analyses.flatMap((a) =>
-                Array.isArray(a.keyFacts)
-                  ? a.keyFacts.map((f) =>
-                      typeof f === "string" ? f : (f && typeof f === "object" && "text" in f ? f.text : String(f))
-                    )
-                  : []
-              ) as Array<string | { text?: string }>,
-            })),
-          };
-
-          const companyInfo = {
-            name: cluster.company.name,
-            ticker: cluster.company.ticker || undefined,
-          };
-
-          // Generate articles for personas that need regeneration
-          for (const [persona, config, shouldRegenerate] of [
-            ["ANALYST", ANALYST_CONFIG, shouldRegenerateAnalyst],
-            ["GOSSIP_GIRL", GOSSIP_GIRL_CONFIG, shouldRegenerateGossip],
-          ] as const) {
-            if (!shouldRegenerate) continue;
-
-            try {
-              const article = await generateClusterArticle(
-                clusterData,
-                companyInfo,
-                config
-              );
-
-              await prisma.clusterArticle.upsert({
-                where: {
-                  themeId_agentPersona: {
-                    themeId: cluster.id,
-                    agentPersona: persona,
-                  },
-                },
-                update: {
-                  title: article.title,
-                  slug: article.slug,
-                  summary: article.summary,
-                  body: article.body,
-                  signalCount: currentSignalCount,
-                  status: "PUBLISHED",
-                  publishedAt: new Date(),
-                },
-                create: {
-                  themeId: cluster.id,
-                  companyId: cluster.companyId,
-                  title: article.title,
-                  slug: article.slug,
-                  summary: article.summary,
-                  body: article.body,
-                  agentPersona: persona,
-                  signalCount: currentSignalCount,
-                  status: "PUBLISHED",
-                  publishedAt: new Date(),
-                },
-              });
-
-              log.info("inngest.function.cluster_article_created", {
-                clusterId: cluster.id,
-                persona,
-                signalCount: currentSignalCount,
-                groundingScore: article.groundingScore,
-              });
-            } catch (error) {
-              log.error("inngest.function.cluster_article_generation_failed", {
-                clusterId: cluster.id,
-                persona,
-                error: String(error),
-              });
-            }
-          }
-        });
-      } catch (error) {
-        log.error("inngest.function.cluster_article_update_failed", {
-          signalId,
-          clusterId: signal.clusterId,
           error: String(error),
         });
       }
@@ -1399,4 +804,4 @@ export const analyzeSignalFunction = inngest.createFunction(
   }
 );
 
-export const functions = [analyzeSignalFunction, discoverSignalsUnifiedFunction, correlateSignalsFunction, calibrateInferencesFunction, sourceHealthCheckFunction, generateArticleFunction, mergeClustersFunction];
+export const functions = [analyzeSignalFunction, discoverSignalsUnifiedFunction, correlateSignalsFunction, sourceHealthCheckFunction, mergeClustersFunction];

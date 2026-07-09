@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
       cursor: cursor ? { id: cursor } : undefined,
       include: {
         _count: {
-          select: { signals: true, articles: true },
+          select: { signals: true },
         },
         watchedBy: {
           where: { userId: session.user.id },

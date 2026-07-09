@@ -1,22 +1,27 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/db";
 
+const verifyEmailSchema = z.object({
+  token: z.string().min(1, "Token is required"),
+});
+
 export async function POST(req: Request) {
-  let token: string | null;
-  
+  let token: string;
+
   try {
     const body = await req.json();
-    token = body.token;
+    const parsed = verifyEmailSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Missing verification token" },
+        { status: 400 }
+      );
+    }
+    token = parsed.data.token;
   } catch {
     return NextResponse.json(
       { error: "Invalid request body" },
-      { status: 400 }
-    );
-  }
-
-  if (!token) {
-    return NextResponse.json(
-      { error: "Missing verification token" },
       { status: 400 }
     );
   }

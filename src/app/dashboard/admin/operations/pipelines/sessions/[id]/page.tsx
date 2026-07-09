@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -109,6 +109,7 @@ export default function PipelineSessionDetailPage({
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
   const [applyResult, setApplyResult] = useState<{ success: boolean; applied: number; errors: string[] } | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     params.then((p) => setSessionId(p.id));
@@ -116,13 +117,19 @@ export default function PipelineSessionDetailPage({
 
   const fetchSession = useCallback(async () => {
     if (!sessionId) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const res = await fetch(`/api/v1/admin/pipelines/sessions/${sessionId}`);
+      const res = await fetch(`/api/v1/admin/pipelines/sessions/${sessionId}`, {
+        signal: controller.signal,
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: SessionResponse = await res.json();
       setData(json);
       setError(null);
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setIsLoading(false);
@@ -130,7 +137,9 @@ export default function PipelineSessionDetailPage({
   }, [sessionId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchSession();
+    return () => abortRef.current?.abort();
   }, [fetchSession]);
 
   const handleApply = async () => {

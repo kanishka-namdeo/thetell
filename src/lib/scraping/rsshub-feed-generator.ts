@@ -1,10 +1,15 @@
 /**
  * RSSHub feed generator for dynamic, ticker-aware financial intelligence feeds.
  *
- * Generates RSSHub feed URLs based on company attributes (ticker, sector) to supplement
- * the static feed registry with financial data sources that don't have official RSS feeds.
+ * Generates feed URLs based on company attributes (ticker, sector) to supplement
+ * the static feed registry. Uses a mix of:
+ * - RSSHub routes (Finviz, Google Scholar, Unusual Whales, 36kr)
+ * - Native RSS feeds (Bloomberg, arXiv, Guardian - where RSSHub routes are broken)
+ * - Official RSS feeds (HN via hnrss.org, Reddit, GitHub)
  *
- * All feeds are routed through the self-hosted RSSHub instance (RSSHUB_URL).
+ * Note: Reuters, Guardian (via RSSHub), and arXiv (via RSSHub) routes were removed
+ * because those upstream sources broke their APIs or the RSSHub routes became unreliable.
+ * Bloomberg is also accessed via native RSS since RSSHub times out on it.
  */
 
 import type { FeedConfig } from "./feed-registry";
@@ -26,52 +31,8 @@ export interface RsshubCompanyContext {
   ticker: string | null;
   sector?: string | null;
   slug?: string | null;
-  githubOrg?: string | null;
 }
 
-/**
- * Mapping of company slugs to their GitHub organization names.
- * Used to generate GitHub releases Atom feeds.
- */
-const GITHUB_ORGS: Record<string, string> = {
-  apple: "apple",
-  microsoft: "microsoft",
-  nvidia: "NVIDIA",
-  amd: "AMD",
-  tesla: "teslamotors",
-  alphabet: "google",
-  amazon: "aws",
-  meta: "facebook",
-  netflix: "Netflix",
-  shopify: "Shopify",
-  stripe: "stripe",
-  cloudflare: "cloudflare",
-  uber: "uber",
-  airbnb: "airbnb",
-  spotify: "spotify",
-  salesforce: "salesforce",
-  ibm: "ibm",
-  intel: "intel",
-  oracle: "oracle",
-  adobe: "adobe",
-  samsung: "Samsung",
-  databricks: "databricks",
-  hashicorp: "hashicorp",
-  mongodb: "mongodb",
-  palantir: "palantir",
-  crowdstrike: "CrowdStrike",
-  servicenow: "servicenow",
-  snowflake: "snowflake",
-  cisco: "cisco",
-  paypal: "paypal",
-  sony: "sony",
-  sap: "SAP",
-  qualcomm: "qualcomm",
-  datadog: "DataDog",
-  twilio: "twilio",
-  openai: "openai",
-  huggingface: "huggingface",
-};
 
 /**
  * Get the RSSHub base URL from environment.
@@ -81,18 +42,19 @@ function getRsshubBaseUrl(): string {
 }
 
 /**
- * Generate RSSHub feeds for a company based on its attributes.
+ * Generate feeds for a company based on its attributes.
  *
  * Routes created:
- * - Ticker-based: Finviz news, Seeking Alpha news/analysis/press-releases (only if company has ticker)
- * - Sector-based: Bloomberg technology/markets (only for relevant sectors)
- * - GitHub releases: official Atom feed for known GitHub orgs
+ * - Ticker-based: Finviz news (via RSSHub, only if company has ticker)
+ * - Sector-based: Bloomberg technology/markets (native RSS, only for relevant sectors)
  * - HN keyword feeds: official RSS via hnrss.org for company name and ticker
  * - Reddit keyword feeds: official Reddit search RSS for company name
- * - Global: Unusual Whales, 36kr newsflash, GitHub trending (deduped across companies)
+ * - arXiv: native RSS feed for AI papers (cs.AI category)
+ * - Google Scholar: keyword feeds via RSSHub for company name
+ * - Global: Unusual Whales, 36kr, Guardian China (deduped across companies)
  *
- * @param company - Company context with ticker, sector, slug, and githubOrg
- * @returns Array of RSSHub feed definitions
+ * @param company - Company context with ticker, sector, slug
+ * @returns Array of feed definitions
  */
 export function generateRsshubFeeds(company: RsshubCompanyContext): RsshubFeedDef[] {
   const feeds: RsshubFeedDef[] = [];
@@ -113,30 +75,20 @@ export function generateRsshubFeeds(company: RsshubCompanyContext): RsshubFeedDe
   // Sector-based feeds
   const sector = company.sector?.toLowerCase();
 
-  // Bloomberg technology (for tech sector companies)
+  // Bloomberg technology (for tech sector companies) - native RSS, not RSSHub
   if (sector && isTechSector(sector)) {
     feeds.push({
-      url: `${baseUrl}/bloomberg/technology`,
+      url: `https://feeds.bloomberg.com/technology/news.rss`,
       label: "Bloomberg Technology",
       sourceType: "NEWS",
     });
   }
 
-  // Bloomberg markets (for financial sector companies)
+  // Bloomberg markets (for financial sector companies) - native RSS, not RSSHub
   if (sector && isFinancialSector(sector)) {
     feeds.push({
-      url: `${baseUrl}/bloomberg/markets`,
+      url: `https://feeds.bloomberg.com/markets/news.rss`,
       label: "Bloomberg Markets",
-      sourceType: "NEWS",
-    });
-  }
-
-  // GitHub releases (official Atom feed, not RSSHub)
-  const githubOrg = company.githubOrg || resolveGithubOrg(company.slug);
-  if (githubOrg) {
-    feeds.push({
-      url: `https://github.com/${githubOrg}/releases.atom`,
-      label: `GitHub Releases (${githubOrg})`,
       sourceType: "NEWS",
     });
   }
@@ -163,6 +115,25 @@ export function generateRsshubFeeds(company: RsshubCompanyContext): RsshubFeedDe
     sourceType: "SOCIAL",
   });
 
+  // arXiv keyword feeds (native RSS - RSSHub arXiv route is unreliable)
+  // arXiv provides category-based RSS feeds, not keyword search
+  // We'll use the cs.AI category as a general tech/AI feed
+  feeds.push({
+    url: `https://rss.arxiv.org/rss/cs.AI`,
+    label: `arXiv: AI Papers`,
+    sourceType: "NEWS",
+  });
+
+  // Google Scholar keyword feeds (RSSHub route works)
+  feeds.push({
+    url: `${baseUrl}/google/scholar/${encodeURIComponent(company.name)}`,
+    label: `Google Scholar: ${company.name}`,
+    sourceType: "NEWS",
+  });
+
+  // Reuters feeds removed - Reuters killed their API endpoint in 2025
+  // The RSSHub /reuters/:category route now returns 404 errors
+
   // Global feeds (generated for all companies, deduped by content hash in signal-discovery)
   feeds.push(...generateGlobalRsshubFeeds());
 
@@ -186,15 +157,21 @@ export function generateGlobalRsshubFeeds(): RsshubFeedDef[] {
       label: "Unusual Whales",
       sourceType: "NEWS",
     },
+    {
+      url: `${baseUrl}/36kr/newsflashes`,
+      label: "36kr Newsflashes",
+      sourceType: "NEWS",
+    },
+    // Guardian feeds removed - RSSHub route no longer exists
+    // Use Guardian's native RSS feeds instead (see feed-registry.ts)
+    {
+      url: "https://www.theguardian.com/world/china/rss",
+      label: "The Guardian China",
+      sourceType: "NEWS",
+    },
+    // Reuters feeds removed - Reuters killed their API endpoint
+    // Bloomberg feeds removed - Bloomberg blocks scraping attempts
   ];
-}
-
-/**
- * Resolve GitHub org name from a company slug.
- */
-function resolveGithubOrg(slug: string | null | undefined): string | null {
-  if (!slug) return null;
-  return GITHUB_ORGS[slug.toLowerCase()] ?? null;
 }
 
 /**

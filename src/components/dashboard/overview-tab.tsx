@@ -16,7 +16,6 @@ import {
 export interface OverviewData {
   signalCount: number;
   companyCount: number;
-  articleCount: number;
   avgConfidence: number;
   activeClusterCount: number;
   sentimentCounts: Array<{
@@ -47,15 +46,6 @@ export interface OverviewData {
       confidence: number;
     }>;
   }>;
-  recentArticles: Array<{
-    id: string;
-    title: string;
-    status: string;
-    publishedAt: Date | null;
-    company: {
-      name: string;
-    };
-  }>;
 }
 
 interface OverviewTabProps {
@@ -66,12 +56,10 @@ export function OverviewTab({ data }: OverviewTabProps) {
   const {
     signalCount,
     companyCount,
-    articleCount,
     avgConfidence,
     sentimentCounts,
     topInsights,
     recentSignals,
-    recentArticles,
   } = data;
 
   return (
@@ -80,7 +68,7 @@ export function OverviewTab({ data }: OverviewTabProps) {
       <DataFlowDiagram />
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Total Signals"
           value={signalCount}
@@ -92,12 +80,6 @@ export function OverviewTab({ data }: OverviewTabProps) {
           value={companyCount}
           description="Organizations monitored"
           icon="Building2"
-        />
-        <StatCard
-          title="Articles"
-          value={articleCount}
-          description="Intelligence reports"
-          icon="FileText"
         />
         <StatCard
           title="Active Clusters"
@@ -185,105 +167,55 @@ export function OverviewTab({ data }: OverviewTabProps) {
         </CardContent>
       </Card>
 
-      {/* Recent Signals & Articles */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Signals */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">Recent Signals</CardTitle>
-              <Link href="/dashboard/signals">
-                <Button variant="ghost" size="sm">
-                  View All <ArrowRight className="h-3 w-3 ml-1" />
-                </Button>
-              </Link>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {recentSignals.map((signal) => (
-                <div key={signal.id} className="border-l-2 border-foreground pl-3">
-                  <Link
-                    href={`/dashboard/signals/${signal.id}`}
-                    className="text-sm font-serif font-medium hover:underline"
-                  >
-                    {signal.title}
-                  </Link>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Badge variant="outline" className="text-[11px]">
-                      {signal.company.name}
-                    </Badge>
-                    <span className="text-[11px] font-mono text-muted-foreground">
-                      {new Date(signal.scrapedAt).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </span>
-                    {signal.analyses[0] && (
-                      <ConfidenceBadge
-                        confidence={signal.analyses[0].confidence}
-                        className="text-[11px]"
-                      />
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Recent Articles */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">Recent Articles</CardTitle>
-              <Link href="/dashboard/articles">
-                <Button variant="ghost" size="sm">
-                  View All <ArrowRight className="h-3 w-3 ml-1" />
-                </Button>
-              </Link>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {recentArticles.map((article) => (
-                <div key={article.id} className="border-l-2 border-foreground pl-3">
-                  <Link
-                    href={`/dashboard/articles/${article.id}`}
-                    className="text-sm font-serif font-medium hover:underline"
-                  >
-                    {article.title}
-                  </Link>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Badge variant="outline" className="text-[11px]">
-                      {article.company.name}
-                    </Badge>
-                    <Badge
-                      variant={article.status === "PUBLISHED" ? "default" : "outline"}
+      {/* Recent Signals */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg">Recent Signals</CardTitle>
+            <Link href="/dashboard/signals">
+              <Button variant="ghost" size="sm">
+                View All <ArrowRight className="h-3 w-3 ml-1" />
+              </Button>
+            </Link>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {recentSignals.map((signal) => (
+              <div key={signal.id} className="border-l-2 border-foreground pl-3">
+                <Link
+                  href={`/dashboard/signals/${signal.id}`}
+                  className="text-sm font-serif font-medium hover:underline"
+                >
+                  {signal.title}
+                </Link>
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge variant="outline" className="text-[11px]">
+                    {signal.company.name}
+                  </Badge>
+                  <span className="text-[11px] font-mono text-muted-foreground">
+                    {new Date(signal.scrapedAt).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </span>
+                  {signal.analyses[0] && (
+                    <ConfidenceBadge
+                      confidence={signal.analyses[0].confidence}
                       className="text-[11px]"
-                    >
-                      {article.status}
-                    </Badge>
-                    {article.publishedAt && (
-                      <span className="text-[11px] font-mono text-muted-foreground">
-                        {new Date(article.publishedAt).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </span>
-                    )}
-                  </div>
+                    />
+                  )}
                 </div>
-              ))}
-              {recentArticles.length === 0 && (
-                <p className="text-sm text-muted-foreground font-body">
-                  No articles published yet.
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+              </div>
+            ))}
+            {recentSignals.length === 0 && (
+              <p className="text-sm text-muted-foreground font-body">
+                No signals available yet.
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

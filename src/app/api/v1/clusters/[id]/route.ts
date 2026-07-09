@@ -27,9 +27,10 @@ export async function GET(
       where: { id },
       include: {
         company: true,
-        clusteredSignals: {
+        signals: {
           where: { status: "ANALYZED" },
           orderBy: { scrapedAt: "desc" },
+          take: 50, // Limit to prevent memory issues
           include: {
             analyses: {
               select: {
@@ -42,22 +43,6 @@ export async function GET(
             },
           },
         },
-        inferences: {
-          orderBy: { confidence: "desc" },
-          include: {
-            debate: {
-              select: {
-                id: true,
-                consensusReached: true,
-                finalConfidence: true,
-                status: true,
-              },
-            },
-          },
-        },
-        clusterArticles: {
-          orderBy: { updatedAt: "desc" },
-        },
       },
     });
 
@@ -69,7 +54,7 @@ export async function GET(
     }
 
     // Build evidence chain from all supporting signals
-    const evidenceChain = theme.clusteredSignals.flatMap((signal) => {
+    const evidenceChain = theme.signals.flatMap((signal) => {
       return signal.analyses.map((analysis) => ({
         signalId: signal.id,
         signalTitle: signal.title,
@@ -81,14 +66,13 @@ export async function GET(
 
     log.info("api.request.success", {
       themeId: id,
-      signalCount: theme.clusteredSignals.length,
-      inferenceCount: theme.inferences.length,
+      signalCount: theme.signals.length,
     });
 
     return NextResponse.json({
       theme: {
         ...theme,
-        signals: theme.clusteredSignals.map((s) => ({
+        signals: theme.signals.map((s) => ({
           ...s,
           analyses: undefined,
         })),

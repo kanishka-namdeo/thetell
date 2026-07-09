@@ -103,7 +103,14 @@ async function triageWithPgvector(
   statusFilter: string[]
 ): Promise<ClusterTriageResult | null> {
   const vectorString = `[${embedding.join(",")}]`;
-  const statuses = statusFilter.map((s) => `'${s}'`).join(",");
+  
+  // Validate status values against ThemeStatus enum to prevent SQL injection
+  const VALID_STATUSES = new Set(["EMERGING", "ACCELERATING", "PEAKED", "FADING", "RESOLVED"]);
+  const safeStatuses = statusFilter.filter(s => VALID_STATUSES.has(s));
+  if (safeStatuses.length === 0) {
+    return { matched: false, cluster: null, method: "pgvector", candidates: 0 };
+  }
+  const statuses = safeStatuses.map((s) => `'${s}'`).join(",");
 
   const rows = await prisma.$queryRaw<
     Array<{

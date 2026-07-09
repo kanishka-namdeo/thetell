@@ -114,8 +114,15 @@ export async function extractKeyPhrases(
     // 3. Generate embedding for each candidate and compute similarity
     const scored: KeyPhrase[] = [];
     const seen = new Set<string>();
+    const TIME_BUDGET_MS = 15_000; // 15 seconds max for keyphrase extraction
+    const phraseStartTime = Date.now();
 
     for (const phrase of candidates) {
+      if (Date.now() - phraseStartTime > TIME_BUDGET_MS) {
+        logger.warn("nlp.keyphrase.time_budget_exceeded", { processed: scored.length });
+        break;
+      }
+
       const normalizedPhrase = phrase.toLowerCase().trim();
       if (seen.has(normalizedPhrase)) continue;
       seen.add(normalizedPhrase);

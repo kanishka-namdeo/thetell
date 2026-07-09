@@ -79,7 +79,8 @@ export function CorrelationClient({ initialStatus }: CorrelationClientProps) {
 
   const formatLastRun = (dateStr: string | null) => {
     if (!dateStr) return "Never";
-    const diff = Date.now() - new Date(dateStr).getTime();
+    const now = new Date();
+    const diff = now.getTime() - new Date(dateStr).getTime();
     if (diff < 60_000) return "Just now";
     if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
     if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;

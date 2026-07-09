@@ -14,7 +14,6 @@ interface CompanyCardProps {
   ticker: string | null;
   description: string | null;
   signalCount: number;
-  articleCount: number;
   isWatched?: boolean;
 }
 
@@ -25,7 +24,6 @@ export function CompanyCard({
   ticker,
   description,
   signalCount,
-  articleCount,
   isWatched = false,
 }: CompanyCardProps) {
   return (
@@ -55,7 +53,6 @@ export function CompanyCard({
         )}
         <div className="flex gap-4 mt-3 text-xs font-mono text-muted-foreground">
           <span>{signalCount} signals</span>
-          <span>{articleCount} articles</span>
         </div>
       </CardContent>
       <CardFooter className="gap-2">

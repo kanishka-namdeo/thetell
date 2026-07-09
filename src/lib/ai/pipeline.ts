@@ -84,9 +84,18 @@ export async function analyzeSignal(
   try {
     // Run fact extraction, sentiment, and themes in parallel
     const [factsResult, sentimentResult, themesResult] = await Promise.all([
-      extractFacts(signal.rawContent, providerName, model),
-      classifySentiment(signal.rawContent, providerName, model),
-      identifyThemes(signal.rawContent, providerName, model),
+      extractFacts(signal.rawContent, providerName, model).catch((err) => {
+        log.warn("analysis.pipeline.fact_extraction_failed", { error: String(err) });
+        return { facts: [] };
+      }),
+      classifySentiment(signal.rawContent, providerName, model).catch((err) => {
+        log.warn("analysis.pipeline.sentiment_classification_failed", { error: String(err) });
+        return { sentiment: "NEUTRAL" as const, confidence: 0.5 };
+      }),
+      identifyThemes(signal.rawContent, providerName, model).catch((err) => {
+        log.warn("analysis.pipeline.theme_identification_failed", { error: String(err) });
+        return { themes: [] };
+      }),
     ]);
 
     log.debug("analysis.pipeline.parallel_complete", {

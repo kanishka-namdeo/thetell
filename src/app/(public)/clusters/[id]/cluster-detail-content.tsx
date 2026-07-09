@@ -14,10 +14,8 @@ import {
 } from "@/components";
 import { ConfidenceBand } from "@/components/dashboard/confidence-band";
 import { MomentumIndicator } from "@/components/dashboard/momentum-indicator";
-import { EvidenceChain } from "@/components/dashboard/evidence-chain";
 import { SignupPrompt } from "../../_components/signup-prompt";
 import { ShareButton } from "@/components/dashboard/share-button";
-import { generateClusterImplication } from "@/lib/ai/agent/cluster-article-generator";
 import { cosineSimilarity } from "@/lib/nlp/embedding-generator";
 import { logger } from "@/lib/logger";
 import Link from "next/link";
@@ -42,9 +40,8 @@ export async function ClusterDetailContent({ id }: ClusterDetailContentProps) {
       company: {
         select: { id: true, name: true, ticker: true, slug: true },
       },
-      clusteredSignals: {
+      signals: {
         include: {
-          company: { select: { id: true, name: true } },
           analyses: {
             select: {
               id: true,
@@ -56,15 +53,6 @@ export async function ClusterDetailContent({ id }: ClusterDetailContentProps) {
         },
         orderBy: { scrapedAt: "desc" },
       },
-      inferences: {
-        include: {
-          company: { select: { id: true, name: true } },
-        },
-        orderBy: { confidence: "desc" },
-      },
-      clusterArticles: {
-        orderBy: { createdAt: "desc" },
-      },
     },
   });
 
@@ -73,7 +61,7 @@ export async function ClusterDetailContent({ id }: ClusterDetailContentProps) {
   }
 
   // Build evidence chain
-  const evidenceChain = cluster.clusteredSignals.map((signal) => {
+  const evidenceChain = cluster.signals.map((signal) => {
     const analysis = signal.analyses[0];
     return {
       signalId: signal.id,
@@ -95,33 +83,8 @@ export async function ClusterDetailContent({ id }: ClusterDetailContentProps) {
     momentumHistory?: number[];
   } | null;
 
-  // Generate or retrieve strategic implication
-  let implication = clusterSummary?.implication;
-  if (!implication && clusterSummary?.summary) {
-    try {
-      implication = await generateClusterImplication(
-        cluster.label,
-        clusterSummary,
-        clusterSummary.keyFacts || [],
-        cluster.company.name
-      );
-      // Cache the implication in clusterSummary
-      await prisma.signalTheme.update({
-        where: { id: cluster.id },
-        data: {
-          clusterSummary: {
-            ...clusterSummary,
-            implication,
-          },
-        },
-      });
-    } catch (error) {
-      logger.error("cluster_detail.implication_generation_failed", {
-        clusterId: cluster.id,
-        error: String(error),
-      });
-    }
-  }
+  // Strategic implication - use clusterSummary if available
+  const implication = clusterSummary?.implication;
 
   // Load related clusters (same company, high embedding similarity)
   let relatedClusters: Array<{
@@ -188,12 +151,12 @@ export async function ClusterDetailContent({ id }: ClusterDetailContentProps) {
             <MomentumIndicator
               momentum={cluster.momentum}
               status={cluster.status}
-              signalCount={cluster.clusteredSignals.length}
+              signalCount={cluster.signals.length}
               momentumHistory={clusterSummary?.momentumHistory}
             />
             <Badge variant="outline" className="gap-1">
               <Layers className="h-3 w-3" />
-              {cluster.clusteredSignals.length} signals
+              {cluster.signals.length} signals
             </Badge>
             <div className="ml-auto flex-shrink-0">
               <ShareButton />
@@ -259,73 +222,7 @@ export async function ClusterDetailContent({ id }: ClusterDetailContentProps) {
           </Card>
         )}
 
-        {/* Evidence Chain */}
-        {evidenceChain.length > 0 && (
-          <div className="mb-6">
-            <EvidenceChain items={evidenceChain} />
-          </div>
-        )}
-
-        {/* Cluster Articles */}
-        {cluster.clusterArticles.length > 0 && (
-          <div className="mb-6 space-y-4">
-            <Headline level={2} size="section">Cluster Articles</Headline>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {cluster.clusterArticles.map((article) => (
-                <Card key={article.id} className="border-2 border-foreground">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <Badge variant={article.agentPersona === "ANALYST" ? "default" : "accent"}>
-                        {article.agentPersona === "ANALYST" ? "The Analyst" : "Gossip Girl"}
-                      </Badge>
-                      <Badge variant="outline" className="text-xs">
-                        {article.signalCount} signals
-                      </Badge>
-                    </div>
-                    <CardTitle className="text-base">
-                      <Link href={`/articles/${article.id}`} className="hover:underline">
-                        {article.title}
-                      </Link>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <Body className="text-sm text-muted-foreground line-clamp-3">
-                      {article.summary}
-                    </Body>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Related Inferences */}
-        {cluster.inferences.length > 0 && (
-          <div className="mb-6 space-y-4">
-            <Headline level={2} size="section">Related Inferences</Headline>
-            <div className="space-y-3">
-              {cluster.inferences.map((inference) => (
-                <Card key={inference.id} className="border-2 border-foreground">
-                  <CardContent className="pt-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1">
-                        <Link href={`/inferences/${inference.id}`}>
-                          <h3 className="font-serif text-base font-semibold hover:underline">
-                            {inference.title}
-                          </h3>
-                        </Link>
-                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                          {inference.hypothesis}
-                        </p>
-                      </div>
-                      <ConfidenceBand confidence={inference.confidence} />
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Evidence Chain - removed (EvidenceChain component deprecated) */}
 
         {/* Related Clusters */}
         {relatedClusters.length > 0 && (
@@ -363,15 +260,15 @@ export async function ClusterDetailContent({ id }: ClusterDetailContentProps) {
         )}
 
         {/* All Signals in Cluster */}
-        {cluster.clusteredSignals.length > 0 && (
+        {cluster.signals.length > 0 && (
           <div className="mb-6 space-y-4">
             <Headline level={2} size="section">
-              All Signals ({cluster.clusteredSignals.length})
+              All Signals ({cluster.signals.length})
             </Headline>
             <Card>
               <CardContent className="pt-4">
                 <div className="space-y-3">
-                  {cluster.clusteredSignals.map((signal) => (
+                  {cluster.signals.map((signal) => (
                     <Link
                       key={signal.id}
                       href={`/signals/${signal.id}`}

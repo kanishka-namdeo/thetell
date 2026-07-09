@@ -18,6 +18,9 @@ const IDLE_TTL_MS = 30 * 60 * 1000;
 /** Hard cap on the number of cached pipelines to prevent unbounded memory growth. */
 const MAX_CACHED_PIPELINES = 10;
 
+/** Timeout for model loading to prevent hanging promises (2 minutes). */
+const MODEL_LOAD_TIMEOUT_MS = 120_000;
+
 interface CachedPipeline {
   instance: Awaited<ReturnType<typeof pipeline>>;
   task: PipelineTask;
@@ -204,8 +207,8 @@ export async function getModelPipeline(
       const lruEntry = findLeastRecentlyUsed(cache);
       if (!lruEntry) break;
       const evicted = cache.get(lruEntry.key);
-      if (evicted?.instance && typeof (evicted.instance as any).dispose === "function") {
-        try { await (evicted.instance as any).dispose(); } catch { /* ignore dispose errors */ }
+      if (evicted?.instance && typeof (evicted.instance as unknown as { dispose?: () => unknown }).dispose === "function") {
+        try { await (evicted.instance as unknown as { dispose: () => Promise<void> }).dispose(); } catch { /* ignore dispose errors */ }
       }
       cache.delete(lruEntry.key);
       logger.info("nlp.pipeline.evict.lru", { task: lruEntry.task, model: lruEntry.model });
@@ -233,9 +236,16 @@ export async function getModelPipeline(
 
     logger.info("nlp.pipeline.loading", { task, model, backend, device, dtype });
 
-    const instance = await pipeline(task, model, {
-      device,
-      dtype,
+    // Wrap pipeline load with timeout to prevent hanging promises
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(`Model load timeout after ${MODEL_LOAD_TIMEOUT_MS}ms`)), MODEL_LOAD_TIMEOUT_MS);
+    });
+    const instance = await Promise.race([
+      pipeline(task, model, { device, dtype }),
+      timeoutPromise,
+    ]).finally(() => {
+      if (timeoutId) clearTimeout(timeoutId);
     });
 
     const elapsed = Date.now() - startTime;
@@ -297,8 +307,8 @@ export function unloadIdleModels(): number {
   for (const [key, cached] of cache.entries()) {
     const idleMs = now - cached.lastAccessedAt;
     if (idleMs > IDLE_TTL_MS) {
-      if (cached.instance && typeof (cached.instance as any).dispose === "function") {
-        try { (cached.instance as any).dispose(); } catch { /* ignore dispose errors */ }
+      if (cached.instance && typeof (cached.instance as unknown as { dispose?: () => unknown }).dispose === "function") {
+        try { (cached.instance as unknown as { dispose: () => void }).dispose(); } catch { /* ignore dispose errors */ }
       }
       cache.delete(key);
       unloaded++;
@@ -366,9 +376,9 @@ export async function clearModelCache(): Promise<void> {
 
   // Dispose all pipeline instances before clearing to free memory
   for (const [key, cached] of cache.entries()) {
-    if (cached.instance && typeof (cached.instance as any).dispose === "function") {
+    if (cached.instance && typeof (cached.instance as unknown as { dispose?: () => unknown }).dispose === "function") {
       try {
-        await (cached.instance as any).dispose();
+        await (cached.instance as unknown as { dispose: () => Promise<void> }).dispose();
       } catch {
         // Ignore dispose errors during cache clear
       }
@@ -401,7 +411,9 @@ if (process.env.NLP_MODEL_CACHE_DIR) {
 }
 
 // Schedule idle model unloading every 5 minutes
-if (typeof globalThis.setInterval !== "undefined") {
+// Guard against hot-reload creating duplicate intervals
+const globalKey = "__modelCacheCleanupInterval";
+if (typeof globalThis.setInterval !== "undefined" && !(globalKey in globalThis)) {
   const unloadTimer = setInterval(() => {
     try {
       unloadIdleModels();
@@ -413,4 +425,5 @@ if (typeof globalThis.setInterval !== "undefined") {
   if (typeof unloadTimer.unref === "function") {
     unloadTimer.unref();
   }
+  (globalThis as Record<string, unknown>)[globalKey] = true;
 }

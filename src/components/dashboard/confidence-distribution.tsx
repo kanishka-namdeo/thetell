@@ -24,6 +24,7 @@ export function ConfidenceDistribution({ companyId, days = 30 }: ConfidenceDistr
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 

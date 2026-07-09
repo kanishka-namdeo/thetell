@@ -9,7 +9,6 @@ import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { logger } from "@/lib/logger";
 import { cosineSimilarity } from "@/lib/nlp/embedding-generator";
-import { regenerateClusterArticles } from "@/lib/ai/agent/analysis-router";
 
 const MERGE_SIMILARITY_THRESHOLD = 0.85;
 const ACTIVE_STATUSES = ["EMERGING", "ACCELERATING", "PEAKED"] as const;
@@ -105,6 +104,7 @@ function mergeClusterSummaries(
 export const mergeClustersFunction = inngest.createFunction(
   {
     id: "merge-clusters",
+    concurrency: { limit: 1, key: "merge-clusters" },
     triggers: [
       { cron: "0 3 * * 1" }, // Monday 3 AM UTC
       { event: "cluster-merge/manual.trigger" },
@@ -266,23 +266,6 @@ export const mergeClustersFunction = inngest.createFunction(
 
       return { winnerIds: [...winners], mergesPerformed: mergeCount, errors: errorCount };
     });
-
-    // Step 3: Regenerate articles for surviving clusters that gained signals
-    if (mergeResult.winnerIds.length > 0) {
-      await step.run("regenerate-merged-articles", async () => {
-        for (const wid of mergeResult.winnerIds) {
-          try {
-            await regenerateClusterArticles(wid);
-            log.info("cluster_merge.articles_regenerated", { clusterId: wid });
-          } catch (error) {
-            log.error("cluster_merge.article_regeneration_failed", {
-              clusterId: wid,
-              error: String(error),
-            });
-          }
-        }
-      });
-    }
 
     log.info("cluster_merge.complete", {
       clustersChecked: clusters.length,

@@ -40,16 +40,12 @@ export async function GET(
             analyses: true,
           },
         },
-        articles: {
-          take: 5,
-          orderBy: { publishedAt: "desc" },
-        },
         trackedSubreddits: {
           take: 50,
           orderBy: { discoveredAt: "desc" },
         },
         _count: {
-          select: { signals: true, articles: true },
+          select: { signals: true },
         },
       },
     });

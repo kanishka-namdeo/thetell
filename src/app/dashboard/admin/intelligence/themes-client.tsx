@@ -32,7 +32,7 @@ interface ThemeData {
   firstSeen: Date;
   lastUpdated: Date;
   company: { id: string; name: string; ticker: string | null };
-  _count: { signals: number; inferences: number };
+  _count: { signals: number };
 }
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -101,7 +101,6 @@ export function ThemesClient({
                 <TableHead className="min-w-[100px]">Status</TableHead>
                 <TableHead className="min-w-[100px]">Momentum</TableHead>
                 <TableHead className="min-w-[80px]">Signals</TableHead>
-                <TableHead className="min-w-[80px]">Inferences</TableHead>
                 <TableHead className="min-w-[100px]">First Seen</TableHead>
                 <TableHead className="min-w-[80px]">Actions</TableHead>
               </TableRow>
@@ -109,7 +108,7 @@ export function ThemesClient({
             <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-12">
+                <TableCell colSpan={7} className="text-center py-12">
                   <AdminEmptyState
                     icon={Tag}
                     title="No themes found"
@@ -157,12 +156,7 @@ export function ThemesClient({
                   </TableCell>
                   <TableCell>
                     <span className="text-sm font-mono">
-                      {theme._count.signals}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <span className="text-sm font-mono">
-                      {theme._count.inferences}
+                      {theme._count.signals} signals
                     </span>
                   </TableCell>
                   <TableCell>

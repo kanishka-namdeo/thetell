@@ -48,62 +48,46 @@ export async function GET(request: NextRequest) {
 }
 
 async function getSentimentTrends(where: Prisma.AnalysisWhereInput, days: number) {
-  const analyses = await prisma.analysis.findMany({
-    where,
-    select: {
-      sentiment: true,
-      analyzedAt: true,
-    },
-    orderBy: { analyzedAt: "asc" },
-    take: 10000,
-  });
-
+  // Use aggregation instead of loading all records
   const trends: { date: string; positive: number; negative: number; neutral: number }[] = [];
 
   for (let i = 0; i < days; i++) {
     const date = new Date();
     date.setDate(date.getDate() - (days - 1 - i));
     const dateStr = date.toISOString().split("T")[0];
+    const nextDate = new Date(date);
+    nextDate.setDate(nextDate.getDate() + 1);
 
-    const dayAnalyses = analyses.filter((a) => {
-      const analysisDate = a.analyzedAt.toISOString().split("T")[0];
-      return analysisDate === dateStr;
-    });
+    const [positive, negative, neutral] = await Promise.all([
+      prisma.analysis.count({
+        where: { ...where, sentiment: "POSITIVE", analyzedAt: { gte: date, lt: nextDate } },
+      }),
+      prisma.analysis.count({
+        where: { ...where, sentiment: "NEGATIVE", analyzedAt: { gte: date, lt: nextDate } },
+      }),
+      prisma.analysis.count({
+        where: { ...where, sentiment: "NEUTRAL", analyzedAt: { gte: date, lt: nextDate } },
+      }),
+    ]);
 
-    trends.push({
-      date: dateStr,
-      positive: dayAnalyses.filter((a) => a.sentiment === "POSITIVE").length,
-      negative: dayAnalyses.filter((a) => a.sentiment === "NEGATIVE").length,
-      neutral: dayAnalyses.filter((a) => a.sentiment === "NEUTRAL").length,
-    });
+    trends.push({ date: dateStr, positive, negative, neutral });
   }
 
   return trends;
 }
 
 async function getConfidenceDistribution(where: Prisma.AnalysisWhereInput) {
-  const analyses = await prisma.analysis.findMany({
-    where,
-    select: { confidence: true },
-    take: 10000,
-  });
-
-  const buckets = {
-    high: 0,
-    medium: 0,
-    low: 0,
-  };
-
-  analyses.forEach((a) => {
-    if (a.confidence >= 0.8) buckets.high++;
-    else if (a.confidence >= 0.5) buckets.medium++;
-    else buckets.low++;
-  });
+  // Use aggregation instead of loading all records
+  const [high, medium, low] = await Promise.all([
+    prisma.analysis.count({ where: { ...where, confidence: { gte: 0.8 } } }),
+    prisma.analysis.count({ where: { ...where, confidence: { gte: 0.5, lt: 0.8 } } }),
+    prisma.analysis.count({ where: { ...where, confidence: { lt: 0.5 } } }),
+  ]);
 
   return [
-    { bucket: "High (80-100%)", count: buckets.high },
-    { bucket: "Medium (50-80%)", count: buckets.medium },
-    { bucket: "Low (0-50%)", count: buckets.low },
+    { bucket: "High (80-100%)", count: high },
+    { bucket: "Medium (50-80%)", count: medium },
+    { bucket: "Low (0-50%)", count: low },
   ];
 }
 

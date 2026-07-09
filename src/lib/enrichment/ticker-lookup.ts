@@ -8,6 +8,19 @@ import { WebSearchScraper } from "@/lib/scraping/web-search-scraper";
 import { TickerSuggestionSchema, type TickerLookupResult } from "./types";
 
 const CONFIDENCE_THRESHOLD = 0.7;
+const LLM_TIMEOUT_MS = 30_000;
+
+/**
+ * Wraps a promise with a timeout. Rejects if the promise doesn't resolve in time.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label}_timeout`)), ms)
+    ),
+  ]);
+}
 
 /**
  * Look up a company's stock ticker symbol.
@@ -67,20 +80,24 @@ async function lookupViaLLM(
 ): Promise<TickerLookupResult | null> {
   try {
     const { provider } = getProviderWithFailover("openai");
-    const result = await provider.completeStructured(
-      [
-        {
-          role: "system",
-          content:
-            "You are a financial research assistant. You identify stock ticker symbols for companies.",
-        },
-        {
-          role: "user",
-          content: `What is the stock ticker symbol for "${companyName}"? Return your response as JSON with fields: ticker (string or null), exchange (string or null), confidence (number 0-1). Return null ticker if the company is not publicly traded or you are unsure.`,
-        },
-      ],
-      TickerSuggestionSchema,
-      { temperature: 0.3 }
+    const result = await withTimeout(
+      provider.completeStructured(
+        [
+          {
+            role: "system",
+            content:
+              "You are a financial research assistant. You identify stock ticker symbols for companies.",
+          },
+          {
+            role: "user",
+            content: `What is the stock ticker symbol for "${companyName}"? Return your response as JSON with fields: ticker (string or null), exchange (string or null), confidence (number 0-1). Return null ticker if the company is not publicly traded or you are unsure.`,
+          },
+        ],
+        TickerSuggestionSchema,
+        { temperature: 0.3 }
+      ),
+      LLM_TIMEOUT_MS,
+      "ticker_llm"
     );
 
     return {
@@ -117,20 +134,24 @@ async function lookupViaWebSearch(
       .join("\n");
 
     const { provider } = getProviderWithFailover("openai");
-    const extracted = await provider.completeStructured(
-      [
-        {
-          role: "system",
-          content:
-            "You are a financial research assistant. Extract the stock ticker symbol from the search results.",
-        },
-        {
-          role: "user",
-          content: `Based on these search results, what is the stock ticker symbol for "${companyName}"? Return your response as JSON with fields: ticker (string or null), exchange (string or null), confidence (number 0-1).\n\nSearch results:\n${resultText}\n\nReturn null ticker if you cannot determine the ticker with confidence.`,
-        },
-      ],
-      TickerSuggestionSchema,
-      { temperature: 0.2 }
+    const extracted = await withTimeout(
+      provider.completeStructured(
+        [
+          {
+            role: "system",
+            content:
+              "You are a financial research assistant. Extract the stock ticker symbol from the search results.",
+          },
+          {
+            role: "user",
+            content: `Based on these search results, what is the stock ticker symbol for "${companyName}"? Return your response as JSON with fields: ticker (string or null), exchange (string or null), confidence (number 0-1).\n\nSearch results:\n${resultText}\n\nReturn null ticker if you cannot determine the ticker with confidence.`,
+          },
+        ],
+        TickerSuggestionSchema,
+        { temperature: 0.2 }
+      ),
+      LLM_TIMEOUT_MS,
+      "ticker_web_search"
     );
 
     if (extracted.ticker && extracted.confidence >= CONFIDENCE_THRESHOLD) {

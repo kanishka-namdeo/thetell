@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -38,6 +38,13 @@ export function TriggerButton({
   const [isLoading, setIsLoading] = useState(false);
   const [feedbackState, setFeedbackState] = useState<"idle" | "success" | "error">("idle");
   const { shouldAnimate, transitions, variants } = useControlCenterMotion();
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    };
+  }, []);
 
   async function handleTrigger() {
     setIsLoading(true);
@@ -46,11 +53,11 @@ export function TriggerButton({
       await onTrigger();
       setIsOpen(false);
       setFeedbackState("success");
-      setTimeout(() => setFeedbackState("idle"), 1500);
+      feedbackTimerRef.current = setTimeout(() => setFeedbackState("idle"), 1500);
     } catch (error) {
       logger.error("control_center.trigger_failed", { stageName, error: String(error) });
       setFeedbackState("error");
-      setTimeout(() => setFeedbackState("idle"), 1500);
+      feedbackTimerRef.current = setTimeout(() => setFeedbackState("idle"), 1500);
     } finally {
       setIsLoading(false);
     }

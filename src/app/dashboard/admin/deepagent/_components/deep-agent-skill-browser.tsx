@@ -69,6 +69,7 @@ export function DeepAgentSkillBrowser({ className }: { className?: string }) {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadSkills();
     return () => controllerRef.current?.abort();
   }, []);

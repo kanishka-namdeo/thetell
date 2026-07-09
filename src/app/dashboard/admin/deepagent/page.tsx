@@ -8,6 +8,9 @@ import {
   FileText,
   Sparkles,
   X,
+  BarChart3,
+  Shield,
+  Activity,
 } from "lucide-react";
 import { DeepAgentChatLayout } from "./_components/deep-agent-chat-layout";
 import { DeepAgentMessageList } from "./_components/deep-agent-message-list";
@@ -25,6 +28,11 @@ import { DeepAgentMemoryBrowser } from "./_components/deep-agent-memory-browser"
 import { DeepAgentSkillBrowser } from "./_components/deep-agent-skill-browser";
 import { DeepAgentSettings } from "./_components/deep-agent-settings";
 import { DeepAgentInterpreterToggle } from "./_components/deep-agent-interpreter-toggle";
+import { DeepAgentMetrics } from "./_components/deep-agent-metrics";
+import { DeepAgentBatchApproval } from "./_components/deep-agent-batch-approval";
+import { DeepAgentTemplates } from "./_components/deep-agent-templates";
+import { DeepAgentCommandPalette } from "./_components/deep-agent-command-palette";
+import { DeepAgentTraceViewer } from "./_components/deep-agent-trace-viewer";
 import { useDeepAgentStream } from "@/hooks/use-deepagent-stream";
 import { logger } from "@/lib/logger";
 import type {
@@ -38,7 +46,9 @@ import type {
 } from "@/lib/deepagent/types";
 import { loadDeploymentConfig, type DeploymentConfig } from "./_components/deep-agent-deployment-settings";
 
-type PanelId = "memory" | "skills" | "settings" | "interpreter" | null;
+type PanelId = "memory" | "skills" | "settings" | "interpreter" | "metrics" | "batch-approvals" | "trace" | null;
+
+const MAX_MESSAGES = 500;
 
 export default function DeepAgentPage() {
   const [sessions, setSessions] = useState<DeepAgentSession[]>([]);
@@ -60,6 +70,9 @@ export default function DeepAgentPage() {
   const [pendingApproval, setPendingApproval] = useState<DeepAgentApproval | null>(null);
   const [isApproving, setIsApproving] = useState(false);
   const pendingMessageRef = useRef<string | null>(null);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const inputBarRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Derive subagents from the latest assistant message's subagent data
   const subagents = useMemo(() => {
@@ -99,7 +112,10 @@ export default function DeepAgentPage() {
       if (response.ok) {
         const data = await response.json();
         if (cursor) {
-          setMessages((prev) => [...data.data, ...prev]);
+          setMessages((prev) => {
+            const combined = [...data.data, ...prev];
+            return combined.length > MAX_MESSAGES ? combined.slice(-MAX_MESSAGES) : combined;
+          });
         } else {
           setMessages(data.data);
         }
@@ -259,6 +275,76 @@ export default function DeepAgentPage() {
     return null;
   }, [selectedModel]);
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
+
+      // Cmd/Ctrl+K: Open command palette
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setCommandPaletteOpen(true);
+        return;
+      }
+
+      // Cmd/Ctrl+N: New session
+      if ((e.metaKey || e.ctrlKey) && e.key === "n" && !e.shiftKey) {
+        e.preventDefault();
+        handleNewSession();
+        return;
+      }
+
+      // Cmd/Ctrl+Shift+M: Toggle memory browser
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "M") {
+        e.preventDefault();
+        togglePanel("memory");
+        return;
+      }
+
+      // Cmd/Ctrl+Shift+S: Toggle skill browser
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "S") {
+        e.preventDefault();
+        togglePanel("skills");
+        return;
+      }
+
+      // Cmd/Ctrl+Shift+T: Toggle templates
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "T") {
+        e.preventDefault();
+        setShowTemplates(true);
+        return;
+      }
+
+      // Cmd/Ctrl+Shift+E: Export conversation
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "E") {
+        e.preventDefault();
+        // Trigger export via a custom event
+        window.dispatchEvent(new CustomEvent("deepagent:export"));
+        return;
+      }
+
+      // Cmd/Ctrl+Shift+I: Focus input bar
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "I") {
+        e.preventDefault();
+        inputBarRef.current?.focus();
+        return;
+      }
+
+      // Escape: Close modals/panels (only if not in input)
+      if (e.key === "Escape" && !isInput) {
+        if (commandPaletteOpen) {
+          setCommandPaletteOpen(false);
+        } else if (activePanel) {
+          setActivePanel(null);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleNewSession, togglePanel, commandPaletteOpen, activePanel]);
+
   const handleDeleteSession = useCallback(
     async (sessionId: string) => {
       try {
@@ -310,7 +396,10 @@ export default function DeepAgentPage() {
         fileChanges: [],
       };
 
-      setMessages((prev) => [...prev, userMessage, assistantMessage]);
+      setMessages((prev) => {
+        const updated = [...prev, userMessage, assistantMessage];
+        return updated.length > MAX_MESSAGES ? updated.slice(-MAX_MESSAGES) : updated;
+      });
       setIsStreaming(true);
       startStream(content, assistantMessageId);
     },
@@ -529,15 +618,59 @@ export default function DeepAgentPage() {
           <Separator orientation="vertical" className="h-5 mx-0.5" />
 
           {/* Utility buttons group */}
-          <Button
-            variant={activePanel === "interpreter" ? "secondary" : "ghost"}
-            size="sm"
-            className="h-7 px-2 text-xs gap-1"
-            onClick={() => togglePanel("interpreter")}
-            title="Code Interpreter"
-          >
-            <span className="hidden sm:inline">Interpreter</span>
-          </Button>
+            <Button
+              variant={activePanel === "interpreter" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-7 px-2 text-xs gap-1"
+              onClick={() => togglePanel("interpreter")}
+              title="Code Interpreter"
+            >
+              <span className="hidden sm:inline">Interpreter</span>
+            </Button>
+
+            <Button
+              variant={activePanel === "metrics" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-7 px-2 text-xs gap-1"
+              onClick={() => togglePanel("metrics")}
+              title="Performance Metrics"
+            >
+              <BarChart3 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Metrics</span>
+            </Button>
+
+            <Button
+              variant={activePanel === "batch-approvals" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-7 px-2 text-xs gap-1"
+              onClick={() => togglePanel("batch-approvals")}
+              title="Batch Approvals"
+            >
+              <Shield className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Batch Approvals</span>
+            </Button>
+
+            <Button
+              variant={activePanel === "trace" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-7 px-2 text-xs gap-1"
+              onClick={() => togglePanel("trace")}
+              title="Execution Trace"
+            >
+              <Activity className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Trace</span>
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs gap-1"
+              onClick={() => setShowTemplates(true)}
+              title="Session Templates"
+            >
+              <FileText className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Templates</span>
+            </Button>
 
           {compressionEvents.length > 0 && (
             <DeepAgentContextStatus compressionEvents={compressionEvents} />
@@ -667,6 +800,54 @@ export default function DeepAgentPage() {
           </div>
         )}
 
+        {activePanel === "metrics" && (
+          <div className="max-h-[600px] overflow-y-auto relative border-t border-border">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="absolute top-2 right-2 z-10 h-6 w-6 p-0"
+              onClick={() => setActivePanel(null)}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+            <div className="p-4">
+              <DeepAgentMetrics sessionId={selectedSessionId} />
+            </div>
+          </div>
+        )}
+
+        {activePanel === "batch-approvals" && (
+          <div className="max-h-[600px] overflow-y-auto relative border-t border-border">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="absolute top-2 right-2 z-10 h-6 w-6 p-0"
+              onClick={() => setActivePanel(null)}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+            <div className="p-4">
+              <DeepAgentBatchApproval sessionId={selectedSessionId} />
+            </div>
+          </div>
+        )}
+
+        {activePanel === "trace" && (
+          <div className="max-h-[600px] overflow-y-auto relative border-t border-border">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="absolute top-2 right-2 z-10 h-6 w-6 p-0"
+              onClick={() => setActivePanel(null)}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+            <div className="p-4">
+              <DeepAgentTraceViewer sessionId={selectedSessionId} />
+            </div>
+          </div>
+        )}
+
         {/* Input bar */}
         <DeepAgentInputBar
           onSend={handleSendMessage}
@@ -682,6 +863,33 @@ export default function DeepAgentPage() {
         onApprove={handleApprove}
         onReject={handleReject}
         isProcessing={isApproving}
+      />
+
+      {/* Templates modal */}
+      <DeepAgentTemplates
+        open={showTemplates}
+        onOpenChange={setShowTemplates}
+      />
+
+      {/* Command palette */}
+      <DeepAgentCommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        actions={{
+          onNewSession: handleNewSession,
+          onToggleMemory: () => togglePanel("memory"),
+          onToggleSkills: () => togglePanel("skills"),
+          onToggleMetrics: () => togglePanel("metrics"),
+          onToggleBatchApprovals: () => togglePanel("batch-approvals"),
+          onToggleTrace: () => togglePanel("trace"),
+          onToggleInterpreter: () => togglePanel("interpreter"),
+          onOpenTemplates: () => setShowTemplates(true),
+          onExportConversation: () => window.dispatchEvent(new CustomEvent("deepagent:export")),
+          onShareConversation: () => {/* handled by share button */},
+          onClearMessages: () => setMessages([]),
+          onFocusInput: () => inputBarRef.current?.focus(),
+          onOpenSettings: () => togglePanel("settings"),
+        }}
       />
     </DeepAgentChatLayout>
   );

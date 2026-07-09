@@ -53,10 +53,13 @@ export async function generateEmbedding(text: string): Promise<number[]> {
       model: "Xenova/all-MiniLM-L6-v2",
       text: truncatedText,
     });
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("NLP dispatch timeout after 30s")), 30000)
-    );
-    const embedding = await Promise.race([dispatchPromise, timeoutPromise]);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error("NLP dispatch timeout after 30s")), 30000);
+    });
+    const embedding = await Promise.race([dispatchPromise, timeoutPromise]).finally(() => {
+      if (timeoutId) clearTimeout(timeoutId);
+    });
 
     const elapsed = Date.now() - startTime;
     logger.debug("nlp.embedding.generated", {

@@ -11,11 +11,11 @@ import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { generateHypotheses } from "@/lib/ai/hypothesis-generator";
 import type { RecentAnalysis, ThemeWithMomentum } from "@/lib/ai/hypothesis-generator";
-import { runWithTraceAsync } from "@/lib/ai/trace-context";
 
 export const generateHypothesesFunction = inngest.createFunction(
   {
     id: "generate-hypotheses",
+    concurrency: { limit: 1, key: "generate-hypotheses" },
     triggers: [
       { event: "hypothesis/generate" },
       cron("0 3 * * 1"), // Monday 3:00 AM UTC
@@ -24,14 +24,8 @@ export const generateHypothesesFunction = inngest.createFunction(
     timeouts: { finish: "15m" },
   },
   async ({ step }) => {
-    return runWithTraceAsync(
-      {
-        sessionId: "hypothesis-generation",
-        traceName: "generate-hypotheses",
-      },
-      async () => {
-        const log = logger.child({ function: "generate-hypotheses" });
-        log.info("hypothesis_generation.start");
+    const log = logger.child({ function: "generate-hypotheses" });
+    log.info("hypothesis_generation.start");
 
     // Step 1: Get all companies with at least one signal
     const companies = await step.run("load-tracked-companies", async () => {
@@ -43,6 +37,7 @@ export const generateHypothesesFunction = inngest.createFunction(
           id: true,
           name: true,
         },
+        take: 500, // Limit to prevent memory issues
       });
     });
 
@@ -112,12 +107,6 @@ export const generateHypothesesFunction = inngest.createFunction(
                 momentum: true,
                 status: true,
                 clusterSummary: true,
-                clusterArticles: {
-                  select: {
-                    summary: true,
-                    signalCount: true,
-                  },
-                },
               },
               orderBy: { momentum: "desc" },
               take: 15,
@@ -129,10 +118,7 @@ export const generateHypothesesFunction = inngest.createFunction(
               momentum: t.momentum,
               status: t.status,
               clusterSummary: t.clusterSummary,
-              clusterArticles: t.clusterArticles.map((a) => ({
-                summary: a.summary,
-                signalCount: a.signalCount,
-              })),
+              clusterArticles: [], // Removed (Articles feature deprecated)
             }));
 
             companyLog.info("hypothesis_generation.data_loaded", {
@@ -207,8 +193,6 @@ export const generateHypothesesFunction = inngest.createFunction(
       companiesProcessed: companies.length,
       hypothesesCreated: totalHypotheses,
     };
-      } // close runWithTraceAsync callback
-    ); // close runWithTraceAsync
   }
 );
 

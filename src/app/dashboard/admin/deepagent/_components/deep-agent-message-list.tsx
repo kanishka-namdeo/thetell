@@ -133,6 +133,7 @@ export function DeepAgentMessageList({
   // Reset match index when search query changes
   useEffect(() => {
     if (searchQuery && currentMatchIndex >= searchMatches.length) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCurrentMatchIndex(0);
     }
   }, [searchQuery, searchMatches.length, currentMatchIndex]);

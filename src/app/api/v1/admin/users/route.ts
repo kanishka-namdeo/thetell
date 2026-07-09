@@ -64,7 +64,6 @@ export async function GET(request: NextRequest) {
         updatedAt: true,
         _count: {
           select: {
-            articles: true,
             watchedCompanies: true,
           },
         },

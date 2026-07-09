@@ -16,27 +16,23 @@ import Link from "next/link";
 export interface AdminOverviewData {
   totalUsers: number;
   totalSignals: number;
-  totalArticles: number;
   totalCompanies: number;
   usersToday: number;
   activeUsers: number;
-  activeInferences: number;
+  activeThemes: number;
   confirmedHypotheses: number;
   failedPipelineRuns: number;
   runningPipelineRuns: number;
   activeClusterCount: number;
-  recentInferences: Array<{
+  recentAnalyses: Array<{
     id: string;
     title: string;
-    status: string;
     confidence: number;
+    sentiment: string;
     createdAt: Date;
-    company: { id: string; name: string; slug: string };
+    company: { id: string; name: string; slug: string } | null;
   }>;
   themeStatusMap: Record<string, number>;
-  calibrationAccuracy: number | null;
-  calibratedInferences: number;
-  correctCalibrations: number;
   recentAuditLogs: Array<{
     id: string;
     action: string;
@@ -55,19 +51,16 @@ export function AdminOverviewTab({ data }: AdminOverviewTabProps) {
   const {
     totalUsers,
     totalSignals,
-    totalArticles,
     totalCompanies,
     usersToday,
     activeUsers,
-    activeInferences,
+    activeThemes,
     confirmedHypotheses,
     failedPipelineRuns,
     runningPipelineRuns,
     activeClusterCount,
-    recentInferences,
+    recentAnalyses,
     themeStatusMap,
-    calibrationAccuracy,
-    calibratedInferences,
     recentAuditLogs,
   } = data;
 
@@ -94,10 +87,10 @@ export function AdminOverviewTab({ data }: AdminOverviewTabProps) {
           icon="BarChart3"
         />
         <StatCard
-          title="Articles"
-          value={totalArticles}
-          description="Published reports"
-          icon="FileText"
+          title="Companies"
+          value={totalCompanies}
+          description="Monitored organizations"
+          icon="Building2"
         />
         <StatCard
           title="Active Clusters"
@@ -106,9 +99,9 @@ export function AdminOverviewTab({ data }: AdminOverviewTabProps) {
           icon="Layers"
         />
         <StatCard
-          title="Active Inferences"
-          value={activeInferences}
-          description="Emerging + Developing"
+          title="Active Themes"
+          value={activeThemes}
+          description="Emerging + Accelerating"
           icon="Brain"
         />
         <StatCard
@@ -162,41 +155,43 @@ export function AdminOverviewTab({ data }: AdminOverviewTabProps) {
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg flex items-center gap-2">
               <Brain className="h-5 w-5" />
-              Intelligence Activity
+              Recent Analyses
             </CardTitle>
             <Badge variant="outline" className="text-xs">
-              Last 5 inferences
+              Last 5 analyses
             </Badge>
           </div>
         </CardHeader>
         <CardContent>
-          {recentInferences.length === 0 ? (
+          {recentAnalyses.length === 0 ? (
             <p className="text-sm text-muted-foreground font-body">
-              No recent inferences yet.
+              No recent analyses yet.
             </p>
           ) : (
             <div className="space-y-3">
-              {recentInferences.map((inference) => (
+              {recentAnalyses.map((analysis) => (
                 <div
-                  key={inference.id}
+                  key={analysis.id}
                   className="flex items-start justify-between border-l-2 border-foreground pl-3 py-1"
                 >
                   <div className="flex-1">
-                    <p className="text-sm font-medium">{inference.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {inference.company.name}
-                    </p>
+                    <p className="text-sm font-medium">{analysis.title}</p>
+                    {analysis.company && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {analysis.company.name}
+                      </p>
+                    )}
                     <div className="flex items-center gap-2 mt-1">
                       <Badge variant="outline" className="text-xs">
-                        {inference.status}
+                        {analysis.sentiment}
                       </Badge>
                       <span className="text-xs font-mono text-muted-foreground">
-                        {(inference.confidence * 100).toFixed(0)}% confidence
+                        {(analysis.confidence * 100).toFixed(0)}% confidence
                       </span>
                     </div>
                   </div>
                   <time className="text-xs font-mono text-muted-foreground whitespace-nowrap ml-4">
-                    {new Date(inference.createdAt).toLocaleString("en-US", {
+                    {new Date(analysis.createdAt).toLocaleString("en-US", {
                       month: "short",
                       day: "numeric",
                       hour: "2-digit",
@@ -233,35 +228,6 @@ export function AdminOverviewTab({ data }: AdminOverviewTabProps) {
                 <p className="text-2xl font-serif font-bold">{count}</p>
               </div>
             ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Calibration Accuracy */}
-      <Card className="border-2 border-foreground">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5" />
-              Calibration Accuracy
-            </CardTitle>
-            <Badge variant="outline" className="text-xs">
-              Prediction accuracy
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-1">
-            <p className="text-2xl font-serif font-bold">
-              {calibrationAccuracy !== null
-                ? `${calibrationAccuracy.toFixed(1)}%`
-                : "N/A"}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {calibratedInferences > 0
-                ? `Based on ${calibratedInferences} calibrated predictions`
-                : "No calibrated predictions yet"}
-            </p>
           </div>
         </CardContent>
       </Card>
@@ -414,10 +380,10 @@ export function AdminOverviewTab({ data }: AdminOverviewTabProps) {
                 Content
               </p>
               <p className="text-2xl font-serif font-bold">
-                {totalSignals + totalArticles}
+                {totalSignals}
               </p>
               <p className="text-xs text-muted-foreground">
-                {totalSignals} signals • {totalArticles} articles
+                {totalSignals} signals
               </p>
             </div>
             <div className="space-y-1">

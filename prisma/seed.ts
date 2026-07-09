@@ -12,7 +12,6 @@ import { RssScraper } from "../src/lib/scraping/rss-scraper";
 import { getFeedsByCompanyId } from "../src/lib/scraping/feed-registry";
 import { analyzeSignalWithAgent } from "../src/lib/ai/agent/pipeline";
 import type { CrossRefAnalysis } from "../src/lib/ai/agent/pipeline";
-import { generateArticleWithAgent } from "../src/lib/ai/agent/article-generator";
 import { ANALYST_CONFIG, GOSSIP_GIRL_CONFIG } from "../src/lib/ai/agent/personas";
 
 const adapter = new PrismaPg(process.env.DATABASE_URL!);
@@ -380,7 +379,7 @@ async function main() {
 
       try {
         console.log("    Running Analyst agent...");
-        const analystResult = await analyzeSignalWithAgent(
+        const { analysis: analystResult } = await analyzeSignalWithAgent(
           signalInput,
           ANALYST_CONFIG,
           undefined,
@@ -427,7 +426,7 @@ async function main() {
           },
         ];
 
-        const gossipResult = await analyzeSignalWithAgent(
+        const { analysis: gossipResult } = await analyzeSignalWithAgent(
           signalInput,
           GOSSIP_GIRL_CONFIG,
           crossRefAnalyses,
@@ -498,148 +497,15 @@ async function main() {
     console.log(
       `\n  Analysis complete: ${analyzedCount} signals analyzed, ${analysisFailedCount} failed.\n`
     );
-
-    // ─── 5. Generate dual-agent articles per company ───────────────────────
-    console.log("Step 5: Generating dual-agent articles per company...");
-    let articlesGenerated = 0;
-
-    const grouped = new Map<
-      string,
-      { companyName: string; results: DualAgentResult[] }
-    >();
-    for (const r of dualResults) {
-      if (!grouped.has(r.companyId)) {
-        grouped.set(r.companyId, { companyName: r.companyName, results: [] });
-      }
-      grouped.get(r.companyId)!.results.push(r);
-    }
-
-    for (const [companyId, group] of grouped) {
-      if (group.results.length < 2) {
-        console.log(
-          `  ${group.companyName}: Only ${group.results.length} analysis(es), need 2+ for article. Skipping.`
-        );
-        continue;
-      }
-
-      const analysesInput = group.results.map((r) => ({
-        summary: r.analyst.summary,
-        keyFacts: r.analyst.keyFacts as Array<{ text: string }>,
-        sentiment: r.analyst.sentiment,
-        strategicThemes: r.analyst.strategicThemes as Array<{ label: string }>,
-      }));
-
-      // Analyst article
-      console.log(
-        `\n  Generating Analyst article for ${group.companyName} (${group.results.length} signals)...`
-      );
-      try {
-        const gossipCrossRefForAnalyst = group.results.map((r) => ({
-          summary: r.gossipGirl.summary,
-          agentPersona: "GOSSIP_GIRL" as const,
-          keyFacts: r.gossipGirl.keyFacts.map((f) => f.text),
-        }));
-
-        const analystArticle = await generateArticleWithAgent(
-          {
-            companyId,
-            companyName: group.companyName,
-            analyses: analysesInput,
-          },
-          ANALYST_CONFIG,
-          gossipCrossRefForAnalyst,
-          hasOpenAI ? "openai" : "anthropic"
-        );
-
-        await prisma.article.create({
-          data: {
-            title: analystArticle.title,
-            slug: analystArticle.slug,
-            summary: analystArticle.summary,
-            body: analystArticle.body,
-            companyId,
-            agentPersona: "ANALYST",
-            analysisIds: group.results.map((r) => r.signalId),
-            status: "PUBLISHED",
-            authorId: adminUser.id,
-            publishedAt: new Date(),
-          },
-        });
-
-        console.log(`  -> Analyst article: "${analystArticle.title}"`);
-        articlesGenerated++;
-        await delay(DELAY_BETWEEN_LLM_CALLS_MS);
-      } catch (articleError) {
-        console.log(
-          `  -> ANALYST ARTICLE FAILED: ${articleError instanceof Error ? articleError.message : String(articleError)}`
-        );
-      }
-
-      // Gossip Girl article
-      console.log(`  Generating Gossip Girl article for ${group.companyName}...`);
-      try {
-        const gossipAnalysesInput = group.results.map((r) => ({
-          summary: r.gossipGirl.summary,
-          keyFacts: r.gossipGirl.keyFacts as Array<{ text: string }>,
-          sentiment: r.gossipGirl.sentiment,
-          strategicThemes: r.gossipGirl.strategicThemes as Array<{
-            label: string;
-          }>,
-        }));
-
-        const analystCrossRefForGossip = group.results.map((r) => ({
-          summary: r.analyst.summary,
-          agentPersona: "ANALYST" as const,
-          keyFacts: r.analyst.keyFacts.map((f) => f.text),
-        }));
-
-        const gossipArticle = await generateArticleWithAgent(
-          {
-            companyId,
-            companyName: group.companyName,
-            analyses: gossipAnalysesInput,
-          },
-          GOSSIP_GIRL_CONFIG,
-          analystCrossRefForGossip,
-          hasOpenAI ? "openai" : "anthropic"
-        );
-
-        await prisma.article.create({
-          data: {
-            title: gossipArticle.title,
-            slug: gossipArticle.slug,
-            summary: gossipArticle.summary,
-            body: gossipArticle.body,
-            companyId,
-            agentPersona: "GOSSIP_GIRL",
-            analysisIds: group.results.map((r) => r.signalId),
-            status: "PUBLISHED",
-            authorId: adminUser.id,
-            publishedAt: new Date(),
-          },
-        });
-
-        console.log(`  -> Gossip Girl article: "${gossipArticle.title}"`);
-        articlesGenerated++;
-        await delay(DELAY_BETWEEN_LLM_CALLS_MS);
-      } catch (articleError) {
-        console.log(
-          `  -> GOSSIP GIRL ARTICLE FAILED: ${articleError instanceof Error ? articleError.message : String(articleError)}`
-        );
-      }
-    }
-
-    console.log(`\n  Articles generated: ${articlesGenerated}\n`);
   }
 
-  // ─── 6. Summary ──────────────────────────────────────────────────────────
+  // ─── 5. Summary ──────────────────────────────────────────────────────────
   console.log("=== Seed Complete ===");
   console.log(`  Users:              ${await prisma.user.count()}`);
   console.log(`  Companies:          ${await prisma.company.count()}`);
   console.log(`  Signals (total):    ${await prisma.signal.count()}`);
   console.log(`  Signals (bootstrap):${await prisma.signal.count({ where: { dataOrigin: DataOrigin.BOOTSTRAP } })}`);
   console.log(`  Analyses:           ${await prisma.analysis.count()}`);
-  console.log(`  Articles:           ${await prisma.article.count()}`);
 }
 
 main()

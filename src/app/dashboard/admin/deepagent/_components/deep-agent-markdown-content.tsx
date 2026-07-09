@@ -132,25 +132,15 @@ export function DeepAgentMarkdownContent({ content, className }: DeepAgentMarkdo
     return null;
   }
   
-  try {
-    return (
-      <div className={cn("prose-compact text-sm text-foreground", className)}>
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeHighlight]}
-          components={components}
-        >
-          {content}
-        </ReactMarkdown>
-      </div>
-    );
-  } catch (error) {
-    logger.error("deepagent.markdown_render_error", { error: String(error) });
-    // Fallback to plain text
-    return (
-      <div className={cn("text-sm text-foreground whitespace-pre-wrap", className)}>
+  return (
+    <div className={cn("prose-compact text-sm text-foreground", className)}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+        components={components}
+      >
         {content}
-      </div>
-    );
-  }
+      </ReactMarkdown>
+    </div>
+  );
 }

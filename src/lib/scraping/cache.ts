@@ -56,15 +56,19 @@ export class TTLCache<T = unknown> {
     const content = JSON.stringify(value);
 
     try {
-      // Check cache size and evict oldest entries if needed
+      // Check cache size and evict oldest 10% in one batch if needed
       const count = await prisma.scrapeCache.count();
       if (count >= MAX_CACHE_SIZE) {
-        const oldest = await prisma.scrapeCache.findFirst({
+        const toDelete = Math.ceil(MAX_CACHE_SIZE * 0.1);
+        const oldestEntries = await prisma.scrapeCache.findMany({
           orderBy: { createdAt: "asc" },
+          take: toDelete,
           select: { url: true },
         });
-        if (oldest) {
-          await prisma.scrapeCache.delete({ where: { url: oldest.url } });
+        if (oldestEntries.length > 0) {
+          await prisma.scrapeCache.deleteMany({
+            where: { url: { in: oldestEntries.map((e) => e.url) } },
+          });
         }
       }
 

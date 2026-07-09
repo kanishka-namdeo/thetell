@@ -47,14 +47,14 @@ export async function identifyThemesWithPrompt<T extends z.ZodTypeAny>(
   providerName: ProviderName = "openai",
   temperature: number = 0.4,
   model?: string
-): Promise<z.infer<T>> {
+): Promise<{ data: z.infer<T>; usage: { inputTokens: number; outputTokens: number } }> {
   const { provider } = getProviderWithFailover(providerName);
 
   logger.debug("analysis.themes.custom.start", {
     provider: providerName,
   });
 
-  const result = await provider.completeStructured(messages, schema, {
+  const result = await provider.completeStructuredWithUsage(messages, schema, {
     model,
     temperature,
   });
@@ -63,5 +63,5 @@ export async function identifyThemesWithPrompt<T extends z.ZodTypeAny>(
     provider: providerName,
   });
 
-  return result as z.infer<T>;
+  return { data: result.data as z.infer<T>, usage: result.usage };
 }

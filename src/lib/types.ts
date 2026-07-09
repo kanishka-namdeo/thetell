@@ -3,7 +3,6 @@ export type {
   Company,
   Signal,
   Analysis,
-  Article,
   Session,
   Account,
 } from "@prisma/client";
@@ -13,7 +12,6 @@ export type {
   SourceType,
   SignalStatus,
   Sentiment,
-  ArticleStatus,
 } from "@prisma/client";
 
 export interface PaginatedResponse<T> {

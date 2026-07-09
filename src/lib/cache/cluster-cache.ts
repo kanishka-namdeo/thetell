@@ -95,16 +95,13 @@ class ClusterCache {
   }
 
   private evictOldest(): void {
-    let oldestKey: string | null = null;
-    let oldestExpires = Number.POSITIVE_INFINITY;
-    for (const [key, entry] of this.store.entries()) {
-      if (entry.expiresAt < oldestExpires) {
-        oldestExpires = entry.expiresAt;
-        oldestKey = key;
-      }
-    }
-    if (oldestKey) {
-      this.store.delete(oldestKey);
+    const toEvict = Math.max(1, Math.ceil(this.maxEntries * 0.1));
+    const entries = Array.from(this.store.entries())
+      .sort((a, b) => a[1].expiresAt - b[1].expiresAt)
+      .slice(0, toEvict);
+
+    for (const [key] of entries) {
+      this.store.delete(key);
       this.evictions++;
     }
   }

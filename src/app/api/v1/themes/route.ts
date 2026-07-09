@@ -24,7 +24,7 @@ export async function GET(req: Request) {
       where,
       include: {
         company: { select: { id: true, name: true, ticker: true, slug: true } },
-        _count: { select: { signals: true, inferences: true } },
+        _count: { select: { signals: true } },
       },
       orderBy: { lastUpdated: "desc" },
       take: limit + 1,

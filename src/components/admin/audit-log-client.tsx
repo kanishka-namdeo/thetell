@@ -88,7 +88,10 @@ export function AuditLogClient() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchLogs();
     return () => controllerRef.current?.abort();
-  }, [actionFilter, fetchLogs]);
+    // fetchLogs is intentionally omitted: search changes are handled by the
+    // debounced effect below to avoid double-fetching.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actionFilter]);
 
   useEffect(() => {
     if (isInitialMount.current) {

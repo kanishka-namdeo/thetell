@@ -176,15 +176,6 @@ async function generateSummary(
 // INCREMENTAL UPDATE — merge new signal's analysis into existing cluster
 // =============================================================================
 
-/** Thresholds that trigger cluster article regeneration */
-const ARTICLE_REGEN_THRESHOLDS = [3, 5, 10, 20, 50];
-
-/** Minimum novel facts to trigger article regeneration */
-const NOVEL_FACT_THRESHOLD = 3;
-
-/** Minimum novel themes to trigger article regeneration */
-const NOVEL_THEME_THRESHOLD = 1;
-
 /** Similarity threshold for fact deduplication */
 const FACT_DEDUP_SIMILARITY = 0.85;
 
@@ -193,7 +184,6 @@ const THEME_DEDUP_SIMILARITY = 0.80;
 
 export interface IncrementalUpdateResult {
   updatedSummary: Record<string, unknown>;
-  regenerateArticle: boolean;
   novelFactsAdded: number;
   novelThemesAdded: number;
   previousSignalCount: number;
@@ -264,9 +254,25 @@ export async function updateClusterWithSignal(
 
   // Generate embeddings for novel facts and cache them alongside facts
   const novelFactEmbeddings = await Promise.all(
-    novelFacts.map((f) => generateEmbedding(f.text))
-  );
-  const updatedFactEmbeddings = [...existingFactEmbeddings, ...novelFactEmbeddings];
+    novelFacts.map((f) =>
+      Promise.race([
+        generateEmbedding(f.text),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Embedding timeout for fact: ${f.text.slice(0, 50)}`)), 35000)
+        )
+      ])
+    )
+  ).catch((err) => {
+    log.warn("cluster_update.embedding_timeout", { error: String(err) });
+    return [];
+  });
+  
+  // Cap fact embeddings at 500 to prevent unbounded growth
+  const MAX_FACT_EMBEDDINGS = 500;
+  const allFactEmbeddings = [...existingFactEmbeddings, ...novelFactEmbeddings];
+  const updatedFactEmbeddings = allFactEmbeddings.length > MAX_FACT_EMBEDDINGS
+    ? allFactEmbeddings.slice(allFactEmbeddings.length - MAX_FACT_EMBEDDINGS)
+    : allFactEmbeddings;
 
   const updatedThemes = [
     ...existingThemes,
@@ -290,33 +296,33 @@ export async function updateClusterWithSignal(
     ),
   };
 
-  // Determine if article regeneration is needed
-  const previousCount = previousSignalCount;
-  const newCount = signalAlreadyInCluster ? previousSignalCount : previousSignalCount + 1;
-  const crossedThreshold = ARTICLE_REGEN_THRESHOLDS.some(
-    (t) => previousCount < t && newCount >= t
-  );
-  const enoughNovelFacts = novelFacts.length >= NOVEL_FACT_THRESHOLD;
-  const enoughNovelThemes = novelThemes.length >= NOVEL_THEME_THRESHOLD;
-  const regenerateArticle = crossedThreshold || enoughNovelFacts || enoughNovelThemes;
-
-  // Update the database
-  await prisma.signalTheme.update({
-    where: { id: themeId },
-    data: {
-      clusterSummary: JSON.parse(JSON.stringify(updatedSummary)),
-      lastAnalyzedAt: new Date(),
-      lastUpdated: new Date(),
-    },
-  });
-
-  // Link signal to cluster (only if not already linked)
-  if (!signalAlreadyInCluster) {
-    await prisma.signal.update({
-      where: { id: signalId },
-      data: { clusterId: themeId },
+  // Update the database with optimistic locking
+  const snapshotUpdatedAt = theme.lastUpdated;
+  
+  // Wrap cluster summary update and signal linking in a transaction
+  await prisma.$transaction(async (tx) => {
+    const updateResult = await tx.signalTheme.updateMany({
+      where: { id: themeId, lastUpdated: snapshotUpdatedAt },
+      data: {
+        clusterSummary: JSON.parse(JSON.stringify(updatedSummary)),
+        lastAnalyzedAt: new Date(),
+        lastUpdated: new Date(),
+      },
     });
-  }
+
+    if (updateResult.count === 0) {
+      log.warn("cluster_incremental_update.optimistic_lock_failed");
+      throw new Error("Optimistic lock failed: cluster was updated concurrently");
+    }
+
+    // Link signal to cluster (only if not already linked)
+    if (!signalAlreadyInCluster) {
+      await tx.signal.update({
+        where: { id: signalId },
+        data: { clusterId: themeId },
+      });
+    }
+  });
 
   // Invalidate cache
   clusterCache.invalidate(clusterSummaryKey(themeId));
@@ -328,14 +334,11 @@ export async function updateClusterWithSignal(
     newSignalCount: finalSignalCount,
     novelFactsAdded: novelFacts.length,
     novelThemesAdded: novelThemes.length,
-    regenerateArticle,
-    crossedThreshold,
     signalAlreadyInCluster,
   });
 
   return {
     updatedSummary,
-    regenerateArticle,
     novelFactsAdded: novelFacts.length,
     novelThemesAdded: novelThemes.length,
     previousSignalCount,
@@ -355,8 +358,15 @@ async function deduplicateFacts(
   if (existingFacts.length === 0) return newFacts;
 
   const newEmbeddings = await Promise.all(
-    newFacts.map((f) => generateEmbedding(f.text))
-  );
+    newFacts.map((f) =>
+      Promise.race([
+        generateEmbedding(f.text),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Embedding timeout for fact: ${f.text.slice(0, 50)}`)), 35000)
+        )
+      ])
+    )
+  ).catch(() => []);
 
   return newFacts.filter((newFact, newIdx) => {
     const newEmbedding = newEmbeddings[newIdx];

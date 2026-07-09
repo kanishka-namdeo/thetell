@@ -86,11 +86,22 @@ export async function detectContradictions(
 
     const contradictions: Contradiction[] = [];
 
+    // Cap facts to prevent O(n^2) blowup with many signals
+    const MAX_FACTS_FOR_COMPARISON = 500;
+    let cappedFactsBySignal = factsBySignal;
+    if (factsBySignal.length > MAX_FACTS_FOR_COMPARISON) {
+      log.info("contradiction_detection.facts_capped", {
+        originalCount: factsBySignal.length,
+        cappedCount: MAX_FACTS_FOR_COMPARISON,
+      });
+      cappedFactsBySignal = factsBySignal.slice(0, MAX_FACTS_FOR_COMPARISON);
+    }
+
     // Compare all pairs of facts from different signals
-    for (let i = 0; i < factsBySignal.length; i++) {
-      for (let j = i + 1; j < factsBySignal.length; j++) {
-        const fact1 = factsBySignal[i];
-        const fact2 = factsBySignal[j];
+    for (let i = 0; i < cappedFactsBySignal.length; i++) {
+      for (let j = i + 1; j < cappedFactsBySignal.length; j++) {
+        const fact1 = cappedFactsBySignal[i];
+        const fact2 = cappedFactsBySignal[j];
 
         // Skip if from the same signal
         if (fact1.signalId === fact2.signalId) continue;

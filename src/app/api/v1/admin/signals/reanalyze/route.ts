@@ -235,6 +235,7 @@ export async function POST(req: NextRequest) {
     const targetSignals = await prisma.signal.findMany({
       where,
       select: { id: true, title: true, companyId: true, status: true },
+      take: 1000, // Limit to prevent memory issues
     });
 
     if (targetSignals.length === 0 && resetCount.count === 0) {

@@ -2,14 +2,14 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Search, X, FileText, Building2, BarChart3 } from "lucide-react";
+import { Search, X, Building2, BarChart3, Tag } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { logger } from "@/lib/logger";
 
 interface SearchResult {
   signals: Array<{ id: string; title: string; company: { id: string; name: string } }>;
   companies: Array<{ id: string; name: string; ticker: string | null }>;
-  articles: Array<{ id: string; title: string; company: { id: string; name: string } }>;
+  themes: Array<{ id: string; label: string; companyId: string; company: { name: string }; signalCount: number; momentum: number }>;
 }
 
 export function PublicSearch() {
@@ -73,7 +73,7 @@ export function PublicSearch() {
   };
 
   const totalResults = results
-    ? results.signals.length + results.companies.length + results.articles.length
+    ? results.signals.length + results.companies.length + results.themes.length
     : 0;
 
   return (
@@ -154,19 +154,20 @@ export function PublicSearch() {
             </div>
           )}
 
-          {!loading && results.articles.length > 0 && (
+          {!loading && results.themes.length > 0 && (
             <div>
               <div className="px-3 py-1.5 text-[11px] uppercase tracking-widest font-sans text-muted-foreground flex items-center gap-1.5">
-                <FileText className="h-3 w-3" /> Articles
+                <Tag className="h-3 w-3" /> Themes
               </div>
-              {results.articles.map((a) => (
+              {results.themes.map((t) => (
                 <button
-                  key={a.id}
-                  onClick={() => navigateTo(`/articles/${a.id}`)}
+                  key={t.id}
+                  onClick={() => navigateTo(`/dashboard/companies/${t.companyId}`)}
                   className="w-full text-left px-3 py-2 text-xs font-body hover:bg-muted transition-colors"
                 >
-                  <span className="font-medium">{a.title}</span>
-                  <span className="text-muted-foreground ml-2">· {a.company.name}</span>
+                  <span className="font-medium">{t.label}</span>
+                  <span className="text-muted-foreground ml-2">· {t.company.name}</span>
+                  <span className="text-muted-foreground ml-2">· {t.signalCount} signals</span>
                 </button>
               ))}
             </div>

@@ -10,7 +10,7 @@ export default async function NewSignalPage() {
   const companies = await prisma.company.findMany({
     include: {
       _count: {
-        select: { signals: true, articles: true },
+        select: { signals: true },
       },
     },
     orderBy: { name: "asc" },

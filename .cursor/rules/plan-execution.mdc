@@ -115,6 +115,26 @@ pnpm run build
 
 ---
 
+## Monitoring During Execution
+
+When executing multi-task plans, use `/loop` to catch regressions early:
+
+| When | /loop Command | Purpose |
+|---|---|---|
+| After modifying scraping/analysis code | `/loop 5m run pnpm run check:pipeline, report if stuck > 0` | Detect pipeline regressions |
+| During multi-file TypeScript changes | `/loop 10m run pnpm run typecheck, report new errors` | Catch type errors early |
+| After modifying background jobs | `/loop 5m run pnpm run check:events, report failed jobs` | Detect job failures |
+| Long-running implementation sessions | `/loop 30m check node process memory` | Detect memory leaks |
+
+**When NOT to use /loop**:
+- Single-file changes (just run verification directly)
+- Quick fixes (overhead exceeds value)
+- When you're actively writing code (wait until a task boundary)
+
+See the `dev-monitoring` skill for thresholds, remediation actions, and PowerShell patterns.
+
+---
+
 ## Post-Execution Checklist
 
 **Before marking complete**:

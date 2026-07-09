@@ -9,6 +9,20 @@ import { WebSearchScraper } from "@/lib/scraping/web-search-scraper";
 import { getProviderWithFailover } from "@/lib/ai/provider";
 import { SocialProfileSchema, type DiscoveredSocial } from "./types";
 
+const LLM_TIMEOUT_MS = 30_000;
+
+/**
+ * Wraps a promise with a timeout. Rejects if the promise doesn't resolve in time.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label}_timeout`)), ms)
+    ),
+  ]);
+}
+
 const SOCIAL_PLATFORM_PATTERNS: Array<{
   pattern: RegExp;
   platform: string;
@@ -179,20 +193,24 @@ async function searchForSocials(
       .join("\n");
 
     const { provider } = getProviderWithFailover("openai");
-    const extracted = await provider.completeStructured(
-      [
-        {
-          role: "system",
-          content:
-            "You are a research assistant. Extract social media profile URLs from the search results. Only include official company profiles.",
-        },
-        {
-          role: "user",
-          content: `Extract social media profiles for "${companyName}" from these search results. Return your response as JSON with a "profiles" array, each containing url (string) and platform (string).\n\n${resultText}\n\nReturn only confirmed official profiles.`,
-        },
-      ],
-      SocialProfileSchema,
-      { temperature: 0.2 }
+    const extracted = await withTimeout(
+      provider.completeStructured(
+        [
+          {
+            role: "system",
+            content:
+              "You are a research assistant. Extract social media profile URLs from the search results. Only include official company profiles.",
+          },
+          {
+            role: "user",
+            content: `Extract social media profiles for "${companyName}" from these search results. Return your response as JSON with a "profiles" array, each containing url (string) and platform (string).\n\n${resultText}\n\nReturn only confirmed official profiles.`,
+          },
+        ],
+        SocialProfileSchema,
+        { temperature: 0.2 }
+      ),
+      LLM_TIMEOUT_MS,
+      "social_discovery_llm"
     );
 
     return extracted.profiles.map((p: { url: string; handle?: string }) => {

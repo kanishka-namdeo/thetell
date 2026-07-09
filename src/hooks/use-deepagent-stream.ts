@@ -52,6 +52,7 @@ interface UseDeepAgentStreamReturn {
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 const BASE_RECONNECT_DELAY = 1000;
+const MAX_SEEN_EVENTS = 1000;
 
 export function useDeepAgentStream({
   sessionId,
@@ -145,7 +146,8 @@ export function useDeepAgentStream({
       reconnectAttemptsRef.current = 0;
       lastSeenSeqRef.current = 0;
       seenEventIdsRef.current.clear();
-      accumulatedContentRef.current = "";
+      // Note: accumulatedContentRef is NOT cleared here — startStream()
+      // already set it to the user's message before calling this function.
       toolCallsRef.current = [];
       fileChangesRef.current = [];
       doneReceivedRef.current = false;
@@ -184,7 +186,13 @@ export function useDeepAgentStream({
         const data = JSON.parse(event.data);
         if (data._seq) lastSeenSeqRef.current = data._seq;
         if (data._eventId && seenEventIdsRef.current.has(data._eventId)) return;
-        if (data._eventId) seenEventIdsRef.current.add(data._eventId);
+        if (data._eventId) {
+          if (seenEventIdsRef.current.size >= MAX_SEEN_EVENTS) {
+            const arr = Array.from(seenEventIdsRef.current);
+            seenEventIdsRef.current = new Set(arr.slice(arr.length / 2));
+          }
+          seenEventIdsRef.current.add(data._eventId);
+        }
 
         if (data.text) {
           accumulatedContentRef.current += data.text;
@@ -203,7 +211,13 @@ export function useDeepAgentStream({
         const data = JSON.parse(event.data);
         if (data._seq) lastSeenSeqRef.current = data._seq;
         if (data._eventId && seenEventIdsRef.current.has(data._eventId)) return;
-        if (data._eventId) seenEventIdsRef.current.add(data._eventId);
+        if (data._eventId) {
+          if (seenEventIdsRef.current.size >= MAX_SEEN_EVENTS) {
+            const arr = Array.from(seenEventIdsRef.current);
+            seenEventIdsRef.current = new Set(arr.slice(arr.length / 2));
+          }
+          seenEventIdsRef.current.add(data._eventId);
+        }
 
         if (data.toolCalls) {
           for (const tc of data.toolCalls) {
@@ -236,7 +250,13 @@ export function useDeepAgentStream({
         const data = JSON.parse(event.data);
         if (data._seq) lastSeenSeqRef.current = data._seq;
         if (data._eventId && seenEventIdsRef.current.has(data._eventId)) return;
-        if (data._eventId) seenEventIdsRef.current.add(data._eventId);
+        if (data._eventId) {
+          if (seenEventIdsRef.current.size >= MAX_SEEN_EVENTS) {
+            const arr = Array.from(seenEventIdsRef.current);
+            seenEventIdsRef.current = new Set(arr.slice(arr.length / 2));
+          }
+          seenEventIdsRef.current.add(data._eventId);
+        }
 
         const structuredResponse: DeepAgentStructuredResponse = {
           schemaId: data.schemaId,
@@ -256,7 +276,13 @@ export function useDeepAgentStream({
         const data = JSON.parse(event.data);
         if (data._seq) lastSeenSeqRef.current = data._seq;
         if (data._eventId && seenEventIdsRef.current.has(data._eventId)) return;
-        if (data._eventId) seenEventIdsRef.current.add(data._eventId);
+        if (data._eventId) {
+          if (seenEventIdsRef.current.size >= MAX_SEEN_EVENTS) {
+            const arr = Array.from(seenEventIdsRef.current);
+            seenEventIdsRef.current = new Set(arr.slice(arr.length / 2));
+          }
+          seenEventIdsRef.current.add(data._eventId);
+        }
 
         if (data.fileChanges) {
           for (const fc of data.fileChanges) {
@@ -282,7 +308,13 @@ export function useDeepAgentStream({
         const data = JSON.parse(event.data);
         if (data._seq) lastSeenSeqRef.current = data._seq;
         if (data._eventId && seenEventIdsRef.current.has(data._eventId)) return;
-        if (data._eventId) seenEventIdsRef.current.add(data._eventId);
+        if (data._eventId) {
+          if (seenEventIdsRef.current.size >= MAX_SEEN_EVENTS) {
+            const arr = Array.from(seenEventIdsRef.current);
+            seenEventIdsRef.current = new Set(arr.slice(arr.length / 2));
+          }
+          seenEventIdsRef.current.add(data._eventId);
+        }
 
         if (data.task) {
           const task: DeepAgentTaskEvent = {
@@ -309,7 +341,13 @@ export function useDeepAgentStream({
         const data = JSON.parse(event.data);
         if (data._seq) lastSeenSeqRef.current = data._seq;
         if (data._eventId && seenEventIdsRef.current.has(data._eventId)) return;
-        if (data._eventId) seenEventIdsRef.current.add(data._eventId);
+        if (data._eventId) {
+          if (seenEventIdsRef.current.size >= MAX_SEEN_EVENTS) {
+            const arr = Array.from(seenEventIdsRef.current);
+            seenEventIdsRef.current = new Set(arr.slice(arr.length / 2));
+          }
+          seenEventIdsRef.current.add(data._eventId);
+        }
 
         if (data.id) {
           const subagent: DeepAgentSubagentEvent = {
@@ -336,7 +374,13 @@ export function useDeepAgentStream({
         const data = JSON.parse(event.data);
         if (data._seq) lastSeenSeqRef.current = data._seq;
         if (data._eventId && seenEventIdsRef.current.has(data._eventId)) return;
-        if (data._eventId) seenEventIdsRef.current.add(data._eventId);
+        if (data._eventId) {
+          if (seenEventIdsRef.current.size >= MAX_SEEN_EVENTS) {
+            const arr = Array.from(seenEventIdsRef.current);
+            seenEventIdsRef.current = new Set(arr.slice(arr.length / 2));
+          }
+          seenEventIdsRef.current.add(data._eventId);
+        }
 
         if (data.subagentId && data.text) {
           const subagent = subagentsRef.current.get(data.subagentId);
@@ -365,7 +409,13 @@ export function useDeepAgentStream({
         const data = JSON.parse(event.data);
         if (data._seq) lastSeenSeqRef.current = data._seq;
         if (data._eventId && seenEventIdsRef.current.has(data._eventId)) return;
-        if (data._eventId) seenEventIdsRef.current.add(data._eventId);
+        if (data._eventId) {
+          if (seenEventIdsRef.current.size >= MAX_SEEN_EVENTS) {
+            const arr = Array.from(seenEventIdsRef.current);
+            seenEventIdsRef.current = new Set(arr.slice(arr.length / 2));
+          }
+          seenEventIdsRef.current.add(data._eventId);
+        }
 
         if (data.subagentId) {
           const subagent = subagentsRef.current.get(data.subagentId);
@@ -398,7 +448,13 @@ export function useDeepAgentStream({
         const data = JSON.parse(event.data);
         if (data._seq) lastSeenSeqRef.current = data._seq;
         if (data._eventId && seenEventIdsRef.current.has(data._eventId)) return;
-        if (data._eventId) seenEventIdsRef.current.add(data._eventId);
+        if (data._eventId) {
+          if (seenEventIdsRef.current.size >= MAX_SEEN_EVENTS) {
+            const arr = Array.from(seenEventIdsRef.current);
+            seenEventIdsRef.current = new Set(arr.slice(arr.length / 2));
+          }
+          seenEventIdsRef.current.add(data._eventId);
+        }
 
         if (data.subagentId) {
           const subagent = subagentsRef.current.get(data.subagentId);
@@ -428,7 +484,13 @@ export function useDeepAgentStream({
         const data = JSON.parse(event.data);
         if (data._seq) lastSeenSeqRef.current = data._seq;
         if (data._eventId && seenEventIdsRef.current.has(data._eventId)) return;
-        if (data._eventId) seenEventIdsRef.current.add(data._eventId);
+        if (data._eventId) {
+          if (seenEventIdsRef.current.size >= MAX_SEEN_EVENTS) {
+            const arr = Array.from(seenEventIdsRef.current);
+            seenEventIdsRef.current = new Set(arr.slice(arr.length / 2));
+          }
+          seenEventIdsRef.current.add(data._eventId);
+        }
 
         if (data.id) {
           const subagent = subagentsRef.current.get(data.id);
@@ -451,7 +513,13 @@ export function useDeepAgentStream({
         const data = JSON.parse(event.data);
         if (data._seq) lastSeenSeqRef.current = data._seq;
         if (data._eventId && seenEventIdsRef.current.has(data._eventId)) return;
-        if (data._eventId) seenEventIdsRef.current.add(data._eventId);
+        if (data._eventId) {
+          if (seenEventIdsRef.current.size >= MAX_SEEN_EVENTS) {
+            const arr = Array.from(seenEventIdsRef.current);
+            seenEventIdsRef.current = new Set(arr.slice(arr.length / 2));
+          }
+          seenEventIdsRef.current.add(data._eventId);
+        }
 
         const compressionEvent: DeepAgentCompressionEvent = {
           type: data.compressionType as DeepAgentCompressionType,
@@ -493,7 +561,13 @@ export function useDeepAgentStream({
         const data = JSON.parse(event.data);
         if (data._seq) lastSeenSeqRef.current = data._seq;
         if (data._eventId && seenEventIdsRef.current.has(data._eventId)) return;
-        if (data._eventId) seenEventIdsRef.current.add(data._eventId);
+        if (data._eventId) {
+          if (seenEventIdsRef.current.size >= MAX_SEEN_EVENTS) {
+            const arr = Array.from(seenEventIdsRef.current);
+            seenEventIdsRef.current = new Set(arr.slice(arr.length / 2));
+          }
+          seenEventIdsRef.current.add(data._eventId);
+        }
 
         const errorMessage = data.error || "Stream error";
         onStreamErrorRef.current(assistantMessageId, errorMessage);

@@ -8,17 +8,14 @@ export default async function DashboardPage() {
   const [
     signalCount,
     companyCount,
-    articleCount,
     recentSignals,
     avgConfidence,
     activeClusterCount,
-    recentArticles,
     sentimentCounts,
     topInsights,
   ] = await Promise.all([
     prisma.signal.count(),
     prisma.company.count(),
-    prisma.article.count(),
     prisma.signal.findMany({
       take: 5,
       orderBy: { scrapedAt: "desc" },
@@ -32,11 +29,6 @@ export default async function DashboardPage() {
     }),
     prisma.signalTheme.count({
       where: { status: { in: ["EMERGING", "ACCELERATING"] } },
-    }),
-    prisma.article.findMany({
-      take: 3,
-      orderBy: { publishedAt: "desc" },
-      include: { company: true },
     }),
     prisma.analysis.groupBy({
       by: ["sentiment"],
@@ -58,7 +50,6 @@ export default async function DashboardPage() {
   const overviewData: OverviewData = {
     signalCount,
     companyCount,
-    articleCount,
     avgConfidence: avgConfidence._avg.confidence || 0,
     activeClusterCount,
     sentimentCounts,
@@ -79,13 +70,6 @@ export default async function DashboardPage() {
       scrapedAt: s.scrapedAt,
       company: { name: s.company.name },
       analyses: s.analyses.map((a) => ({ confidence: a.confidence })),
-    })),
-    recentArticles: recentArticles.map((a) => ({
-      id: a.id,
-      title: a.title,
-      status: a.status,
-      publishedAt: a.publishedAt,
-      company: { name: a.company.name },
     })),
   };
 

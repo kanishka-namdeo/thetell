@@ -27,7 +27,6 @@ export interface CompanyWithCounts {
   isWatched?: boolean;
   _count: {
     signals: number;
-    articles: number;
   };
 }
 
@@ -55,7 +54,6 @@ export interface SignalWithRelations {
   };
   analyses: AnalysisData[];
   cluster?: { id: string; label: string } | null;
-  inferences?: Array<{ id: string }>;
   themes?: Array<{ id: string; label: string }>;
 }
 
@@ -85,28 +83,3 @@ export interface StrategicTheme {
   correlationHints?: string[];
 }
 
-export interface ArticleWithRelations {
-  id: string;
-  title: string;
-  slug: string;
-  summary: string;
-  body: string;
-  companyId: string;
-  analysisIds: string[];
-  publishedAt: string | null;
-  status: "DRAFT" | "PUBLISHED";
-  authorId: string | null;
-  createdAt: string;
-  updatedAt: string;
-  company: {
-    id: string;
-    name: string;
-    slug: string;
-    ticker: string | null;
-  };
-  author: {
-    id: string;
-    name: string | null;
-    email: string | null;
-  } | null;
-}

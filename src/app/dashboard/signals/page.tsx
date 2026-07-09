@@ -37,7 +37,8 @@ export default function SignalsPage() {
   const { data: companies } = useCompanies({ limit: 50 });
 
   useEffect(() => {
-    fetch("/api/v1/clusters?limit=50")
+    const controller = new AbortController();
+    fetch("/api/v1/clusters?limit=50", { signal: controller.signal })
       .then((res) => res.json())
       .then((data) => {
         const items = data.items ?? data;
@@ -46,8 +47,10 @@ export default function SignalsPage() {
         }
       })
       .catch((error) => {
+        if (error instanceof Error && error.name === "AbortError") return;
         logger.warn("signals.clusters_fetch_failed", { error: String(error) });
       });
+    return () => controller.abort();
   }, []);
 
   const handleClearAll = useCallback(() => {

@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SignalTable } from "@/components/dashboard/signal-table";
-import { ArticleCard } from "@/components/dashboard/article-card";
 import { WatchlistButton } from "@/components/dashboard/watchlist-button";
 import { DeleteCompanyButton } from "@/components/dashboard/delete-company-button";
 import { PipelineStatusBanner } from "@/components/dashboard/pipeline-status-banner";
@@ -60,18 +59,7 @@ export default async function CompanyDetailPage({ params, searchParams }: Compan
           take: 10,
           orderBy: { scrapedAt: "desc" },
           include: {
-            company: true,
             analyses: true,
-          },
-        },
-        articles: {
-          take: 5,
-          orderBy: { publishedAt: "desc" },
-          include: {
-            company: true,
-            author: {
-              select: { name: true, email: true },
-            },
           },
         },
         signalThemes: {
@@ -93,7 +81,7 @@ export default async function CompanyDetailPage({ params, searchParams }: Compan
           take: 5,
         },
         _count: {
-          select: { signals: true, articles: true },
+          select: { signals: true },
         },
       },
     }),
@@ -183,12 +171,6 @@ export default async function CompanyDetailPage({ params, searchParams }: Compan
             <p className="text-2xl font-serif font-bold">{company._count.signals}</p>
             <p className="text-xs uppercase tracking-widest font-sans text-muted-foreground">
               Signals
-            </p>
-          </div>
-          <div className="border-l-2 border-foreground pl-3">
-            <p className="text-2xl font-serif font-bold">{company._count.articles}</p>
-            <p className="text-xs uppercase tracking-widest font-sans text-muted-foreground">
-              Articles
             </p>
           </div>
           <div className="border-l-2 border-foreground pl-3">
@@ -334,52 +316,17 @@ export default async function CompanyDetailPage({ params, searchParams }: Compan
           </Link>
         </div>
         {company.signals.length > 0 ? (
-          <SignalTable signals={company.signals} />
+          <SignalTable
+            signals={company.signals.map((s) => ({
+              ...s,
+              company: { name: company.name, ticker: company.ticker },
+            }))}
+          />
         ) : (
           <Card>
             <CardContent className="pt-6 text-center">
               <p className="text-sm text-muted-foreground font-body">
                 No signals found for this company.
-              </p>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      <Separator />
-
-      {/* Recent Articles */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-serif font-bold">Recent Articles</h2>
-          <Link href={`/dashboard/articles?companyId=${company.id}`}>
-            <Button variant="ghost" size="sm">
-              View All
-            </Button>
-          </Link>
-        </div>
-        {company.articles.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {company.articles.map((article) => (
-              <ArticleCard
-                key={article.id}
-                id={article.id}
-                title={article.title}
-                slug={article.slug}
-                summary={article.summary}
-                companyName={article.company.name}
-                companyTicker={article.company.ticker}
-                publishedAt={article.publishedAt ? article.publishedAt.toISOString() : null}
-                status={article.status}
-                authorName={article.author?.name ?? null}
-              />
-            ))}
-          </div>
-        ) : (
-          <Card>
-            <CardContent className="pt-6 text-center">
-              <p className="text-sm text-muted-foreground font-body">
-                No articles published for this company yet.
               </p>
             </CardContent>
           </Card>

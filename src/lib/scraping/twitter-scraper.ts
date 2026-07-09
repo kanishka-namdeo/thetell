@@ -13,6 +13,7 @@
 import * as cheerio from "cheerio";
 import { logger } from "@/lib/logger";
 import { BaseScraper } from "./base-scraper";
+import { stripHtmlTags } from "./html-utils";
 
 export interface TwitterPostData {
   url: string;
@@ -392,7 +393,7 @@ export class TwitterScraper extends BaseScraper {
       if (!link) return;
 
       const tweetId = this.extractTweetId(link) || "";
-      const bodyText = cheerio.load(description).text().trim() || title;
+      const bodyText = stripHtmlTags(description) || title;
       if (!bodyText) return;
 
       const handleMatch = link.match(/x\.com\/([^/]+)|twitter\.com\/([^/]+)/);

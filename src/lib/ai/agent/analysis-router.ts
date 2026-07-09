@@ -14,13 +14,12 @@ import { triageSignalToCluster } from "@/lib/nlp/cluster-triage";
 import { loadSignalEmbedding } from "@/lib/nlp/embedding-store";
 import { analyzeSignalForCluster, type ClusterAnalysisResult } from "./cluster-analysis";
 import { updateClusterWithSignal } from "./cluster-update";
-import { analyzeSignalWithAgent, type AgentAnalysisInput } from "./pipeline";
+import { analyzeSignalWithAgent, type AgentAnalysisInput, type PipelineMetrics } from "./pipeline";
 import { ANALYST_CONFIG, GOSSIP_GIRL_CONFIG } from "./personas";
-import { generateArticleWithAgent, type AgentArticleResult } from "./article-generator";
-import { generateClusterArticle } from "./cluster-article-generator";
-import type { AgentPersona, AgentAnalysis, AnalystSentiment, GossipSentiment } from "./types";
+import type { AgentAnalysis, AnalystSentiment, GossipSentiment } from "./types";
+import { extractSentimentLabel } from "./types";
 import type { ProviderName } from "../provider";
-import type { ClusterArticle, Signal, Company } from "@prisma/client";
+import type { Signal, Company } from "@prisma/client";
 
 export interface AnalysisRouterOptions {
   forceStandalone?: boolean;
@@ -34,9 +33,53 @@ export interface AnalysisRouterResult {
   clusterLabel?: string;
   similarity?: number;
   analysis: AgentAnalysis | ClusterAnalysisResult;
-  articles?: AgentArticleResult[];
   debate?: unknown; // AgentDebate type from existing code
-  clusterArticles?: ClusterArticle[];
+}
+
+/**
+ * Persist AnalysisMetrics record to database after analysis completes.
+ */
+async function persistAnalysisMetrics(
+  analysisId: string,
+  signalId: string,
+  metrics: PipelineMetrics,
+  routingInfo: {
+    path: "cluster" | "standalone";
+    clusterId?: string;
+    similarity?: number;
+  }
+): Promise<void> {
+  try {
+    await prisma.analysisMetrics.create({
+      data: {
+        analysisId,
+        signalId,
+        tokensIn: metrics.tokensIn,
+        tokensOut: metrics.tokensOut,
+        llmCallCount: metrics.llmCallCount,
+        totalLatencyMs: metrics.totalLatencyMs,
+        nlpLatencyMs: metrics.nlpLatencyMs,
+        llmLatencyMs: metrics.llmLatencyMs,
+        groundingScore: metrics.groundingScore,
+        validFactCount: metrics.validFactCount,
+        invalidFactCount: metrics.invalidFactCount,
+        sourceCredibility: metrics.confidenceBreakdown.sourceCredibility,
+        contentQuality: metrics.confidenceBreakdown.contentQuality,
+        factConfidence: metrics.confidenceBreakdown.factConfidence,
+        themeEvidence: metrics.confidenceBreakdown.themeEvidence,
+        analysisPath: routingInfo.path,
+        clusterId: routingInfo.clusterId,
+        clusterSimilarity: routingInfo.similarity,
+      },
+    });
+  } catch (error) {
+    // Log but don't fail the analysis if metrics persistence fails
+    logger.error("analysis_router.metrics_persistence_failed", {
+      analysisId,
+      signalId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /**
@@ -155,86 +198,94 @@ async function runStandaloneAnalysis(
 ): Promise<AnalysisRouterResult> {
   const log = logger.child({ signalId: signal.id, path: "standalone" });
 
-  // Run analyst analysis
-  const analystAnalysis = await analyzeSignalWithAgent(
-    signal,
-    ANALYST_CONFIG,
-    undefined,
-    options.providerName,
-    options.model
-  );
-
-  // Run gossip girl analysis
-  const gossipAnalysis = await analyzeSignalWithAgent(
-    signal,
-    GOSSIP_GIRL_CONFIG,
-    undefined,
-    options.providerName,
-    options.model
-  );
-
-  // Build article input from analyst analysis
-  const analystSentiment = analystAnalysis.sentiment;
-  const analystSentimentValue = analystAnalysis.agentPersona === "ANALYST"
-    ? (analystSentiment as AnalystSentiment).sentiment
-    : (analystSentiment as GossipSentiment).surface_reading;
-
-  const analystArticleInput = {
-    companyId: signal.companyId,
-    companyName: signal.company.name,
-    analyses: [{
-      summary: analystAnalysis.summary,
-      keyFacts: analystAnalysis.keyFacts.map(f => ({ text: f.text, source_sentence: f.source_sentence })),
-      sentiment: analystSentimentValue,
-      strategicThemes: analystAnalysis.strategicThemes.map(t => ({ label: t.label })),
-    }],
-    agentPersona: "ANALYST" as const,
-    sourceType: signal.sourceType,
-    sourceText: signal.rawContent,
-    engagement: signal.engagement,
-    metadata: signal.metadata,
-  };
-
-  // Build article input from gossip analysis
-  const gossipSentiment = gossipAnalysis.sentiment;
-  const gossipSentimentValue = gossipAnalysis.agentPersona === "ANALYST"
-    ? (gossipSentiment as AnalystSentiment).sentiment
-    : (gossipSentiment as GossipSentiment).surface_reading;
-
-  const gossipArticleInput = {
-    companyId: signal.companyId,
-    companyName: signal.company.name,
-    analyses: [{
-      summary: gossipAnalysis.summary,
-      keyFacts: gossipAnalysis.keyFacts.map(f => ({ text: f.text, source_sentence: f.source_sentence })),
-      sentiment: gossipSentimentValue,
-      strategicThemes: gossipAnalysis.strategicThemes.map(t => ({ label: t.label })),
-    }],
-    agentPersona: "GOSSIP_GIRL" as const,
-    sourceType: signal.sourceType,
-    sourceText: signal.rawContent,
-    engagement: signal.engagement,
-    metadata: signal.metadata,
-  };
-
-  // Generate articles for both agents
-  const analystArticle = await generateArticleWithAgent(
-    analystArticleInput,
-    ANALYST_CONFIG,
-    undefined,
-    options.providerName,
-    options.model
-  );
-
-  const gossipArticle = await generateArticleWithAgent(
-    gossipArticleInput,
-    GOSSIP_GIRL_CONFIG,
-    undefined,
-    options.providerName,
-    options.model
-  );
+  // Run both agent analyses in parallel
+  const [analystResult, gossipResult] = await Promise.all([
+    analyzeSignalWithAgent(signal, ANALYST_CONFIG, undefined, options.providerName, options.model),
+    analyzeSignalWithAgent(signal, GOSSIP_GIRL_CONFIG, undefined, options.providerName, options.model),
+  ]);
+  const analystAnalysis = analystResult.analysis;
+  const gossipAnalysis = gossipResult.analysis;
 
   // TODO: Generate debate between agents (existing logic from functions.ts)
+
+  // Persist Analysis records and metrics
+  const analystSentimentLabel = extractSentimentLabel(analystAnalysis);
+  const gossipSentimentLabel = extractSentimentLabel(gossipAnalysis);
+
+  const [analystAnalysisRecord, gossipAnalysisRecord] = await Promise.all([
+    prisma.analysis.upsert({
+      where: { signalId_agentPersona: { signalId: signal.id, agentPersona: "ANALYST" } },
+      update: {
+        summary: analystAnalysis.summary,
+        keyFacts: analystAnalysis.keyFacts,
+        sentiment: analystSentimentLabel,
+        sentimentData: analystAnalysis.sentiment,
+        strategicThemes: analystAnalysis.strategicThemes,
+        confidence: analystAnalysis.confidence,
+        modelUsed: analystAnalysis.modelUsed,
+        analyzedAt: analystAnalysis.analyzedAt,
+        sourceMatchPreference: analystAnalysis.sourceMatchPreference,
+      },
+      create: {
+        id: analystAnalysis.id,
+        signalId: signal.id,
+        agentPersona: "ANALYST",
+        summary: analystAnalysis.summary,
+        keyFacts: analystAnalysis.keyFacts,
+        sentiment: analystSentimentLabel,
+        sentimentData: analystAnalysis.sentiment,
+        strategicThemes: analystAnalysis.strategicThemes,
+        confidence: analystAnalysis.confidence,
+        modelUsed: analystAnalysis.modelUsed,
+        analyzedAt: analystAnalysis.analyzedAt,
+        sourceMatchPreference: analystAnalysis.sourceMatchPreference,
+      },
+    }),
+    prisma.analysis.upsert({
+      where: { signalId_agentPersona: { signalId: signal.id, agentPersona: "GOSSIP_GIRL" } },
+      update: {
+        summary: gossipAnalysis.summary,
+        keyFacts: gossipAnalysis.keyFacts,
+        sentiment: gossipSentimentLabel,
+        sentimentData: gossipAnalysis.sentiment,
+        strategicThemes: gossipAnalysis.strategicThemes,
+        confidence: gossipAnalysis.confidence,
+        modelUsed: gossipAnalysis.modelUsed,
+        analyzedAt: gossipAnalysis.analyzedAt,
+        sourceMatchPreference: gossipAnalysis.sourceMatchPreference,
+      },
+      create: {
+        id: gossipAnalysis.id,
+        signalId: signal.id,
+        agentPersona: "GOSSIP_GIRL",
+        summary: gossipAnalysis.summary,
+        keyFacts: gossipAnalysis.keyFacts,
+        sentiment: gossipSentimentLabel,
+        sentimentData: gossipAnalysis.sentiment,
+        strategicThemes: gossipAnalysis.strategicThemes,
+        confidence: gossipAnalysis.confidence,
+        modelUsed: gossipAnalysis.modelUsed,
+        analyzedAt: gossipAnalysis.analyzedAt,
+        sourceMatchPreference: gossipAnalysis.sourceMatchPreference,
+      },
+    }),
+  ]);
+
+  // Persist metrics for both agents
+  await Promise.all([
+    persistAnalysisMetrics(
+      analystAnalysisRecord.id,
+      signal.id,
+      analystResult.metrics,
+      { path: "standalone" }
+    ),
+    persistAnalysisMetrics(
+      gossipAnalysisRecord.id,
+      signal.id,
+      gossipResult.metrics,
+      { path: "standalone" }
+    ),
+  ]);
 
   log.info("analysis_router.standalone_complete", {
     signalId: signal.id,
@@ -245,7 +296,6 @@ async function runStandaloneAnalysis(
   return {
     path: "standalone",
     analysis: analystAnalysis, // Return analyst analysis as primary
-    articles: [analystArticle, gossipArticle],
   };
 }
 
@@ -281,7 +331,7 @@ async function runClusterAnalysis(
 
   // Run lightweight cluster analysis for both agents
   const clusterSummaryObj = cluster.clusterSummary as Record<string, unknown> | null;
-  const analystClusterAnalysis = await analyzeSignalForCluster(
+  const analystClusterResult = await analyzeSignalForCluster(
     signal,
     {
       label: cluster.label,
@@ -294,7 +344,7 @@ async function runClusterAnalysis(
     options.model
   );
 
-  const gossipClusterAnalysis = await analyzeSignalForCluster(
+  const gossipClusterResult = await analyzeSignalForCluster(
     signal,
     {
       label: cluster.label,
@@ -311,7 +361,7 @@ async function runClusterAnalysis(
   const updateResult = await updateClusterWithSignal(
     clusterId,
     signal.id,
-    analystClusterAnalysis,
+    analystClusterResult.analysis,
     { id: signal.company.id, name: signal.company.name }
   );
 
@@ -321,20 +371,10 @@ async function runClusterAnalysis(
     data: { clusterId },
   });
 
-  // Generate cluster articles if threshold crossed
-  let clusterArticles: ClusterArticle[] | undefined;
-  if (updateResult.regenerateArticle) {
-    clusterArticles = await regenerateClusterArticles(clusterId, {
-      providerName: options.providerName,
-      model: options.model,
-    });
-  }
-
   log.info("analysis_router.cluster_complete", {
     signalId: signal.id,
     clusterId,
     similarity,
-    articleRegenerated: updateResult.regenerateArticle,
   });
 
   return {
@@ -342,158 +382,8 @@ async function runClusterAnalysis(
     clusterId,
     clusterLabel,
     similarity,
-    analysis: analystClusterAnalysis,
-    clusterArticles,
+    analysis: analystClusterResult.analysis,
   };
 }
 
-/**
- * Regenerate cluster articles after significant cluster updates.
- *
- * Loads the cluster with all its signals and their latest analysis facts,
- * then generates articles for both agent personas.
- */
-export async function regenerateClusterArticles(
-  clusterId: string,
-  options?: { providerName?: ProviderName; model?: string }
-): Promise<ClusterArticle[]> {
-  const log = logger.child({ clusterId, function: "regenerateClusterArticles" });
-
-  const cluster = await prisma.signalTheme.findUnique({
-    where: { id: clusterId },
-    include: {
-      company: { select: { id: true, name: true, ticker: true } },
-      clusteredSignals: {
-        select: {
-          id: true,
-          title: true,
-          sourceType: true,
-          analyses: {
-            select: { keyFacts: true },
-            orderBy: { analyzedAt: "desc" },
-            take: 1,
-          },
-        },
-        orderBy: { scrapedAt: "desc" },
-      },
-    },
-  });
-
-  if (!cluster) {
-    log.warn("regenerate_cluster_articles.cluster_not_found");
-    return [];
-  }
-
-  if (!cluster.clusterSummary) {
-    log.warn("regenerate_cluster_articles.no_summary");
-    return [];
-  }
-
-  const signals = cluster.clusteredSignals.map((s) => {
-    const keyFacts = s.analyses[0]?.keyFacts as Array<{ text?: string } | string> | null;
-    return {
-      id: s.id,
-      title: s.title,
-      sourceType: s.sourceType,
-      facts: (keyFacts ?? []).map((f) =>
-        typeof f === "string" ? f : f.text ?? ""
-      ).filter(Boolean),
-    };
-  });
-
-  const clusterData = {
-    label: cluster.label,
-    summary: cluster.clusterSummary as string | Record<string, unknown>,
-    signals,
-  };
-
-  const companyInfo = {
-    id: cluster.company.id,
-    name: cluster.company.name,
-    ticker: cluster.company.ticker ?? undefined,
-  };
-
-  const analystArticle = await generateClusterArticle(
-    clusterData,
-    companyInfo,
-    ANALYST_CONFIG,
-    options?.providerName,
-    options?.model
-  );
-
-  const gossipArticle = await generateClusterArticle(
-    clusterData,
-    companyInfo,
-    GOSSIP_GIRL_CONFIG,
-    options?.providerName,
-    options?.model
-  );
-
-  const signalCount = cluster.clusteredSignals.length;
-
-  const [analystClusterArticle, gossipClusterArticle] = await Promise.all([
-    prisma.clusterArticle.upsert({
-      where: {
-        themeId_agentPersona: {
-          themeId: clusterId,
-          agentPersona: "ANALYST",
-        },
-      },
-      update: {
-        title: analystArticle.title,
-        summary: analystArticle.summary,
-        body: analystArticle.body,
-        signalCount,
-        status: "PUBLISHED",
-        publishedAt: new Date(),
-      },
-      create: {
-        themeId: clusterId,
-        companyId: cluster.company.id,
-        title: analystArticle.title,
-        slug: `cluster-${clusterId}-analyst-${Date.now()}`,
-        summary: analystArticle.summary,
-        body: analystArticle.body,
-        agentPersona: "ANALYST",
-        signalCount,
-        status: "PUBLISHED",
-        publishedAt: new Date(),
-      },
-    }),
-    prisma.clusterArticle.upsert({
-      where: {
-        themeId_agentPersona: {
-          themeId: clusterId,
-          agentPersona: "GOSSIP_GIRL",
-        },
-      },
-      update: {
-        title: gossipArticle.title,
-        summary: gossipArticle.summary,
-        body: gossipArticle.body,
-        signalCount,
-        status: "PUBLISHED",
-        publishedAt: new Date(),
-      },
-      create: {
-        themeId: clusterId,
-        companyId: cluster.company.id,
-        title: gossipArticle.title,
-        slug: `cluster-${clusterId}-gossip-${Date.now()}`,
-        summary: gossipArticle.summary,
-        body: gossipArticle.body,
-        agentPersona: "GOSSIP_GIRL",
-        signalCount,
-        status: "PUBLISHED",
-        publishedAt: new Date(),
-      },
-    }),
-  ]);
-
-  log.info("regenerate_cluster_articles.complete", {
-    clusterId,
-    signalCount,
-  });
-
-  return [analystClusterArticle, gossipClusterArticle];
-}
+// regenerateClusterArticles removed (ClusterArticle feature deprecated)

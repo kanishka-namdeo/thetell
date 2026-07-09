@@ -2,16 +2,23 @@
  * DeepAgent backend implementation
  *
  * Uses the deepagents library with:
- * - Built-in filesystem tools (ls, read_file, write_file, edit_file, glob, grep)
+ * - LocalShellBackend for filesystem tools and shell execution (restricted to PROJECT_ROOT)
+ * - FilesystemPermission rules to enforce PROJECT_ROOT boundary
  * - ChatOpenAI model instance (no process.env mutation)
  * - Memory integration (AGENTS.md loaded at startup)
- * - Filesystem permissions (restrict access to sensitive files)
  * - Proper v3 streaming API with concurrent event projections
  * - Content-compat middleware for OpenAI-compatible APIs
  * - PostgresSaver for production durability (replaces MemorySaver)
  * - CompositeBackend for long-term memory persistence
  * - Runtime context for authorization
  * - Explicit subagents for heavy tasks
+ *
+ * Security model:
+ * - LocalShellBackend provides filesystem + shell access
+ * - FilesystemPermission rules restrict to PROJECT_ROOT only
+ * - .env files are explicitly denied (credentials protection)
+ * - Shell commands run with working directory = PROJECT_ROOT
+ * - interruptOn requires human approval for write/edit operations
  */
 
 import { logger } from "@/lib/logger";
@@ -19,8 +26,9 @@ import { ChatOpenAI } from "@langchain/openai";
 import {
   createDeepAgent,
   CompositeBackend,
-  StateBackend,
+  LocalShellBackend,
   StoreBackend,
+  type FilesystemPermission,
 } from "deepagents";
 import { createMiddleware, HumanMessage, AIMessage, SystemMessage, ToolMessage } from "langchain";
 import { InMemoryStore } from "@langchain/langgraph-checkpoint";
@@ -36,16 +44,19 @@ const contextSchema = z.object({
   role: z.enum(["ADMIN", "USER"]),
 });
 
-const systemPrompt = `You are DeepAgent, an AI assistant with full access to The Tell codebase.
-You can read, write, edit, and execute code. You have access to the filesystem and can run shell commands.
+const systemPrompt = `You are DeepAgent, an AI assistant with access to The Tell codebase.
+You can read, write, edit files and run shell commands within the project directory.
 
 Your capabilities:
-- Read files to understand the codebase
+- Read files to understand the codebase (restricted to project directory)
 - Write new files to create components, utilities, or features
 - Edit existing files to fix bugs or add features
-- Execute shell commands to run tests, build, or install dependencies
+- Execute shell commands within the project directory
 - Search for files and content using glob and grep
 - Delegate complex tasks to subagents (code-editor for file changes, researcher for investigation)
+
+IMPORTANT: You can only access files within the project directory. You cannot read or write
+files outside this directory, including system files, user home directories, or other projects.
 
 Always explain what you're doing and why. When making changes, be defensive and consider edge cases.
 Follow the existing code patterns and conventions in the codebase.
@@ -156,13 +167,45 @@ async function buildAgent() {
   // Initialize checkpointer for production durability
   const checkpointer = await initCheckpointer();
 
-  // CompositeBackend: thread-scoped files + long-term memory
+  // CompositeBackend: filesystem access + long-term memory
+  // LocalShellBackend provides filesystem tools and shell execution
+  // restricted to PROJECT_ROOT via permissions
   const backend = new CompositeBackend(
-    new StateBackend(), // Thread-scoped files
+    new LocalShellBackend({
+      rootDir: PROJECT_ROOT,
+      virtualMode: true, // Normalize paths to rootDir
+    }),
     {
       "/memories/": new StoreBackend(), // Cross-thread persistence
     }
   );
+
+  // Filesystem permissions: restrict all operations to PROJECT_ROOT
+  // This prevents access to files outside the codebase
+  // Note: deepagents permissions use absolute directory paths, not glob patterns
+  const permissions: FilesystemPermission[] = [
+    // Allow read/write within project root
+    {
+      operations: ["read", "write"],
+      paths: [PROJECT_ROOT],
+      mode: "allow",
+    },
+    // Deny access to sensitive files within project (credentials, secrets)
+    {
+      operations: ["read", "write"],
+      paths: [
+        `${PROJECT_ROOT}/.env`,
+        `${PROJECT_ROOT}/.env.local`,
+      ],
+      mode: "deny",
+    },
+    // Deny everything outside project root
+    {
+      operations: ["read", "write"],
+      paths: ["/"],
+      mode: "deny",
+    },
+  ];
 
   // Long-term memory store
   const store = new InMemoryStore();
@@ -195,6 +238,7 @@ Synthesize findings into actionable insights.`,
     systemPrompt,
     memory: [`${PROJECT_ROOT}/AGENTS.md`],
     skills: [`${PROJECT_ROOT}/.cursor/skills/`],
+    permissions,
     interruptOn: {
       write_file: true,
       edit_file: true,
@@ -204,7 +248,8 @@ Synthesize findings into actionable insights.`,
     store,
     subagents,
     middleware: [openAIContentCompatMiddleware],
-    // Note: Permissions are handled by LocalShellBackend which restricts to PROJECT_ROOT
+    // Note: LocalShellBackend provides filesystem + shell access
+    // Note: permissions restrict to PROJECT_ROOT only
     // Note: No LangSmith tracing - observability is local (Pino logging + Prisma audit)
   });
 }

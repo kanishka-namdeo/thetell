@@ -13,9 +13,11 @@ import {
   ChevronDown,
   ChevronRight,
   Plus,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logger } from "@/lib/logger";
+import { DeepAgentMemorySearch } from "./deep-agent-memory-search";
 
 export function DeepAgentMemoryBrowser({ className }: { className?: string }) {
   const [files, setFiles] = useState<string[]>([]);
@@ -26,6 +28,7 @@ export function DeepAgentMemoryBrowser({ className }: { className?: string }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
+  const [showSearch, setShowSearch] = useState(false);
 
   const loadFiles = async () => {
     setIsLoading(true);
@@ -105,6 +108,11 @@ export function DeepAgentMemoryBrowser({ className }: { className?: string }) {
     }
   };
 
+  const handleSearchSelect = (filename: string) => {
+    loadFileContent(filename);
+    setShowSearch(false);
+  };
+
   const handleCreateNew = async () => {
     const filename = prompt("Enter filename (e.g., preferences.md):");
     if (!filename) return;
@@ -126,6 +134,7 @@ export function DeepAgentMemoryBrowser({ className }: { className?: string }) {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadFiles();
     return () => controllerRef.current?.abort();
   }, []);
@@ -172,6 +181,15 @@ export function DeepAgentMemoryBrowser({ className }: { className?: string }) {
         <Button
           variant="ghost"
           size="sm"
+          onClick={() => setShowSearch(!showSearch)}
+          className={cn("h-7 w-7 p-0", showSearch && "bg-accent")}
+          aria-label="Toggle search"
+        >
+          <Search className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={loadFiles}
           disabled={isLoading}
           className="h-7 w-7 p-0"
@@ -179,6 +197,12 @@ export function DeepAgentMemoryBrowser({ className }: { className?: string }) {
           <RefreshCw className={cn("h-3.5 w-3.5", isLoading && "animate-spin")} />
         </Button>
       </div>
+
+      {showSearch && (
+        <div className="px-3 py-2 border-b border-border">
+          <DeepAgentMemorySearch onFileSelect={handleSearchSelect} />
+        </div>
+      )}
 
       <div className="flex flex-1 min-h-0">
         {/* File list */}

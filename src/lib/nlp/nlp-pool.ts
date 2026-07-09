@@ -15,12 +15,24 @@ interface PendingTask {
   id: string;
   resolve: (value: unknown) => void;
   reject: (reason: unknown) => void;
+  task: {
+    type: "embedding" | "sentiment" | "quality";
+    model: string;
+    text: string;
+    labels?: string[];
+  };
 }
+
+const DEFAULT_TASK_TIMEOUT_MS = 60_000;
+const MAX_QUEUE_SIZE = 50;
 
 class NlpWorkerPool {
   private workers: Worker[] = [];
   private availableWorkers: Worker[] = [];
   private pendingTasks = new Map<string, PendingTask>();
+  private taskWorkerMap = new Map<string, Worker>();
+  private taskTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+  private taskQueue: PendingTask[] = [];
   private taskCounter = 0;
   private initialized = false;
   private useFallback = false;
@@ -50,6 +62,12 @@ class NlpWorkerPool {
           if (!pending) return;
 
           this.pendingTasks.delete(msg.id);
+          const timeout = this.taskTimeouts.get(msg.id);
+          if (timeout) {
+            clearTimeout(timeout);
+            this.taskTimeouts.delete(msg.id);
+          }
+          this.taskWorkerMap.delete(msg.id);
           this.availableWorkers.push(worker);
 
           if (msg.ok) {
@@ -57,14 +75,19 @@ class NlpWorkerPool {
           } else {
             pending.reject(new Error(msg.error || "Worker task failed"));
           }
+
+          this.drainQueue();
         });
 
         worker.on("error", (error) => {
           logger.error("nlp.pool.worker_error", { workerId: i, error: String(error) });
+          this.availableWorkers = this.availableWorkers.filter((w) => w !== worker);
+          this.rejectTasksForWorker(worker);
         });
 
         worker.on("exit", (code) => {
           logger.warn("nlp.pool.worker_exited", { workerId: i, code });
+          this.rejectTasksForWorker(worker);
           this.workers = this.workers.filter((w) => w !== worker);
           this.availableWorkers = this.availableWorkers.filter((w) => w !== worker);
         });
@@ -102,25 +125,158 @@ class NlpWorkerPool {
     return new Promise<T>((resolve, reject) => {
       this.pendingTasks.set(taskId, {
         id: taskId,
+        task,
         resolve: resolve as (value: unknown) => void,
         reject,
       });
 
       const worker = this.availableWorkers.pop();
       if (!worker) {
-        this.pendingTasks.delete(taskId);
-        reject(new Error("No available workers"));
+        // Queue the task if no worker is available
+        const queuedTask = this.pendingTasks.get(taskId)!;
+        if (this.taskQueue.length >= MAX_QUEUE_SIZE) {
+          this.pendingTasks.delete(taskId);
+          reject(new Error(`NLP task queue full (max ${MAX_QUEUE_SIZE})`));
+          return;
+        }
+        this.taskQueue.push(queuedTask);
+        logger.debug("nlp.pool.task_queued", { taskId, queueSize: this.taskQueue.length });
         return;
       }
 
-      worker.postMessage({
-        id: taskId,
-        task: task.type,
-        model: task.model,
-        text: task.text,
-        labels: task.labels,
-      });
+      this.executeOnWorker(taskId, worker, task, resolve, reject);
     });
+  }
+
+  private executeOnWorker<T>(
+    taskId: string,
+    worker: Worker,
+    task: {
+      type: "embedding" | "sentiment" | "quality";
+      model: string;
+      text: string;
+      labels?: string[];
+    },
+    resolve: (value: T) => void,
+    reject: (reason: unknown) => void,
+  ): void {
+    this.taskWorkerMap.set(taskId, worker);
+
+    const timeout = setTimeout(() => {
+      this.pendingTasks.delete(taskId);
+      this.taskWorkerMap.delete(taskId);
+      this.taskTimeouts.delete(taskId);
+      // Terminate and replace hung workers instead of returning them to the pool
+      this.terminateAndReplaceWorker(worker);
+      reject(new Error(`NLP task ${taskId} timed out after ${DEFAULT_TASK_TIMEOUT_MS}ms`));
+    }, DEFAULT_TASK_TIMEOUT_MS);
+    this.taskTimeouts.set(taskId, timeout);
+
+    worker.postMessage({
+      id: taskId,
+      task: task.type,
+      model: task.model,
+      text: task.text,
+      labels: task.labels,
+    });
+  }
+
+  private terminateAndReplaceWorker(worker: Worker): void {
+    // Remove from available workers if present
+    this.availableWorkers = this.availableWorkers.filter((w) => w !== worker);
+
+    // Terminate the hung worker
+    worker.terminate().catch(() => {});
+
+    // Remove from workers list
+    this.workers = this.workers.filter((w) => w !== worker);
+
+    // Spawn a replacement worker
+    this.spawnReplacementWorker();
+  }
+
+  private spawnReplacementWorker(): void {
+    try {
+      const workerPath = require.resolve("./nlp-worker");
+      const worker = new Worker(workerPath);
+
+      worker.on("message", (msg: { id: string; ok: boolean; data?: unknown; error?: string }) => {
+        const pending = this.pendingTasks.get(msg.id);
+        if (!pending) return;
+
+        this.pendingTasks.delete(msg.id);
+        const timeout = this.taskTimeouts.get(msg.id);
+        if (timeout) {
+          clearTimeout(timeout);
+          this.taskTimeouts.delete(msg.id);
+        }
+        this.taskWorkerMap.delete(msg.id);
+        this.availableWorkers.push(worker);
+
+        if (msg.ok) {
+          pending.resolve(msg.data);
+        } else {
+          pending.reject(new Error(msg.error || "Worker task failed"));
+        }
+
+        // Drain queue after task completion
+        this.drainQueue();
+      });
+
+      worker.on("error", (error) => {
+        logger.error("nlp.pool.worker_error", { error: String(error) });
+        this.availableWorkers = this.availableWorkers.filter((w) => w !== worker);
+        this.rejectTasksForWorker(worker);
+      });
+
+      worker.on("exit", (code) => {
+        logger.warn("nlp.pool.worker_exited", { code });
+        this.rejectTasksForWorker(worker);
+        this.workers = this.workers.filter((w) => w !== worker);
+        this.availableWorkers = this.availableWorkers.filter((w) => w !== worker);
+      });
+
+      this.workers.push(worker);
+      this.availableWorkers.push(worker);
+
+      // Drain queue with the new worker
+      this.drainQueue();
+    } catch (error) {
+      logger.error("nlp.pool.replacement_failed", { error: String(error) });
+    }
+  }
+
+  private drainQueue(): void {
+    while (this.taskQueue.length > 0 && this.availableWorkers.length > 0) {
+      const queuedTask = this.taskQueue.shift()!;
+      const worker = this.availableWorkers.pop()!;
+      this.executeOnWorker(
+        queuedTask.id,
+        worker,
+        queuedTask.task,
+        queuedTask.resolve as (value: unknown) => void,
+        queuedTask.reject,
+      );
+      logger.debug("nlp.pool.task_dequeued", { taskId: queuedTask.id, queueSize: this.taskQueue.length });
+    }
+  }
+
+  private rejectTasksForWorker(worker: Worker): void {
+    for (const [taskId, taskWorker] of this.taskWorkerMap.entries()) {
+      if (taskWorker === worker) {
+        const pending = this.pendingTasks.get(taskId);
+        if (pending) {
+          this.pendingTasks.delete(taskId);
+          const timeout = this.taskTimeouts.get(taskId);
+          if (timeout) {
+            clearTimeout(timeout);
+            this.taskTimeouts.delete(taskId);
+          }
+          pending.reject(new Error(`Worker error/exit, task ${taskId} failed`));
+        }
+        this.taskWorkerMap.delete(taskId);
+      }
+    }
   }
 
   /**
@@ -184,10 +340,21 @@ class NlpWorkerPool {
   }
 
   async shutdown(): Promise<void> {
+    // Clear all pending timeouts
+    for (const timeout of this.taskTimeouts.values()) {
+      clearTimeout(timeout);
+    }
+    this.taskTimeouts.clear();
+
+    // Clear all maps
+    this.taskWorkerMap.clear();
+    this.pendingTasks.clear();
+    this.taskQueue = [];
+
+    // Terminate all workers
     await Promise.all(this.workers.map((w) => w.terminate()));
     this.workers = [];
     this.availableWorkers = [];
-    this.pendingTasks.clear();
     this.initialized = false;
     logger.info("nlp.pool.shutdown");
   }

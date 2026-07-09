@@ -237,7 +237,7 @@ export function calculateConfidence(params: ConfidenceParams): number {
   let factScore: number;
   if (facts.length > 0) {
     const avgFactConfidence =
-      facts.reduce((sum, f) => sum + f.confidence, 0) / facts.length;
+      facts.reduce((sum, f) => sum + (isNaN(f.confidence) ? 0.5 : f.confidence), 0) / facts.length;
     factScore = avgFactConfidence;
   } else {
     factScore = 0.5; // No facts extracted, moderate confidence
@@ -312,4 +312,114 @@ export function calculateConfidence(params: ConfidenceParams): number {
 
   // Clamp to [0.0, 1.0]
   return Math.max(0.0, Math.min(1.0, composite));
+}
+
+/**
+ * Detailed confidence result with sub-score breakdown.
+ */
+export interface ConfidenceDetailedResult {
+  score: number;
+  breakdown: {
+    sourceCredibility: number;
+    contentQuality: number;
+    factConfidence: number;
+    themeEvidence: number;
+    engagementBoost: number;
+    preferenceMatch: number;
+    recencyMultiplier: number;
+  };
+}
+
+/**
+ * Calculate composite confidence with full sub-score breakdown.
+ * Returns both the final score and each component score for metrics persistence.
+ */
+export function calculateConfidenceDetailed(params: ConfidenceParams): ConfidenceDetailedResult {
+  const { sourceType, contentLength, content, facts, themes, llmConfidence, agentPersona, entities, engagement } = params;
+
+  const sourceWeights: Record<SourceType, number> = {
+    FILING: 0.80, TRANSCRIPT: 0.75, NEWS: 0.65, BLOG: 0.55, SOCIAL: 0.40,
+    JOB_POSTING: 0.60, RSS: 0.65, PATENT: 0.75, LITIGATION: 0.70, FDA: 0.75,
+    CONTRACT: 0.70, TECH_SIGNAL: 0.60, WEB_ARCHIVE: 0.65, LEGISLATION: 0.70,
+    ACADEMIC: 0.65, PODCAST: 0.55, CONFERENCE: 0.60, PRESS_RELEASE: 0.65, LOBBYING: 0.70,
+  };
+  const sourceScore = sourceWeights[sourceType] ?? 0.7;
+
+  let contentScore: number;
+  if (sourceType === "WEB_ARCHIVE") {
+    const urlSpecificity = calculateUrlSpecificity(content || "");
+    const pageTypeDetected = detectPageTypeInContent(content || "");
+    const significantChange = (content || "").includes("Significant: Yes") ? 1.0 : 0.7;
+    contentScore = urlSpecificity * 0.4 + (pageTypeDetected ? 1.0 : 0.5) * 0.3 + significantChange * 0.3;
+  } else if (contentLength < 100) {
+    contentScore = 0.3;
+  } else if (contentLength < 500) {
+    contentScore = 0.6;
+  } else if (contentLength <= 5000) {
+    contentScore = 0.9;
+  } else {
+    contentScore = 0.85;
+  }
+
+  if (content) {
+    const specificity = calculateContentSpecificity(content, entities);
+    contentScore = contentScore * 0.7 + specificity * 0.3;
+  }
+
+  let factScore: number;
+  if (facts.length > 0) {
+    factScore = facts.reduce((sum, f) => sum + (isNaN(f.confidence) ? 0.5 : f.confidence), 0) / facts.length;
+  } else {
+    factScore = 0.5;
+  }
+
+  let themeScore: number;
+  if (themes.length > 0) {
+    const totalEvidence = themes.reduce((sum, t) => sum + t.evidence.length, 0);
+    if (totalEvidence === 0) {
+      themeScore = 0.4;
+    } else if (totalEvidence < themes.length * 2) {
+      themeScore = 0.7;
+    } else {
+      themeScore = 0.9;
+    }
+  } else {
+    themeScore = 0.5;
+  }
+
+  let composite: number;
+  if (agentPersona === "ANALYST") {
+    composite = sourceScore * 0.20 + contentScore * 0.20 + factScore * 0.35 + themeScore * 0.25;
+  } else if (agentPersona === "GOSSIP_GIRL") {
+    const behavioralPatternScore = Math.min(1.0, facts.length / 10);
+    composite = llmConfidence * 0.40 + behavioralPatternScore * 0.25 + sourceScore * 0.20 + themeScore * 0.15;
+  } else {
+    composite = sourceScore * 0.25 + contentScore * 0.15 + factScore * 0.3 + themeScore * 0.15 + llmConfidence * 0.15;
+  }
+
+  const engagementBoostVal = (sourceType === 'SOCIAL' && engagement) ? calculateEngagementBoost(engagement) : 1.0;
+  composite *= engagementBoostVal;
+
+  const preferenceMatchVal = params.sourceMatchesPreference ? 1.15 : 1.0;
+  if (params.sourceMatchesPreference) {
+    composite *= 1.15;
+  }
+
+  const recencyMult = calculateRecencyMultiplier(params.publishedAt, sourceType);
+  composite *= recencyMult;
+
+  const score = Math.max(0.0, Math.min(1.0, composite));
+
+  return {
+    score,
+    breakdown: {
+      sourceCredibility: sourceScore,
+      contentQuality: contentScore,
+      factConfidence: factScore,
+      themeEvidence: themeScore,
+      engagementBoost: engagementBoostVal,
+      preferenceMatch: preferenceMatchVal,
+      recencyMultiplier: recencyMult,
+    },
+  };
 }

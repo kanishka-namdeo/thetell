@@ -68,6 +68,7 @@ export function DeepAgentInterpreterToggle() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadStatus();
     return () => {
       mountedRef.current = false;

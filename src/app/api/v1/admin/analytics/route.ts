@@ -49,7 +49,6 @@ export async function GET(request: NextRequest) {
 
     const [
       totalSignals,
-      totalArticles,
       totalUsers,
       totalCompanies,
       signalsWithConfidence,
@@ -58,10 +57,9 @@ export async function GET(request: NextRequest) {
       modelUsage,
       activeUsers,
       newSignups,
-      topContent,
+      topAnalyses,
     ] = await Promise.all([
       prisma.signal.count({ where: dateFilter ? { scrapedAt: dateFilter } : undefined }),
-      prisma.article.count({ where: dateFilter ? { publishedAt: dateFilter } : undefined }),
       prisma.user.count(),
       prisma.company.count(),
       prisma.analysis.aggregate({
@@ -92,68 +90,85 @@ export async function GET(request: NextRequest) {
       prisma.user.count({
         where: dateFilter ? { createdAt: dateFilter } : undefined,
       }),
-      prisma.article.findMany({
-        where: dateFilter ? { publishedAt: dateFilter } : undefined,
+      prisma.analysis.findMany({
+        where: dateFilter ? { analyzedAt: dateFilter } : undefined,
         take: 10,
-        orderBy: { publishedAt: "desc" },
+        orderBy: { analyzedAt: "desc" },
         select: {
           id: true,
-          title: true,
-          companyId: true,
-          status: true,
+          keyFacts: true,
+          confidence: true,
+          sentiment: true,
+          signal: {
+            select: {
+              id: true,
+              title: true,
+              companyId: true,
+            },
+          },
         },
       }),
     ]);
 
     const averageConfidence = signalsWithConfidence._avg.confidence || 0;
 
-    // Get confidence distribution using groupBy
-    const confidenceBuckets = await prisma.analysis.groupBy({
-      by: ["confidence"],
-      where: dateFilter ? { analyzedAt: dateFilter } : undefined,
-    });
-
-    const confidenceDistribution = [
-      { range: "0.0-0.2", count: 0 },
-      { range: "0.2-0.4", count: 0 },
-      { range: "0.4-0.6", count: 0 },
-      { range: "0.6-0.8", count: 0 },
-      { range: "0.8-1.0", count: 0 },
-    ];
-
-    for (const bucket of confidenceBuckets) {
-      const idx = Math.min(Math.floor(bucket.confidence * 5), 4);
-      confidenceDistribution[idx].count++;
-    }
-
-    const scraperPerformance = await (async () => {
-      const sourceTypes = signalsBySource.map((s) => s.sourceType);
-      const analyses = await prisma.analysis.findMany({
+    // Get confidence distribution using aggregate queries to avoid loading all rows
+    const confidenceDistribution = await Promise.all([
+      prisma.analysis.count({
         where: {
-          signal: { sourceType: { in: sourceTypes } },
           ...(dateFilter ? { analyzedAt: dateFilter } : {}),
+          confidence: { gte: 0, lt: 0.2 },
         },
-        select: { confidence: true, signal: { select: { sourceType: true } } },
-      });
+      }),
+      prisma.analysis.count({
+        where: {
+          ...(dateFilter ? { analyzedAt: dateFilter } : {}),
+          confidence: { gte: 0.2, lt: 0.4 },
+        },
+      }),
+      prisma.analysis.count({
+        where: {
+          ...(dateFilter ? { analyzedAt: dateFilter } : {}),
+          confidence: { gte: 0.4, lt: 0.6 },
+        },
+      }),
+      prisma.analysis.count({
+        where: {
+          ...(dateFilter ? { analyzedAt: dateFilter } : {}),
+          confidence: { gte: 0.6, lt: 0.8 },
+        },
+      }),
+      prisma.analysis.count({
+        where: {
+          ...(dateFilter ? { analyzedAt: dateFilter } : {}),
+          confidence: { gte: 0.8, lte: 1.0 },
+        },
+      }),
+    ]).then((counts) => [
+      { range: "0.0-0.2", count: counts[0] },
+      { range: "0.2-0.4", count: counts[1] },
+      { range: "0.4-0.6", count: counts[2] },
+      { range: "0.6-0.8", count: counts[3] },
+      { range: "0.8-1.0", count: counts[4] },
+    ]);
 
-      const confByType = new Map<string, number[]>();
-      for (const a of analyses) {
-        const st = a.signal.sourceType;
-        if (!confByType.has(st)) confByType.set(st, []);
-        confByType.get(st)!.push(a.confidence);
-      }
-
-      return signalsBySource.map((s) => {
-        const confs = confByType.get(s.sourceType) ?? [];
-        const avgConf = confs.length > 0 ? confs.reduce((sum, c) => sum + c, 0) / confs.length : 0;
+    const scraperPerformance = await Promise.all(
+      signalsBySource.map(async (s) => {
+        const result = await prisma.analysis.aggregate({
+          where: {
+            signal: { sourceType: s.sourceType },
+            ...(dateFilter ? { analyzedAt: dateFilter } : {}),
+          },
+          _avg: { confidence: true },
+        });
         return {
           sourceType: s.sourceType,
           signalCount: s._count.id,
           successRate: 1.0,
-          averageConfidence: avgConf,
+          averageConfidence: result._avg.confidence || 0,
         };
-      });
-    })();
+      })
+    );
 
     const sentimentData = sentimentBreakdown.map((s) => ({
       sentiment: s.sentiment,
@@ -165,41 +180,20 @@ export async function GET(request: NextRequest) {
       count: m._count.id,
     }));
 
-    const articlesPerUser = totalUsers > 0 ? totalArticles / totalUsers : 0;
+    const analysesPerUser = totalUsers > 0 ? signalsWithConfidence._avg.confidence || 0 : 0;
 
-    const contentPerformance = await (async () => {
-      const companyIds = [...new Set(topContent.map((a) => a.companyId))];
-      const analyses = await prisma.analysis.findMany({
-        where: {
-          signal: { companyId: { in: companyIds } },
-          ...(dateFilter ? { analyzedAt: dateFilter } : {}),
-        },
-        select: { confidence: true, signal: { select: { companyId: true } } },
-      });
-
-      const confByCompany = new Map<string, number[]>();
-      for (const a of analyses) {
-        const cid = a.signal.companyId;
-        if (!confByCompany.has(cid)) confByCompany.set(cid, []);
-        confByCompany.get(cid)!.push(a.confidence);
-      }
-
-      return topContent.map((article) => {
-        const confs = confByCompany.get(article.companyId) ?? [];
-        const avgConf = confs.length > 0 ? confs.reduce((sum, c) => sum + c, 0) / confs.length : 0;
-        return {
-          id: article.id,
-          title: article.title,
-          views: article.status === "PUBLISHED" ? 1 : 0,
-          confidence: avgConf,
-        };
-      });
-    })();
+    const analysisPerformance = topAnalyses.map((analysis) => ({
+      id: analysis.id,
+      signalId: analysis.signal.id,
+      title: analysis.signal.title,
+      confidence: analysis.confidence,
+      sentiment: analysis.sentiment,
+      keyFacts: analysis.keyFacts,
+    }));
 
     const response = {
       overview: {
         totalSignals,
-        totalArticles,
         totalUsers,
         totalCompanies,
         averageConfidence,
@@ -213,9 +207,9 @@ export async function GET(request: NextRequest) {
       userEngagement: {
         activeUsers,
         newSignups,
-        averageArticlesPerUser: articlesPerUser,
+        averageAnalysesPerUser: analysesPerUser,
       },
-      contentPerformance,
+      analysisPerformance,
     };
 
     log.info("admin.analytics.get.success");

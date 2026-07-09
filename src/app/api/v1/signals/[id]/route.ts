@@ -18,7 +18,7 @@ export async function GET(
     log.info("api.request.start", { method: "GET", path: `/api/v1/signals/${id}` });
 
     const signal = await prisma.signal.findUnique({
-      where: { id, status: "ANALYZED" },
+      where: { id },
       include: {
         company: true,
         analyses: agentPersona

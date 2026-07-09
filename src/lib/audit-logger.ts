@@ -11,8 +11,6 @@ export const AUDIT_ACTIONS = {
   // Cluster operations
   CLUSTER_SIGNAL_ASSIGNED: "cluster.signal_assigned",
   CLUSTER_SUMMARY_UPDATED: "cluster.summary_updated",
-  CLUSTER_ARTICLE_GENERATED: "cluster.article_generated",
-  CLUSTER_ARTICLE_SKIPPED: "cluster.article_skipped",
 } as const;
 
 interface AuditLogParams {

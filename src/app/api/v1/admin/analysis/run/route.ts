@@ -35,16 +35,23 @@ export async function POST(req: Request) {
     const onlyNew = scope === "new";
 
     // Find signals that need analysis
-    // scope=new: only PENDING signals (new, never analyzed)
-    // default: PENDING + FAILED + ANALYZED (re-analyze all)
+    // scope=new: PENDING signals (new, never analyzed) + stale ANALYZING (>10min)
+    // default: PENDING + FAILED + ANALYZED + stale ANALYZING (re-analyze all)
+    const staleThreshold = new Date(Date.now() - 10 * 60 * 1000);
     const signalsToAnalyze = await prisma.signal.findMany({
-      where: {
-        status: {
-          in: onlyNew
-            ? ["PENDING"]
-            : ["PENDING", "FAILED", "ANALYZED"],
-        },
-      },
+      where: onlyNew
+        ? {
+            OR: [
+              { status: "PENDING" },
+              { status: "ANALYZING", updatedAt: { lt: staleThreshold } },
+            ],
+          }
+        : {
+            OR: [
+              { status: { in: ["PENDING", "FAILED", "ANALYZED"] } },
+              { status: "ANALYZING", updatedAt: { lt: staleThreshold } },
+            ],
+          },
       select: { id: true, status: true },
     });
 

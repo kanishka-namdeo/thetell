@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { requireAdmin } from "@/lib/auth-guard";
 import { logger } from "@/lib/logger";
 
-export async function POST() {
+export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
   const log = logger.child({
     requestId,
@@ -22,7 +22,10 @@ export async function POST() {
       );
     }
 
-    log.info("admin.correlation.trigger.async.start");
+    const url = new URL(request.url);
+    const recentOnly = url.searchParams.get("recentOnly") === "true";
+
+    log.info("admin.correlation.trigger.async.start", { recentOnly });
 
     const { inngest } = await import("@/lib/inngest/client");
 
@@ -35,6 +38,7 @@ export async function POST() {
           jobId,
           triggeredBy: session.user.id,
           triggeredAt: new Date().toISOString(),
+          recentOnly,
         },
       });
 

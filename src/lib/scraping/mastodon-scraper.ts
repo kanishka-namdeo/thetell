@@ -12,7 +12,7 @@
 
 import { BaseScraper } from "./base-scraper";
 import { logger } from "@/lib/logger";
-import * as cheerio from "cheerio";
+import { stripHtmlTags } from "./html-utils";
 
 export interface MastodonPost {
   url: string;
@@ -163,7 +163,7 @@ export class MastodonScraper extends BaseScraper {
       for (const status of data.statuses) {
         if (!status.id || !status.content || !status.url) continue;
 
-        const plainContent = cheerio.load(status.content).text().trim();
+        const plainContent = stripHtmlTags(status.content);
         if (!plainContent) continue;
 
         results.push({
@@ -234,7 +234,7 @@ export class MastodonScraper extends BaseScraper {
         for (const status of statuses) {
           if (!status.id || !status.content || !status.url) continue;
 
-          const plainContent = cheerio.load(status.content).text().trim();
+          const plainContent = stripHtmlTags(status.content);
           if (!plainContent) continue;
 
           results.push({

@@ -19,7 +19,7 @@ Build LLM-powered features using the **TypeScript AI provider abstraction** at `
 - Building any LLM-powered feature (fact extraction, sentiment analysis, theme detection)
 - When you need structured, validated outputs from LLMs
 - When you need to support multiple LLM providers without hardcoding
-- When you need observability/tracing for LLM calls
+- When you need observability for LLM calls (handled by Pino structured logging + PipelineRun/PipelineLog models)
 - When you need streaming responses to the frontend
 
 ## Core Patterns

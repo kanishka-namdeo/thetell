@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { requireAdmin } from "@/lib/auth-guard";
 import { logger } from "@/lib/logger";
 
-export async function POST() {
+export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
   const log = logger.child({
     requestId,
@@ -22,7 +22,10 @@ export async function POST() {
       );
     }
 
-    log.info("admin.discovery.trigger.async.start");
+    const url = new URL(request.url);
+    const scrapeOnly = url.searchParams.get("scrapeOnly") === "true";
+
+    log.info("admin.discovery.trigger.async.start", { scrapeOnly });
 
     const { inngest } = await import("@/lib/inngest/client");
 
@@ -35,6 +38,11 @@ export async function POST() {
           jobId,
           triggeredBy: session.user.id,
           triggeredAt: new Date().toISOString(),
+          companyIds: "all",
+          mode: "manual",
+          hypothesisAware: false,
+          stealthFallback: false,
+          scrapeOnly,
         },
       });
 

@@ -12,6 +12,7 @@ import {
   User,
   Bot,
   Workflow,
+  Activity,
 } from "lucide-react";
 
 export interface NavItem {
@@ -39,7 +40,6 @@ export const mainNavItems: NavItem[] = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/dashboard/signals", label: "Signals", icon: BarChart3 },
   { href: "/dashboard/companies", label: "Companies", icon: Building2 },
-  { href: "/dashboard/inferences", label: "Strategic Insights", icon: Brain },
 ];
 
 // User account items
@@ -56,6 +56,7 @@ export const adminNavItems: NavItem[] = [
   { href: "/dashboard/admin/content", label: "Content", icon: Flag },
   { href: "/dashboard/admin/intelligence", label: "Intelligence", icon: Brain },
   { href: "/dashboard/admin/operations", label: "System", icon: Server },
+  { href: "/dashboard/admin/metrics", label: "Metrics", icon: Activity },
   { href: "/dashboard/admin/deepagent", label: "DeepAgent", icon: Bot },
   { href: "/dashboard/admin/settings", label: "Settings", icon: Settings },
 ];

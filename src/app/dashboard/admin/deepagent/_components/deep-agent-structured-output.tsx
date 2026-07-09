@@ -48,7 +48,7 @@ export function DeepAgentStructuredOutput({
     }
 
     if (typeof value === "string") {
-      return <span className="text-green-700 dark:text-green-400">"{value}"</span>;
+      return <span className="text-green-700 dark:text-green-400">&ldquo;{value}&rdquo;</span>;
     }
 
     if (typeof value === "number") {

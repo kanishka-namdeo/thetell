@@ -50,10 +50,13 @@ export async function enrichCompany(companyId: string): Promise<EnrichmentResult
 
     // 2. Run discovery in parallel with individual timeouts
     const withTimeout = <T>(promise: Promise<T>, ms: number, name: string): Promise<T> => {
-      const timeoutPromise = new Promise<T>((_, reject) =>
-        setTimeout(() => reject(new Error(`${name} timeout after ${ms}ms`)), ms)
-      );
-      return Promise.race([promise, timeoutPromise]);
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`${name} timeout after ${ms}ms`)), ms);
+      });
+      return Promise.race([promise, timeoutPromise]).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+      });
     };
 
     // First: lookup ticker and website (needed for website probing if missing)

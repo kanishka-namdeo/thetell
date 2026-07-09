@@ -53,6 +53,7 @@ export function DeepAgentProfileSelector({ className }: DeepAgentProfileSelector
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadProfiles();
     return () => controllerRef.current?.abort();
   }, [loadProfiles]);

@@ -14,18 +14,20 @@ const PUBLIC_ROUTES = [
 // Public detail pages (no auth required)
 const PUBLIC_PAGE_PATTERNS = [
   /^\/signals\/[^/]+$/,
-  /^\/articles\/[^/]+$/,
   /^\/clusters\/[^/]+$/,
-  /^\/inferences\/[^/]+$/,
 ];
 
 // Public read-only API routes (only GET method is allowed)
 const PUBLIC_API_GET_PATTERNS = [
   /^\/api\/v1\/signals\/?$/,
   /^\/api\/v1\/signals\/[^/]+\/?$/,
-  /^\/api\/v1\/articles\/?$/,
-  /^\/api\/v1\/articles\/[^/]+\/?$/,
   /^\/api\/v1\/public\/search\/?$/,
+  /^\/api\/v1\/search\/?$/,
+  /^\/api\/v1\/companies\/?$/,
+  /^\/api\/v1\/companies\/[^/]+\/?$/,
+  /^\/api\/v1\/themes\/?$/,
+  /^\/api\/v1\/clusters\/?$/,
+  /^\/api\/v1\/clusters\/[^/]+\/?$/,
 ];
 
 const PUBLIC_API_PREFIXES = [
@@ -49,11 +51,9 @@ const ADMIN_API_PATTERN = /^\/api\/v1\/admin\/.*$/;
 const WRITE_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
 
 const ADMIN_WRITE_PATTERNS = [
-  /^\/api\/v1\/signals/,
-  /^\/api\/v1\/articles/,
-  /^\/api\/v1\/companies/,
-  /^\/api\/v1\/inferences/,
-  /^\/api\/v1\/themes/,
+  /^\/api\/v1\/admin\/signals/,
+  /^\/api\/v1\/admin\/companies/,
+  /^\/api\/v1\/admin\/themes/,
 ];
 
 // Bot detection — block known scraper User-Agents
@@ -69,11 +69,12 @@ const BLOCKED_USER_AGENTS = [
 ];
 
 function getClientIp(req: NextRequest): string {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    req.headers.get("x-real-ip") ||
-    "unknown"
-  );
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded) {
+    const ips = forwarded.split(",").map(ip => ip.trim());
+    return process.env.VERCEL ? ips[0] : ips[ips.length - 1];
+  }
+  return req.headers.get("x-real-ip") || "unknown";
 }
 
 function isBlockedBot(req: NextRequest): boolean {
@@ -113,45 +114,55 @@ const authHandler = authEdge((req) => {
     }
   }
 
-  // Bot detection + rate limiting on public API GET endpoints
-  if (
-    req.method === "GET" &&
-    PUBLIC_API_GET_PATTERNS.some((pattern) => pattern.test(pathname))
-  ) {
-    if (isBlockedBot(req)) {
-      return NextResponse.json(
-        { error: "forbidden", message: "Access denied" },
-        { status: 403 }
-      );
+  // Public read-only API routes (only GET method is allowed)
+  if (PUBLIC_API_GET_PATTERNS.some((pattern) => pattern.test(pathname))) {
+    // Non-GET requests require authentication
+    if (req.method !== "GET") {
+      if (!req.auth) {
+        return NextResponse.json(
+          { error: "unauthorized", message: "Authentication required" },
+          { status: 401 }
+        );
+      }
     }
+    
+    // Bot detection + rate limiting on public API GET endpoints
+    if (req.method === "GET") {
+      if (isBlockedBot(req)) {
+        return NextResponse.json(
+          { error: "forbidden", message: "Access denied" },
+          { status: 403 }
+        );
+      }
 
-    const ip = getClientIp(req);
-    const result = checkRateLimit(`api:${ip}`, 60, 60);
-    if (!result.allowed) {
-      return NextResponse.json(
-        { error: "rate_limited", message: "Too many requests" },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": String(Math.max(1, Math.ceil((result.resetAt - Date.now()) / 1000))),
-            "X-RateLimit-Limit": String(result.limit),
-            "X-RateLimit-Remaining": "0",
-            "X-RateLimit-Reset": String(Math.ceil(result.resetAt / 1000)),
-          },
-        }
+      const ip = getClientIp(req);
+      const result = checkRateLimit(`api:${ip}`, 60, 60);
+      if (!result.allowed) {
+        return NextResponse.json(
+          { error: "rate_limited", message: "Too many requests" },
+          {
+            status: 429,
+            headers: {
+              "Retry-After": String(Math.max(1, Math.ceil((result.resetAt - Date.now()) / 1000))),
+              "X-RateLimit-Limit": String(result.limit),
+              "X-RateLimit-Remaining": "0",
+              "X-RateLimit-Reset": String(Math.ceil(result.resetAt / 1000)),
+            },
+          }
+        );
+      }
+      const response = NextResponse.next();
+      response.headers.set("X-RateLimit-Limit", String(result.limit));
+      response.headers.set(
+        "X-RateLimit-Remaining",
+        String(result.remaining)
       );
+      response.headers.set(
+        "X-RateLimit-Reset",
+        String(Math.ceil(result.resetAt / 1000))
+      );
+      return response;
     }
-    const response = NextResponse.next();
-    response.headers.set("X-RateLimit-Limit", String(result.limit));
-    response.headers.set(
-      "X-RateLimit-Remaining",
-      String(result.remaining)
-    );
-    response.headers.set(
-      "X-RateLimit-Reset",
-      String(Math.ceil(result.resetAt / 1000))
-    );
-    return response;
   }
 
   // Rate limiting on sensitive auth endpoints
@@ -244,6 +255,15 @@ const authHandler = authEdge((req) => {
       url.searchParams.set("callbackUrl", pathname);
       return NextResponse.redirect(url);
     }
+    const ip = getClientIp(req);
+    const userId = (req.auth.user as { id?: string } | undefined)?.id || "unknown";
+    const result = checkRateLimit(`dashboard:${userId}:${ip}`, 120, 60);
+    if (!result.allowed) {
+      return NextResponse.json(
+        { error: "rate_limited", message: "Too many requests" },
+        { status: 429 }
+      );
+    }
   }
 
   // Protected API routes (except auth)
@@ -260,8 +280,9 @@ const authHandler = authEdge((req) => {
   return NextResponse.next();
 });
 
-export function proxy(request: NextRequest, event: any) {
-  return authHandler(request, event);
+export function proxy(request: NextRequest, event: unknown) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return authHandler(request, event as any);
 }
 
 export const config = {

@@ -1,7 +1,7 @@
 /**
  * Cross-signal correlation engine.
  * Groups signals by theme, detects convergence across source types,
- * and generates strategic inferences when multiple sources agree.
+ * and maintains SignalTheme records with momentum tracking.
  */
 
 import { inngest } from "./client";
@@ -11,30 +11,10 @@ import {
   generateEmbedding,
   cosineSimilarity,
 } from "@/lib/nlp/embedding-generator";
-import { getProviderWithFailover } from "@/lib/ai/provider";
-import { generateCrossSignalDebate } from "@/lib/ai/agent/cross-signal-debate";
 import { calculateSignalWeight } from "@/lib/ai/confidence";
-import { generateClusterArticle } from "@/lib/ai/agent/cluster-article-generator";
-import { ANALYST_CONFIG, GOSSIP_GIRL_CONFIG } from "@/lib/ai/agent/personas";
 import type { SourceType } from "@/lib/ai/types";
-import type {
-  AnalystFact,
-  AnalystSentiment,
-  AnalystTheme,
-  GossipFact,
-  GossipSentiment,
-  GossipTheme,
-} from "@/lib/ai/agent/types";
-import { z } from "zod";
-import { runWithTraceAsync } from "@/lib/ai/trace-context";
+import { loadSignalEmbeddings } from "@/lib/nlp/embedding-store";
 import type { Prisma } from "@prisma/client";
-
-const INFERENCE_TITLE_SCHEMA = z.object({
-  title: z.string().describe("A concise, news-style headline for the inference"),
-  summary: z
-    .string()
-    .describe("A 2-3 sentence executive summary of the cross-signal inference"),
-});
 
 export interface ThemeCluster {
   label: string;
@@ -48,8 +28,6 @@ export interface MomentumResult {
   momentum: number;
   status: "EMERGING" | "ACCELERATING" | "PEAKED" | "FADING" | "RESOLVED";
 }
-
-import { loadSignalEmbeddings } from "@/lib/nlp/embedding-store";
 
 /**
  * Compute cluster embedding centroid by averaging signal embeddings.
@@ -80,29 +58,6 @@ export async function computeClusterCentroid(signalIds: string[]): Promise<numbe
   return centroid;
 }
 
-/**
- * Check if cluster article should be regenerated based on signal count thresholds.
- */
-function shouldRegenerateClusterArticle(
-  currentSignalCount: number,
-  lastArticleSignalCount: number
-): boolean {
-  const thresholds = [3, 5, 10, 20];
-  
-  // Check if we crossed a threshold
-  for (const threshold of thresholds) {
-    if (lastArticleSignalCount < threshold && currentSignalCount >= threshold) {
-      return true;
-    }
-  }
-  
-  // Also regenerate if signal count increased by 50% or more
-  if (currentSignalCount >= lastArticleSignalCount * 1.5) {
-    return true;
-  }
-  
-  return false;
-}
 
 /**
  * Cluster theme labels by embedding similarity.
@@ -295,52 +250,10 @@ export function computeStatus(
   return "EMERGING";
 }
 
-/**
- * Generate an inference using LLM for a convergent theme cluster.
- */
-export async function generateInferenceTitle(
-  cluster: ThemeCluster,
-  companyName: string,
-  sourceTypes: string[],
-): Promise<{ title: string; summary: string }> {
-  const { provider } = getProviderWithFailover("openai");
-  const uniqueSourceTypes = [...new Set(sourceTypes)].join(", ");
-
-  const messages = [
-    {
-      role: "system" as const,
-      content:
-        "You are a corporate intelligence analyst. Generate a concise inference title and summary based on multiple converging signal types about a company.",
-    },
-    {
-      role: "user" as const,
-      content: `Company: ${companyName}
-Theme: ${cluster.label}
-Source types converging: ${uniqueSourceTypes}
-Number of supporting signals: ${cluster.signalIds.length}
-
-Generate a title (one line) and summary (2-3 sentences) for this cross-signal inference.`,
-    },
-  ];
-
-  try {
-    const result = await provider.completeStructured(
-      messages,
-      INFERENCE_TITLE_SCHEMA,
-      { temperature: 0.3 },
-    );
-    return { title: result.title, summary: result.summary };
-  } catch {
-    return {
-      title: `Cross-signal pattern detected: ${cluster.label}`,
-      summary: `Multiple source types (${uniqueSourceTypes}) have converged on the theme "${cluster.label}" for ${companyName}. ${cluster.signalIds.length} signals support this inference.`,
-    };
-  }
-}
-
 export const correlateSignalsFunction = inngest.createFunction(
   {
     id: "correlate-signals",
+    concurrency: { limit: 1, key: "correlate-signals" },
     triggers: [
       { cron: "0 4 * * *" }, // Daily at 4:00 AM UTC
       { event: "correlation/manual.trigger" }, // Manual trigger from admin UI
@@ -348,25 +261,23 @@ export const correlateSignalsFunction = inngest.createFunction(
     retries: 2,
     timeouts: { finish: "20m" },
   },
-  async ({ step, event: _event }) => {
-    return runWithTraceAsync(
-      {
-        sessionId: "correlation-job",
-        traceName: "correlate-signals",
-      },
-      async () => {
-        const log = logger.child({ function: "correlate-signals" });
-        log.info("correlation.start");
+  async ({ step, event }) => {
+    const data = event.data as { recentOnly?: boolean };
+    const recentOnly = data.recentOnly === true;
+    const log = logger.child({ function: "correlate-signals", recentOnly });
+    log.info("correlation.start");
 
     const now = new Date();
 
-    // Step 1: Get recent analyses (last 7 days) grouped by company
+    // Step 1: Get recent analyses (last 7 days, or last 24h if recentOnly) grouped by company
     const recentAnalyses = await step.run("load-recent-analyses", async () => {
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const cutoffDate = recentOnly
+        ? new Date(now.getTime() - 24 * 60 * 60 * 1000)
+        : new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
       const analyses = await prisma.analysis.findMany({
         where: {
-          analyzedAt: { gte: sevenDaysAgo },
+          analyzedAt: { gte: cutoffDate },
           confidence: { gte: 0.5 },
         },
         include: {
@@ -556,25 +467,37 @@ export const correlateSignalsFunction = inngest.createFunction(
           }
 
           // Link signals to theme (many-to-many via connect + clusterId for one-to-many)
-          for (const signalId of cluster.signalIds) {
-            try {
-              await prisma.signal.update({
-                where: { id: signalId },
-                data: {
-                  themes: {
-                    connect: { id: themeId },
+          // Batch: load all signals once, then update in parallel
+          try {
+            const signalsForCluster = await prisma.signal.findMany({
+              where: { id: { in: cluster.signalIds } },
+              select: { id: true, clusterId: true },
+            });
+
+            await Promise.all(
+              signalsForCluster.map((signal) =>
+                prisma.signal.update({
+                  where: { id: signal.id },
+                  data: {
+                    themes: { connect: { id: themeId } },
+                    // Only set clusterId if signal doesn't already have one
+                    ...(signal.clusterId ? {} : { clusterId: themeId }),
                   },
-                  clusterId: themeId, // Set clusterId for clusteredSignals relation
-                },
-              });
-            } catch (err) {
-              // Signal may already be connected or other error
-              log.warn("Failed to link signal to theme", {
-                signalId,
-                themeId,
-                error: err instanceof Error ? err.message : String(err),
-              });
-            }
+                }).catch((err) => {
+                  log.warn("Failed to link signal to theme", {
+                    signalId: signal.id,
+                    themeId,
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                })
+              )
+            );
+          } catch (err) {
+            log.warn("Failed to batch-link signals to theme", {
+              themeId,
+              signalCount: cluster.signalIds.length,
+              error: err instanceof Error ? err.message : String(err),
+            });
           }
 
           results.push({
@@ -592,470 +515,8 @@ export const correlateSignalsFunction = inngest.createFunction(
       return results;
     });
 
-    // Step 4: Generate inferences for high-convergence themes
-    // Returns inference IDs that need cross-signal debates
-    let inferencesCreated = 0;
-    const newInferenceIds: Array<{
-      inferenceId: string;
-      themeLabel: string;
-      companyName: string;
-      signalIds: string[];
-    }> = [];
+    log.info("correlation.complete", { themesUpdated });
 
-    const inferenceResults = await step.run("generate-inferences", async () => {
-      const inferenceThreshold = 3;
-      const minSourceTypes = 2;
-
-      for (const theme of companyThemes) {
-        const uniqueSourceTypes = new Set(theme.sourceTypes);
-
-        // Only generate inference if at least 3 signals from 2+ source types
-        if (
-          theme.signalIds.length < inferenceThreshold ||
-          uniqueSourceTypes.size < minSourceTypes
-        ) {
-          continue;
-        }
-
-        // Check for existing inference for this theme in last 7 days
-        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        const existingInference = await prisma.inference.findFirst({
-          where: {
-            themeId: theme.themeId,
-            createdAt: { gte: sevenDaysAgo },
-          },
-        });
-
-        if (existingInference) continue;
-
-        // Get company name
-        const company = await prisma.company.findUnique({
-          where: { id: theme.companyId },
-          select: { name: true },
-        });
-        if (!company) continue;
-
-        // Generate inference title and summary
-        const { title, summary } = await generateInferenceTitle(
-          {
-            label: theme.label,
-            signalIds: theme.signalIds,
-            sourceTypes: theme.sourceTypes,
-            companyIds: [theme.companyId],
-            avgEmbedding: [],
-          },
-          company.name,
-          theme.sourceTypes,
-        );
-
-        // Load all analyses for the theme's signals to build agentAnalyses + confidence
-        const analyses = await prisma.analysis.findMany({
-          where: { signalId: { in: theme.signalIds } },
-          select: {
-            id: true,
-            signalId: true,
-            agentPersona: true,
-            summary: true,
-            confidence: true,
-            sentiment: true,
-            strategicThemes: true,
-          },
-        });
-
-        // Base confidence from supporting analyses
-        const avgConfidence =
-          analyses.length > 0
-            ? analyses.reduce((sum, a) => sum + a.confidence, 0) /
-              analyses.length
-            : 0.5;
-
-        // Cross-signal convergence bonus: more source types = higher confidence
-        const sourceTypeCount = uniqueSourceTypes.size;
-        const convergenceBonus = Math.min(
-          (sourceTypeCount - 1) * 0.05,
-          0.15,
-        ); // Up to +0.15 for 4+ source types
-        const finalConfidence = Math.min(avgConfidence + convergenceBonus, 1.0);
-
-        // Build per-agent summaries for agentAnalyses field
-        const analystAnalyses = analyses.filter(
-          (a) => a.agentPersona === "ANALYST",
-        );
-        const gossipAnalyses = analyses.filter(
-          (a) => a.agentPersona === "GOSSIP_GIRL",
-        );
-
-        const agentAnalysesData = {
-          analyst: {
-            analysisCount: analystAnalyses.length,
-            avgConfidence:
-              analystAnalyses.length > 0
-                ? analystAnalyses.reduce((s, a) => s + a.confidence, 0) /
-                  analystAnalyses.length
-                : 0,
-            summaries: analystAnalyses.map((a) => a.summary),
-          },
-          gossipGirl: {
-            analysisCount: gossipAnalyses.length,
-            avgConfidence:
-              gossipAnalyses.length > 0
-                ? gossipAnalyses.reduce((s, a) => s + a.confidence, 0) /
-                  gossipAnalyses.length
-                : 0,
-            summaries: gossipAnalyses.map((a) => a.summary),
-          },
-        };
-
-        const inference = await prisma.inference.create({
-          data: {
-            companyId: theme.companyId,
-            themeId: theme.themeId,
-            title,
-            hypothesis: summary,
-            confidence: finalConfidence,
-            supportingSignalIds: theme.signalIds,
-            sourceTypesInvolved: [...uniqueSourceTypes],
-            status: "EMERGING",
-            agentAnalyses: agentAnalysesData,
-          },
-        });
-
-        inferencesCreated++;
-        newInferenceIds.push({
-          inferenceId: inference.id,
-          themeLabel: theme.label,
-          companyName: company.name,
-          signalIds: theme.signalIds,
-        });
-
-        log.info("correlation.inference_created", {
-          themeId: theme.themeId,
-          title,
-          signalCount: theme.signalIds.length,
-          sourceTypeCount: uniqueSourceTypes.size,
-          convergenceBonus,
-          finalConfidence,
-        });
-      }
-
-      return newInferenceIds;
-    });
-
-    // Step 5: Generate cross-signal debates for new inferences
-    let debatesCreated = 0;
-
-    await step.run("generate-cross-signal-debates", async () => {
-      for (const item of inferenceResults) {
-        try {
-          // Load signal metadata (sourceType, engagement, title, publishedAt) for weighting and provenance
-          const signals = await prisma.signal.findMany({
-            where: { id: { in: item.signalIds } },
-            select: { id: true, sourceType: true, engagement: true, title: true, publishedAt: true },
-          });
-          const signalMetadata = new Map(
-            signals.map((s) => [
-              s.id,
-              {
-                sourceType: s.sourceType as SourceType,
-                engagement: s.engagement as Record<string, unknown> | null,
-                title: s.title,
-                publishedAt: s.publishedAt,
-              },
-            ]),
-          );
-
-          // Load all Analyst analyses for this theme's signals
-          const analystDbAnalyses = await prisma.analysis.findMany({
-            where: {
-              signalId: { in: item.signalIds },
-              agentPersona: "ANALYST",
-            },
-          });
-
-          // Load all Gossip Girl analyses for this theme's signals
-          const gossipDbAnalyses = await prisma.analysis.findMany({
-            where: {
-              signalId: { in: item.signalIds },
-              agentPersona: "GOSSIP_GIRL",
-            },
-          });
-
-          // Convert DB records to AgentAnalysis shape with source metadata
-          const analystAnalyses = analystDbAnalyses.map((a) => {
-            const meta = signalMetadata.get(a.signalId);
-            return {
-              id: a.id,
-              signalId: a.signalId,
-              agentPersona: "ANALYST" as const,
-              summary: a.summary,
-              keyFacts: ((Array.isArray(a.keyFacts) ? a.keyFacts : []) as AnalystFact[]) ?? [],
-              sentiment: (a.sentimentData as AnalystSentiment) ?? {
-                sentiment: a.sentiment as "POSITIVE" | "NEGATIVE" | "NEUTRAL",
-                strength: undefined,
-                confidence: a.confidence,
-                key_phrases: [],
-              },
-              strategicThemes: ((Array.isArray(a.strategicThemes) ? a.strategicThemes : []) as AnalystTheme[]) ?? [],
-              confidence: a.confidence,
-              crossReferences: null,
-              modelUsed: a.modelUsed,
-              analyzedAt: a.analyzedAt,
-              sourceType: meta?.sourceType,
-              engagement: meta?.engagement,
-              signalTitle: meta?.title,
-              publishedAt: meta?.publishedAt,
-            };
-          });
-
-          const gossipAnalyses = gossipDbAnalyses.map((a) => {
-            const meta = signalMetadata.get(a.signalId);
-            return {
-              id: a.id,
-              signalId: a.signalId,
-              agentPersona: "GOSSIP_GIRL" as const,
-              summary: a.summary,
-              keyFacts: ((Array.isArray(a.keyFacts) ? a.keyFacts : []) as GossipFact[]) ?? [],
-              sentiment: (a.sentimentData as GossipSentiment) ?? {
-                surface_reading: "neutral-surface" as const,
-                tell_strength: a.confidence,
-                key_phrases: [],
-              },
-              strategicThemes: ((Array.isArray(a.strategicThemes) ? a.strategicThemes : []) as GossipTheme[]) ?? [],
-              confidence: a.confidence,
-              crossReferences: null,
-              modelUsed: a.modelUsed,
-              analyzedAt: a.analyzedAt,
-              sourceType: meta?.sourceType,
-              engagement: meta?.engagement,
-              signalTitle: meta?.title,
-              publishedAt: meta?.publishedAt,
-            };
-          });
-
-          // Skip if no analyses from either agent
-          if (analystAnalyses.length === 0 && gossipAnalyses.length === 0) {
-            log.warn("correlation.debate_skipped_no_analyses", {
-              inferenceId: item.inferenceId,
-            });
-            continue;
-          }
-
-          // Generate the cross-signal debate with provenance tracking
-          const debateResult = await generateCrossSignalDebate(
-            analystAnalyses,
-            gossipAnalyses,
-            item.themeLabel,
-            item.companyName,
-          );
-
-          // Build a readable transcript from the debate structure
-          const transcript = JSON.stringify(debateResult.debate);
-
-          // Determine consensus: both agents agree on key points
-          const consensusReached =
-            debateResult.debate.pointsOfAgreement.length > 0 &&
-            debateResult.debate.pointsOfContention.length === 0;
-
-          // Final confidence from the debate (average of both positions)
-          const finalConfidence =
-            (debateResult.debate.analystPosition.confidence +
-              debateResult.debate.gossipGirlPosition.tellStrength) /
-            2;
-
-          // Create the CrossSignalDebate record with evidence provenance
-          const debateRecord = await prisma.crossSignalDebate.create({
-            data: {
-              inferenceId: item.inferenceId,
-              debateTranscript: transcript,
-              consensusReached,
-              finalConfidence,
-              status: "ACTIVE",
-              analystClaim: debateResult.debate.analystPosition.claim ?? "",
-              analystEvidence: debateResult.debate.analystPosition.evidence ?? [],
-              analystConfidence: debateResult.debate.analystPosition.confidence ?? 0.5,
-              gossipClaim: debateResult.debate.gossipGirlPosition.claim ?? "",
-              gossipEvidence: debateResult.debate.gossipGirlPosition.evidence ?? [],
-              gossipTellStrength: debateResult.debate.gossipGirlPosition.tellStrength ?? 0.5,
-              agreements: debateResult.debate.pointsOfAgreement ?? [],
-              contentions: debateResult.debate.pointsOfContention ?? [],
-              synthesisText: debateResult.debate.synthesis ?? "",
-              evidenceProvenance: debateResult.evidenceProvenance,
-            },
-          });
-
-          // Link debate to inference
-          await prisma.inference.update({
-            where: { id: item.inferenceId },
-            data: { debateId: debateRecord.id },
-          });
-
-          debatesCreated++;
-          log.info("correlation.cross_signal_debate_created", {
-            inferenceId: item.inferenceId,
-            analystCount: analystAnalyses.length,
-            gossipCount: gossipAnalyses.length,
-            consensusReached,
-            finalConfidence,
-            evidenceProvenanceEntries: Object.keys(debateResult.evidenceProvenance).length,
-          });
-        } catch (error) {
-          log.error("correlation.cross_signal_debate_error", {
-            inferenceId: item.inferenceId,
-            error: String(error),
-          });
-          // Continue with other inferences — debate failure is non-fatal
-        }
-      }
-    });
-
-    // Step 6: Generate cluster articles for themes with inferences
-    let clusterArticlesCreated = 0;
-
-    await step.run("generate-cluster-articles", async () => {
-      for (const item of inferenceResults) {
-        try {
-          // Find the theme for this inference by looking up via companyThemes
-          const theme = companyThemes.find(
-            (t) => t.label === item.themeLabel && t.signalIds.some((id) => item.signalIds.includes(id))
-          );
-          if (!theme) continue;
-
-          // Check if we should regenerate the article
-          const existingArticles = await prisma.clusterArticle.findMany({
-            where: { themeId: theme.themeId },
-            select: { signalCount: true },
-          });
-
-          const lastSignalCount = existingArticles.length > 0
-            ? Math.max(...existingArticles.map((a) => a.signalCount))
-            : 0;
-
-          if (!shouldRegenerateClusterArticle(item.signalIds.length, lastSignalCount)) {
-            log.debug("correlation.cluster_article_skipped", {
-              themeId: theme.themeId,
-              currentCount: item.signalIds.length,
-              lastCount: lastSignalCount,
-            });
-            continue;
-          }
-
-          // Load signals with their facts for article generation
-          const signals = await prisma.signal.findMany({
-            where: { id: { in: item.signalIds } },
-            select: {
-              id: true,
-              title: true,
-              sourceType: true,
-              analyses: {
-                select: { keyFacts: true },
-              },
-            },
-          });
-
-          const clusterData = {
-            label: theme.label,
-            summary: `${theme.label}: Analysis of ${signals.length} related signals`,
-            signals: signals.map((s) => ({
-              id: s.id,
-              title: s.title,
-              sourceType: s.sourceType,
-              facts: s.analyses.flatMap((a) =>
-                Array.isArray(a.keyFacts)
-                  ? a.keyFacts.map((f) =>
-                      typeof f === "string" ? f : (f && typeof f === "object" && "text" in f ? f.text : String(f))
-                    )
-                  : []
-              ) as Array<string | { text?: string }>,
-            })),
-          };
-
-          const company = await prisma.company.findUnique({
-            where: { id: theme.companyId },
-            select: { name: true, ticker: true },
-          });
-
-          if (!company) continue;
-
-          const companyInfo = {
-            name: company.name,
-            ticker: company.ticker || undefined,
-          };
-
-          // Generate articles for both personas
-          for (const [persona, config] of [
-            ["ANALYST", ANALYST_CONFIG],
-            ["GOSSIP_GIRL", GOSSIP_GIRL_CONFIG],
-          ] as const) {
-            try {
-              const article = await generateClusterArticle(
-                clusterData,
-                companyInfo,
-                config
-              );
-
-              await prisma.clusterArticle.upsert({
-                where: {
-                  themeId_agentPersona: {
-                    themeId: theme.themeId,
-                    agentPersona: persona,
-                  },
-                },
-                update: {
-                  title: article.title,
-                  slug: article.slug,
-                  summary: article.summary,
-                  body: article.body,
-                  signalCount: item.signalIds.length,
-                  status: "PUBLISHED",
-                  publishedAt: now,
-                },
-                create: {
-                  themeId: theme.themeId,
-                  companyId: theme.companyId,
-                  title: article.title,
-                  slug: article.slug,
-                  summary: article.summary,
-                  body: article.body,
-                  agentPersona: persona,
-                  signalCount: item.signalIds.length,
-                  status: "PUBLISHED",
-                  publishedAt: now,
-                },
-              });
-
-              clusterArticlesCreated++;
-              log.info("correlation.cluster_article_created", {
-                themeId: theme.themeId,
-                persona,
-                signalCount: item.signalIds.length,
-                groundingScore: article.groundingScore,
-              });
-            } catch (error) {
-              log.error("correlation.cluster_article_generation_failed", {
-                themeId: theme.themeId,
-                persona,
-                error: String(error),
-              });
-            }
-          }
-        } catch (error) {
-          log.error("correlation.cluster_article_error", {
-            inferenceId: item.inferenceId,
-            error: String(error),
-          });
-        }
-      }
-    });
-
-    log.info("correlation.complete", {
-      themesUpdated,
-      inferencesCreated,
-      debatesCreated,
-      clusterArticlesCreated,
-    });
-
-    return { success: true, themesUpdated, inferencesCreated, debatesCreated, clusterArticlesCreated };
-      } // close runWithTraceAsync callback
-    ); // close runWithTraceAsync
+    return { success: true, themesUpdated };
   },
 );

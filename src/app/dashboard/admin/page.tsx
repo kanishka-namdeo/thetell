@@ -16,24 +16,20 @@ export default async function AdminDashboardPage() {
   const [
     totalUsers,
     totalSignals,
-    totalArticles,
     totalCompanies,
     usersToday,
     recentAuditLogs,
-    activeInferences,
+    activeThemes,
     confirmedHypotheses,
     failedPipelineRuns,
     runningPipelineRuns,
-    recentInferences,
+    recentAnalyses,
     themeStatusCounts,
-    calibratedInferences,
-    correctCalibrations,
     activeClusterCount,
     activeUsers,
   ] = await Promise.all([
     prisma.user.count(),
     prisma.signal.count(),
-    prisma.article.count(),
     prisma.company.count(),
     prisma.user.count({
       where: {
@@ -51,9 +47,9 @@ export default async function AdminDashboardPage() {
         },
       },
     }),
-    prisma.inference.count({
+    prisma.signalTheme.count({
       where: {
-        status: { in: ["EMERGING", "DEVELOPING"] },
+        status: { in: ["EMERGING", "ACCELERATING"] },
       },
     }),
     prisma.companyHypothesis.count({
@@ -65,24 +61,22 @@ export default async function AdminDashboardPage() {
     prisma.pipelineRun.count({
       where: { status: "running" },
     }),
-    prisma.inference.findMany({
+    prisma.analysis.findMany({
       take: 5,
-      orderBy: { createdAt: "desc" },
+      orderBy: { analyzedAt: "desc" },
       include: {
-        company: {
-          select: { id: true, name: true, slug: true },
+        signal: {
+          include: {
+            company: {
+              select: { id: true, name: true, slug: true },
+            },
+          },
         },
       },
     }),
     prisma.signalTheme.groupBy({
       by: ["status"],
       _count: true,
-    }),
-    prisma.inferenceCalibration.count({
-      where: { resolvedAt: { not: null } },
-    }),
-    prisma.inferenceCalibration.count({
-      where: { wasCorrect: true },
     }),
     prisma.signalTheme.count({
       where: { status: { in: ["EMERGING", "ACCELERATING"] } },
@@ -91,11 +85,6 @@ export default async function AdminDashboardPage() {
       where: { status: "ACTIVE" },
     }),
   ]);
-
-  const calibrationAccuracy =
-    calibratedInferences > 0
-      ? (correctCalibrations / calibratedInferences) * 100
-      : null;
 
   const themeStatusMap: Record<string, number> = {
     EMERGING: 0,
@@ -112,27 +101,23 @@ export default async function AdminDashboardPage() {
   const overviewData: AdminOverviewData = {
     totalUsers,
     totalSignals,
-    totalArticles,
     totalCompanies,
     usersToday,
     activeUsers,
-    activeInferences,
+    activeThemes,
     confirmedHypotheses,
     failedPipelineRuns,
     runningPipelineRuns,
     activeClusterCount,
-    recentInferences: recentInferences.map((inf) => ({
-      id: inf.id,
-      title: inf.title,
-      status: inf.status,
-      confidence: inf.confidence,
-      createdAt: inf.createdAt,
-      company: inf.company,
+    recentAnalyses: recentAnalyses.map((analysis) => ({
+      id: analysis.id,
+      title: analysis.signal?.title ?? "Unknown",
+      confidence: analysis.confidence,
+      sentiment: analysis.sentiment,
+      createdAt: analysis.analyzedAt,
+      company: analysis.signal?.company,
     })),
     themeStatusMap,
-    calibrationAccuracy,
-    calibratedInferences,
-    correctCalibrations,
     recentAuditLogs: recentAuditLogs.map((log) => ({
       id: log.id,
       action: log.action,

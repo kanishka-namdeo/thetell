@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -81,15 +81,22 @@ export function PipelineSessionsClient() {
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
+  const controllerRef = useRef<AbortController | null>(null);
 
   const fetchSessions = useCallback(async (cursor?: string) => {
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+
     setIsLoading(true);
     try {
       const params = new URLSearchParams({ limit: "50" });
       if (cursor) params.set("cursor", cursor);
       if (statusFilter) params.set("status", statusFilter);
 
-      const res = await fetch(`/api/v1/admin/pipelines/sessions?${params}`);
+      const res = await fetch(`/api/v1/admin/pipelines/sessions?${params}`, {
+        signal: controller.signal,
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
@@ -101,6 +108,7 @@ export function PipelineSessionsClient() {
       setNextCursor(data.nextCursor);
       setHasMore(!!data.nextCursor);
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
       logger.error("pipeline_sessions.fetch_failed", { error: String(error) });
     } finally {
       setIsLoading(false);
@@ -108,7 +116,9 @@ export function PipelineSessionsClient() {
   }, [statusFilter]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchSessions();
+    return () => controllerRef.current?.abort();
   }, [fetchSessions]);
 
   return (

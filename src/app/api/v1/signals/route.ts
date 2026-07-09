@@ -27,7 +27,7 @@ const SignalCreateSchema = z.object({
   companyId: z.string().min(1, "Company ID is required"),
   title: z.string().optional(),
   rawContent: z.string().optional(),
-  publishedAt: z.string().optional(),
+  publishedAt: z.string().nullish(),
   engagement: z.record(z.string(), z.unknown()).optional(),
   author: z.string().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
@@ -47,9 +47,20 @@ export async function GET(request: NextRequest) {
     const limit = Number.isNaN(rawLimit) ? 20 : Math.min(Math.max(rawLimit, 1), maxLimit);
     const cursor = searchParams.get("cursor");
     const companyId = searchParams.get("companyId");
-    const sourceType = searchParams.get("sourceType") as SourceType | null;
-    const sentiment = searchParams.get("sentiment") as Sentiment | null;
-    const agentPersona = searchParams.get("agentPersona") as AgentPersona | null;
+    const sourceTypeRaw = searchParams.get("sourceType");
+    const sourceType = sourceTypeRaw && Object.values(SourceType).includes(sourceTypeRaw as SourceType)
+      ? sourceTypeRaw as SourceType
+      : null;
+
+    const sentimentRaw = searchParams.get("sentiment");
+    const sentiment = sentimentRaw && Object.values(Sentiment).includes(sentimentRaw as Sentiment)
+      ? sentimentRaw as Sentiment
+      : null;
+
+    const agentPersonaRaw = searchParams.get("agentPersona");
+    const agentPersona = agentPersonaRaw && Object.values(AgentPersona).includes(agentPersonaRaw as AgentPersona)
+      ? agentPersonaRaw as AgentPersona
+      : null;
     const includeInferences = searchParams.get("includeInferences") === "true";
     const includeCorrelations = searchParams.get("includeCorrelations") === "true";
     const includeCluster = searchParams.get("includeCluster") === "true";
@@ -106,27 +117,28 @@ export async function GET(request: NextRequest) {
 
     if (includeInferences) {
       const companyIds = [...new Set(items.map((s) => s.companyId))];
-      const inferences = await prisma.inference.findMany({
-        where: { companyId: { in: companyIds } },
+      const analyses = await prisma.analysis.findMany({
+        where: { signal: { companyId: { in: companyIds } } },
         select: {
           id: true,
-          title: true,
+          keyFacts: true,
           confidence: true,
-          status: true,
-          companyId: true,
-          createdAt: true,
+          sentiment: true,
+          signalId: true,
+          signal: { select: { companyId: true } },
         },
         orderBy: { confidence: "desc" },
       });
-      const inferenceMap = new Map<string, typeof inferences>();
-      for (const inf of inferences) {
-        const existing = inferenceMap.get(inf.companyId) ?? [];
-        existing.push(inf);
-        inferenceMap.set(inf.companyId, existing);
+      const analysisMap = new Map<string, typeof analyses>();
+      for (const analysis of analyses) {
+        const companyId = analysis.signal.companyId;
+        const existing = analysisMap.get(companyId) ?? [];
+        existing.push(analysis);
+        analysisMap.set(companyId, existing);
       }
       items = items.map((s) => ({
         ...s,
-        inferences: inferenceMap.get(s.companyId) ?? [],
+        relatedAnalyses: analysisMap.get(s.companyId) ?? [],
       }));
     }
 
@@ -448,8 +460,13 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // ponytail: inline analysis fallback removed — requires INNGEST_SIGNING_KEY for background analysis
-    if (process.env.INNGEST_SIGNING_KEY) {
+    // Send analysis event to Inngest
+    // In production: requires INNGEST_SIGNING_KEY
+    // In development: local dev server doesn't need signing key
+    const isDev = process.env.NODE_ENV === "development" || process.env.INNGEST_DEV;
+    const canSendToInngest = process.env.INNGEST_SIGNING_KEY || isDev;
+    
+    if (canSendToInngest) {
       try {
         await inngest.send({
           name: "signal/analysis.requested",
@@ -461,7 +478,7 @@ export async function POST(request: NextRequest) {
     } else {
       logger.warn("api.signal.inngest_not_configured", {
         signalId: signal.id,
-        reason: "INNGEST_SIGNING_KEY not set — signal will not be analyzed until background jobs are enabled",
+        reason: "INNGEST_SIGNING_KEY not set and not in dev mode — signal will not be analyzed",
       });
     }
 

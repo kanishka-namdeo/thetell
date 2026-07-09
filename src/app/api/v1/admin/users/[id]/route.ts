@@ -45,7 +45,6 @@ export async function GET(
         updatedAt: true,
         _count: {
           select: {
-            articles: true,
             watchedCompanies: true,
           },
         },
