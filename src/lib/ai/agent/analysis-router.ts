@@ -198,104 +198,119 @@ async function runStandaloneAnalysis(
 ): Promise<AnalysisRouterResult> {
   const log = logger.child({ signalId: signal.id, path: "standalone" });
 
-  // Run both agent analyses in parallel
-  const [analystResult, gossipResult] = await Promise.all([
+  // Run both agent analyses in parallel with allSettled for resilience —
+  // if one agent fails (rate limit, timeout), the other's result is still saved.
+  const [analystSettled, gossipSettled] = await Promise.allSettled([
     analyzeSignalWithAgent(signal, ANALYST_CONFIG, undefined, options.providerName, options.model),
     analyzeSignalWithAgent(signal, GOSSIP_GIRL_CONFIG, undefined, options.providerName, options.model),
   ]);
-  const analystAnalysis = analystResult.analysis;
-  const gossipAnalysis = gossipResult.analysis;
+
+  if (analystSettled.status === "rejected") {
+    log.error("analysis_router.analyst_failed", { error: String(analystSettled.reason) });
+  }
+  if (gossipSettled.status === "rejected") {
+    log.error("analysis_router.gossip_girl_failed", { error: String(gossipSettled.reason) });
+  }
+
+  // If both agents failed, throw to signal complete failure
+  if (analystSettled.status === "rejected" && gossipSettled.status === "rejected") {
+    throw new Error("Both agent analyses failed");
+  }
+
+  const analystResult = analystSettled.status === "fulfilled" ? analystSettled.value : null;
+  const gossipResult = gossipSettled.status === "fulfilled" ? gossipSettled.value : null;
+  const analystAnalysis = analystResult?.analysis;
+  const gossipAnalysis = gossipResult?.analysis;
 
   // TODO: Generate debate between agents (existing logic from functions.ts)
 
-  // Persist Analysis records and metrics
-  const analystSentimentLabel = extractSentimentLabel(analystAnalysis);
-  const gossipSentimentLabel = extractSentimentLabel(gossipAnalysis);
+  // Persist Analysis records and metrics (only for successful analyses)
+  const persistPromises: Promise<unknown>[] = [];
 
-  const [analystAnalysisRecord, gossipAnalysisRecord] = await Promise.all([
-    prisma.analysis.upsert({
-      where: { signalId_agentPersona: { signalId: signal.id, agentPersona: "ANALYST" } },
-      update: {
-        summary: analystAnalysis.summary,
-        keyFacts: analystAnalysis.keyFacts,
-        sentiment: analystSentimentLabel,
-        sentimentData: analystAnalysis.sentiment,
-        strategicThemes: analystAnalysis.strategicThemes,
-        confidence: analystAnalysis.confidence,
-        modelUsed: analystAnalysis.modelUsed,
-        analyzedAt: analystAnalysis.analyzedAt,
-        sourceMatchPreference: analystAnalysis.sourceMatchPreference,
-      },
-      create: {
-        id: analystAnalysis.id,
-        signalId: signal.id,
-        agentPersona: "ANALYST",
-        summary: analystAnalysis.summary,
-        keyFacts: analystAnalysis.keyFacts,
-        sentiment: analystSentimentLabel,
-        sentimentData: analystAnalysis.sentiment,
-        strategicThemes: analystAnalysis.strategicThemes,
-        confidence: analystAnalysis.confidence,
-        modelUsed: analystAnalysis.modelUsed,
-        analyzedAt: analystAnalysis.analyzedAt,
-        sourceMatchPreference: analystAnalysis.sourceMatchPreference,
-      },
-    }),
-    prisma.analysis.upsert({
-      where: { signalId_agentPersona: { signalId: signal.id, agentPersona: "GOSSIP_GIRL" } },
-      update: {
-        summary: gossipAnalysis.summary,
-        keyFacts: gossipAnalysis.keyFacts,
-        sentiment: gossipSentimentLabel,
-        sentimentData: gossipAnalysis.sentiment,
-        strategicThemes: gossipAnalysis.strategicThemes,
-        confidence: gossipAnalysis.confidence,
-        modelUsed: gossipAnalysis.modelUsed,
-        analyzedAt: gossipAnalysis.analyzedAt,
-        sourceMatchPreference: gossipAnalysis.sourceMatchPreference,
-      },
-      create: {
-        id: gossipAnalysis.id,
-        signalId: signal.id,
-        agentPersona: "GOSSIP_GIRL",
-        summary: gossipAnalysis.summary,
-        keyFacts: gossipAnalysis.keyFacts,
-        sentiment: gossipSentimentLabel,
-        sentimentData: gossipAnalysis.sentiment,
-        strategicThemes: gossipAnalysis.strategicThemes,
-        confidence: gossipAnalysis.confidence,
-        modelUsed: gossipAnalysis.modelUsed,
-        analyzedAt: gossipAnalysis.analyzedAt,
-        sourceMatchPreference: gossipAnalysis.sourceMatchPreference,
-      },
-    }),
-  ]);
+  if (analystAnalysis) {
+    const analystSentimentLabel = extractSentimentLabel(analystAnalysis);
+    persistPromises.push(
+      prisma.analysis.upsert({
+        where: { signalId_agentPersona: { signalId: signal.id, agentPersona: "ANALYST" } },
+        update: {
+          summary: analystAnalysis.summary,
+          keyFacts: analystAnalysis.keyFacts,
+          sentiment: analystSentimentLabel,
+          sentimentData: analystAnalysis.sentiment,
+          strategicThemes: analystAnalysis.strategicThemes,
+          confidence: analystAnalysis.confidence,
+          modelUsed: analystAnalysis.modelUsed,
+          analyzedAt: analystAnalysis.analyzedAt,
+          sourceMatchPreference: analystAnalysis.sourceMatchPreference,
+        },
+        create: {
+          id: analystAnalysis.id,
+          signalId: signal.id,
+          agentPersona: "ANALYST",
+          summary: analystAnalysis.summary,
+          keyFacts: analystAnalysis.keyFacts,
+          sentiment: analystSentimentLabel,
+          sentimentData: analystAnalysis.sentiment,
+          strategicThemes: analystAnalysis.strategicThemes,
+          confidence: analystAnalysis.confidence,
+          modelUsed: analystAnalysis.modelUsed,
+          analyzedAt: analystAnalysis.analyzedAt,
+          sourceMatchPreference: analystAnalysis.sourceMatchPreference,
+        },
+      }).then(record =>
+        persistAnalysisMetrics(record.id, signal.id, analystResult!.metrics, { path: "standalone" })
+      )
+    );
+  }
 
-  // Persist metrics for both agents
-  await Promise.all([
-    persistAnalysisMetrics(
-      analystAnalysisRecord.id,
-      signal.id,
-      analystResult.metrics,
-      { path: "standalone" }
-    ),
-    persistAnalysisMetrics(
-      gossipAnalysisRecord.id,
-      signal.id,
-      gossipResult.metrics,
-      { path: "standalone" }
-    ),
-  ]);
+  if (gossipAnalysis) {
+    const gossipSentimentLabel = extractSentimentLabel(gossipAnalysis);
+    persistPromises.push(
+      prisma.analysis.upsert({
+        where: { signalId_agentPersona: { signalId: signal.id, agentPersona: "GOSSIP_GIRL" } },
+        update: {
+          summary: gossipAnalysis.summary,
+          keyFacts: gossipAnalysis.keyFacts,
+          sentiment: gossipSentimentLabel,
+          sentimentData: gossipAnalysis.sentiment,
+          strategicThemes: gossipAnalysis.strategicThemes,
+          confidence: gossipAnalysis.confidence,
+          modelUsed: gossipAnalysis.modelUsed,
+          analyzedAt: gossipAnalysis.analyzedAt,
+          sourceMatchPreference: gossipAnalysis.sourceMatchPreference,
+        },
+        create: {
+          id: gossipAnalysis.id,
+          signalId: signal.id,
+          agentPersona: "GOSSIP_GIRL",
+          summary: gossipAnalysis.summary,
+          keyFacts: gossipAnalysis.keyFacts,
+          sentiment: gossipSentimentLabel,
+          sentimentData: gossipAnalysis.sentiment,
+          strategicThemes: gossipAnalysis.strategicThemes,
+          confidence: gossipAnalysis.confidence,
+          modelUsed: gossipAnalysis.modelUsed,
+          analyzedAt: gossipAnalysis.analyzedAt,
+          sourceMatchPreference: gossipAnalysis.sourceMatchPreference,
+        },
+      }).then(record =>
+        persistAnalysisMetrics(record.id, signal.id, gossipResult!.metrics, { path: "standalone" })
+      )
+    );
+  }
+
+  await Promise.all(persistPromises);
 
   log.info("analysis_router.standalone_complete", {
     signalId: signal.id,
-    analystConfidence: analystAnalysis.confidence,
-    gossipConfidence: gossipAnalysis.confidence,
+    analystConfidence: analystAnalysis?.confidence ?? null,
+    gossipConfidence: gossipAnalysis?.confidence ?? null,
   });
 
+  // Return primary analysis (prefer analyst, fallback to gossip)
   return {
     path: "standalone",
-    analysis: analystAnalysis, // Return analyst analysis as primary
+    analysis: analystAnalysis ?? gossipAnalysis!,
   };
 }
 
@@ -329,33 +344,34 @@ async function runClusterAnalysis(
     throw new Error(`Cluster not found: ${clusterId}`);
   }
 
-  // Run lightweight cluster analysis for both agents
+  // Run lightweight cluster analysis for both agents in parallel
   const clusterSummaryObj = cluster.clusterSummary as Record<string, unknown> | null;
-  const analystClusterResult = await analyzeSignalForCluster(
-    signal,
-    {
-      label: cluster.label,
-      summary: cluster.clusterSummary,
-      signalCount: cluster.clusteredSignals.length,
-      existingThemes: (clusterSummaryObj?.keyThemes as string[]) ?? [],
-    },
-    "ANALYST",
-    options.providerName,
-    options.model
-  );
-
-  const gossipClusterResult = await analyzeSignalForCluster(
-    signal,
-    {
-      label: cluster.label,
-      summary: cluster.clusterSummary,
-      signalCount: cluster.clusteredSignals.length,
-      existingThemes: (clusterSummaryObj?.keyThemes as string[]) ?? [],
-    },
-    "GOSSIP_GIRL",
-    options.providerName,
-    options.model
-  );
+  const [analystClusterResult, gossipClusterResult] = await Promise.all([
+    analyzeSignalForCluster(
+      signal,
+      {
+        label: cluster.label,
+        summary: cluster.clusterSummary,
+        signalCount: cluster.clusteredSignals.length,
+        existingThemes: (clusterSummaryObj?.keyThemes as string[]) ?? [],
+      },
+      "ANALYST",
+      options.providerName,
+      options.model
+    ),
+    analyzeSignalForCluster(
+      signal,
+      {
+        label: cluster.label,
+        summary: cluster.clusterSummary,
+        signalCount: cluster.clusteredSignals.length,
+        existingThemes: (clusterSummaryObj?.keyThemes as string[]) ?? [],
+      },
+      "GOSSIP_GIRL",
+      options.providerName,
+      options.model
+    ),
+  ]);
 
   // Update cluster with new signal
   const updateResult = await updateClusterWithSignal(

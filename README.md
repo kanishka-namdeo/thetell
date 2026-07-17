@@ -1,36 +1,124 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# The Tell
+
+**AI-powered corporate intelligence that reads between the lines of public information.**
+
+The Tell is the only platform that connects the dots across signal types — earnings calls, news, filings, social media, job postings — to predict what companies are really thinking and planning.
+
+---
+
+## Preview
+
+### Public Signal Feed
+Real-time signal feed with dual-agent AI analysis, confidence scoring, and strategic theme detection.
+
+![Public Signal Feed](./screenshots/home-page.png)
+
+### Analyst Dashboard
+Filter and search across signals by source type, confidence level, and status.
+
+![Signals Dashboard](./screenshots/signals-page.png)
+
+### Analytics & Trends
+Track signal trends, source breakdowns, confidence distributions, and sentiment over time.
+
+![Dashboard Analytics](./screenshots/dashboard-overview.png)
+
+### Admin Control Center
+Monitor pipeline health, system status, and manage the full signal processing lifecycle.
+
+![Admin Dashboard](./screenshots/admin-dashboard.png)
+
+### DeepAgent — Multi-Agent Debate
+Two AI personas (Analyst & Gossip Girl) debate accumulated evidence across signals to refine strategic insights.
+
+![DeepAgent Interface](./screenshots/extra-page.png)
+
+---
+
+## Features
+
+- **25+ Signal Sources** — News, SEC filings, earnings transcripts, social media, job postings, patents, government records, Reddit, and more
+- **Dual-Agent Analysis** — Two distinct AI personas analyze every signal from different perspectives
+- **Cross-Signal Inference** — Connects patterns across signal types to infer corporate strategic intent
+- **Confidence Scoring** — Every inference scored (0.0–1.0) so analysts know what to trust
+- **NLP Pipeline** — Local embeddings, entity extraction, sentiment classification, keyphrase extraction
+- **Hypothesis-Driven Collection** — LLM-generated investigative questions guide targeted signal collection
+- **DeepAgent** — Multi-agent debate system that refines analyses through structured argumentation
+- **Real-Time Dashboard** — Signal monitoring with filtering, search, and analytics
+- **Admin Control Center** — Full pipeline visibility with manual triggers and system health monitoring
+
+## Tech Stack
+
+- **Framework**: Next.js 16 with App Router (Turbopack)
+- **Language**: TypeScript (strict mode)
+- **Database**: PostgreSQL with Prisma ORM (27 models)
+- **AI**: OpenAI / Anthropic provider abstraction
+- **NLP**: Transformers.js (local embeddings, no external API)
+- **Background Jobs**: Inngest
+- **Auth**: NextAuth v5
+- **UI**: shadcn/ui + Tailwind CSS
+- **Scraping**: Cheerio-based pipeline with rate limiting and caching
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 20+
+- pnpm
+- Docker (for PostgreSQL)
+
+### Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+# Clone the repository
+git clone https://github.com/your-org/the-tell.git
+cd the-tell
+
+# Install dependencies
+pnpm install
+
+# Start PostgreSQL in Docker
+docker-compose up -d db
+
+# Run database migrations
+pnpm prisma migrate deploy
+
+# Seed test data
+pnpm prisma db seed
+
+# Copy environment template
+cp .env.example .env.local
+# Edit .env.local with your API keys (API_KEY, BASE_URL, etc.)
+
+# Start the dev server
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to view the app.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Test Credentials
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| User | Email | Password | Role |
+|---|---|---|---|
+| Admin | `admin@thetell.com` | `password123` | `ADMIN` |
+| Analyst | `analyst@thetell.com` | `password123` | `USER` |
 
-## Learn More
+## Project Structure
 
-To learn more about Next.js, take a look at the following resources:
+```
+src/
+├── app/                    # Next.js App Router pages & API routes
+├── components/             # React components (UI, dashboard, admin)
+├── lib/
+│   ├── ai/agent/          # Dual-agent analysis pipeline
+│   ├── inngest/           # Background job definitions
+│   ├── nlp/               # NLP layer (embeddings, entities, sentiment)
+│   ├── scraping/          # 25 scrapers + cache + registry
+│   ├── enrichment/        # Company enrichment pipeline
+│   └── reddit/            # Subreddit discovery
+└── hooks/                  # Custom React hooks
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## License
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Private — not yet licensed for distribution.

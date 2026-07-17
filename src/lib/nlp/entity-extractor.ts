@@ -19,6 +19,24 @@ export interface ExtractedEntities {
   monetary: string[];
 }
 
+// Module-level regex patterns to avoid recreation on every call (reduces GC pressure)
+const DATE_PATTERNS: RegExp[] = [
+  /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/g, // MM/DD/YYYY
+  /\b\d{4}-\d{2}-\d{2}\b/g, // YYYY-MM-DD
+  /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2},? \d{4}\b/gi, // Month DD, YYYY
+  /\b\d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{4}\b/gi, // DD Month YYYY
+  /\bQ[1-4] \d{4}\b/g, // Q1 2024
+  /\bFY\d{4}\b/g, // FY2024
+];
+
+const MONETARY_PATTERNS: RegExp[] = [
+  /\$\d+(?:\.\d+)?(?:\s?(?:million|billion|trillion|M|B|T))?/gi, // $100 million
+  /\d+(?:\.\d+)?\s?(?:million|billion|trillion)\s?(?:dollars|USD)?/gi, // 100 million dollars
+  /€\d+(?:\.\d+)?(?:\s?(?:million|billion|trillion))?/gi, // €100 million
+  /£\d+(?:\.\d+)?(?:\s?(?:million|billion|trillion))?/gi, // £100 million
+  /\d+(?:\.\d+)?\s?(?:USD|EUR|GBP)(?:\s?(?:million|billion|trillion))?/gi, // 100 USD million
+];
+
 /**
  * Group consecutive tokens into entities using BIO scheme decoding.
  * B-PER, I-PER -> "John Smith"
@@ -76,17 +94,10 @@ function groupEntitiesByBIO(
  * Extract date patterns from text using regex.
  */
 function extractDatesWithRegex(text: string): string[] {
-  const datePatterns = [
-    /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/g, // MM/DD/YYYY
-    /\b\d{4}-\d{2}-\d{2}\b/g, // YYYY-MM-DD
-    /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2},? \d{4}\b/gi, // Month DD, YYYY
-    /\b\d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{4}\b/gi, // DD Month YYYY
-    /\bQ[1-4] \d{4}\b/g, // Q1 2024
-    /\bFY\d{4}\b/g, // FY2024
-  ];
-
   const dates: string[] = [];
-  for (const pattern of datePatterns) {
+  for (const pattern of DATE_PATTERNS) {
+    // Reset lastIndex since patterns use /g flag and are reused
+    pattern.lastIndex = 0;
     const matches = text.match(pattern);
     if (matches) {
       dates.push(...matches);
@@ -99,16 +110,10 @@ function extractDatesWithRegex(text: string): string[] {
  * Extract monetary values from text using regex.
  */
 function extractMonetaryWithRegex(text: string): string[] {
-  const monetaryPatterns = [
-    /\$\d+(?:\.\d+)?(?:\s?(?:million|billion|trillion|M|B|T))?/gi, // $100 million
-    /\d+(?:\.\d+)?\s?(?:million|billion|trillion)\s?(?:dollars|USD)?/gi, // 100 million dollars
-    /€\d+(?:\.\d+)?(?:\s?(?:million|billion|trillion))?/gi, // €100 million
-    /£\d+(?:\.\d+)?(?:\s?(?:million|billion|trillion))?/gi, // £100 million
-    /\d+(?:\.\d+)?\s?(?:USD|EUR|GBP)(?:\s?(?:million|billion|trillion))?/gi, // 100 USD million
-  ];
-
   const monetary: string[] = [];
-  for (const pattern of monetaryPatterns) {
+  for (const pattern of MONETARY_PATTERNS) {
+    // Reset lastIndex since patterns use /g flag and are reused
+    pattern.lastIndex = 0;
     const matches = text.match(pattern);
     if (matches) {
       monetary.push(...matches);

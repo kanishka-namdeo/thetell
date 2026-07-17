@@ -69,6 +69,7 @@ export function usePipelineStream(options: UsePipelineStreamOptions): UsePipelin
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ companyName, companyId }),
           signal: controller.signal,
+          credentials: "include",
         });
 
         if (!response.ok) {

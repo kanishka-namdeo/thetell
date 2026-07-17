@@ -43,7 +43,8 @@ export function SignalStatusMonitor({
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const res = await fetch(`/api/v1/signals/${signalId}`, { signal: controller.signal });
+      const res = await fetch(`/api/v1/signals/${signalId}`, {
+credentials: "include", signal: controller.signal });
       if (!res.ok) return;
 
       const data = await res.json();
@@ -100,6 +101,7 @@ export function SignalStatusMonitor({
 
     try {
       const res = await fetch(`/api/v1/admin/signals/reanalyze`, {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ signalId, mode: "async" }),
@@ -129,6 +131,7 @@ export function SignalStatusMonitor({
 
     try {
       const res = await fetch("/api/v1/articles/generate", {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

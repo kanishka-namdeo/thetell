@@ -44,6 +44,7 @@ export function CorrelationClient({ initialStatus }: CorrelationClientProps) {
 
     try {
       const res = await fetch("/api/v1/admin/correlation/run", {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "async" }),

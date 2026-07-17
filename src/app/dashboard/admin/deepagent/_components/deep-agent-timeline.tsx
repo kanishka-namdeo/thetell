@@ -55,7 +55,8 @@ export function DeepAgentTimeline({
     try {
       const response = await fetch(
         `/api/v1/admin/deepagent/checkpoints?sessionId=${sessionId}`,
-        { signal: controller.signal }
+        {
+credentials: "include", signal: controller.signal }
       );
       if (response.ok) {
         const data = await response.json();
@@ -84,6 +85,7 @@ export function DeepAgentTimeline({
       const response = await fetch(
         `/api/v1/admin/deepagent/checkpoints/${checkpointId}?sessionId=${sessionId}`,
         {
+credentials: "include",
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "restore" }),
@@ -108,6 +110,7 @@ export function DeepAgentTimeline({
       const response = await fetch(
         `/api/v1/admin/deepagent/checkpoints/${checkpointId}?sessionId=${sessionId}`,
         {
+credentials: "include",
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "branch" }),

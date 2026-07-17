@@ -87,6 +87,7 @@ export function CompanyForm({ initialData, mode }: CompanyFormProps) {
       const res = await fetch(endpoint, {
         method,
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
 

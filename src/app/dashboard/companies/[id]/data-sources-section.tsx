@@ -98,6 +98,7 @@ export function DataSourcesSection({
     setIsVerifying(sourceId);
     try {
       const response = await fetch(`/api/v1/admin/sources/${sourceId}/verify`, {
+credentials: "include",
         method: "POST",
       });
 
@@ -120,6 +121,7 @@ export function DataSourcesSection({
     setIsToggling(source.id);
     try {
       const response = await fetch(`/api/v1/admin/sources/${source.id}`, {
+credentials: "include",
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isActive: !source.isActive }),
@@ -146,6 +148,7 @@ export function DataSourcesSection({
     setIsDeleting(deleteDialog.sourceId);
     try {
       const response = await fetch(`/api/v1/admin/sources/${deleteDialog.sourceId}`, {
+credentials: "include",
         method: "DELETE",
       });
 

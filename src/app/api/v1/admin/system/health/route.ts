@@ -108,6 +108,7 @@ export async function GET() {
       errorRate: Math.round(errorRate * 100) / 100,
       averageConfidence: avgConfidence._avg.confidence || 0,
       totalSignals,
+      totalArticles: 0, // TODO: Add article count when articles table exists
       totalUsers,
       totalCompanies,
       pendingSignals,

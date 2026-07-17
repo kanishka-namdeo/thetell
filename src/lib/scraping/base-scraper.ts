@@ -58,13 +58,15 @@ export class BaseScraper {
   protected maxRetries: number;
   protected cache: TTLCache<string>;
   protected skipRobots: boolean;
-  private robotsCache = new Map<string, { parser: ReturnType<typeof robotsParser>; expiresAt: number }>();
+  // Static: shared across all scraper instances to avoid 30x duplication
+  private static robotsCache = new Map<string, { parser: ReturnType<typeof robotsParser>; expiresAt: number }>();
   private static readonly ROBOTS_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
   // Domain-level circuit breaker: track consecutive failures per domain
   private static domainFailures = new Map<string, { count: number; lastFailure: number }>();
   private static readonly CIRCUIT_BREAKER_THRESHOLD = 5;
   private static readonly CIRCUIT_BREAKER_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
+  private static readonly DOMAIN_FAILURES_MAX_SIZE = 500;
   private static lastCleanupTime = 0;
   private static readonly CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
   
@@ -201,23 +203,23 @@ export class BaseScraper {
     // Periodic cleanup of expired robots.txt cache entries (throttled to once per hour)
     if (now - BaseScraper.lastRobotsCleanupTime > BaseScraper.CLEANUP_INTERVAL_MS) {
       BaseScraper.lastRobotsCleanupTime = now;
-      for (const [domain, entry] of this.robotsCache.entries()) {
+      for (const [domain, entry] of BaseScraper.robotsCache.entries()) {
         if (entry.expiresAt <= now) {
-          this.robotsCache.delete(domain);
+          BaseScraper.robotsCache.delete(domain);
         }
       }
     }
 
-    const cached = this.robotsCache.get(baseUrl);
+    const cached = BaseScraper.robotsCache.get(baseUrl);
 
     if (cached && cached.expiresAt > now) {
       return cached.parser.isAllowed(url, "*") ?? true;
     }
 
     // Evict oldest entries if cache is full
-    if (this.robotsCache.size >= MAX_ROBOTS_CACHE_SIZE && !cached) {
-      const firstKey = this.robotsCache.keys().next().value;
-      if (firstKey) this.robotsCache.delete(firstKey);
+    if (BaseScraper.robotsCache.size >= MAX_ROBOTS_CACHE_SIZE && !cached) {
+      const firstKey = BaseScraper.robotsCache.keys().next().value;
+      if (firstKey) BaseScraper.robotsCache.delete(firstKey);
     }
 
     try {
@@ -229,7 +231,7 @@ export class BaseScraper {
       if (response.ok) {
         const text = await this.readBodyWithLimit(response);
         const robots = robotsParser(robotsUrl, text);
-        this.robotsCache.set(baseUrl, {
+        BaseScraper.robotsCache.set(baseUrl, {
           parser: robots,
           expiresAt: now + BaseScraper.ROBOTS_CACHE_TTL_MS,
         });
@@ -272,10 +274,32 @@ export class BaseScraper {
    */
   private recordDomainFailure(url: string): void {
     const domain = this.extractDomain(url);
+    const now = Date.now();
+
+    if (now - BaseScraper.lastCleanupTime > BaseScraper.CLEANUP_INTERVAL_MS) {
+      BaseScraper.lastCleanupTime = now;
+      for (const [d, s] of BaseScraper.domainFailures.entries()) {
+        if (now - s.lastFailure > BaseScraper.CIRCUIT_BREAKER_COOLDOWN_MS) {
+          BaseScraper.domainFailures.delete(d);
+        }
+      }
+    }
+
     const state = BaseScraper.domainFailures.get(domain) ?? { count: 0, lastFailure: 0 };
     state.count++;
-    state.lastFailure = Date.now();
+    state.lastFailure = now;
     BaseScraper.domainFailures.set(domain, state);
+
+    if (BaseScraper.domainFailures.size > BaseScraper.DOMAIN_FAILURES_MAX_SIZE) {
+      const excess = BaseScraper.domainFailures.size - BaseScraper.DOMAIN_FAILURES_MAX_SIZE;
+      const keys = BaseScraper.domainFailures.keys();
+      for (let i = 0; i < excess; i++) {
+        const result = keys.next();
+        if (result.done) break;
+        BaseScraper.domainFailures.delete(result.value);
+      }
+    }
+
     if (state.count >= BaseScraper.CIRCUIT_BREAKER_THRESHOLD) {
       logger.warn("scraper.domain_circuit_breaker.open", { domain, failures: state.count });
     }

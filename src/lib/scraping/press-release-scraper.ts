@@ -56,6 +56,14 @@ const DEFAULT_WIRE_SERVICES: WireServiceConfig[] = [
   },
 ];
 
+/**
+ * Common English words that look like ticker symbols but aren't.
+ * Hoisted to module scope to avoid recreating the Set on every call.
+ */
+const TICKER_BLOCKLIST = new Set([
+  "THE", "AND", "FOR", "WITH", "FROM",
+  "INC", "CORP", "LTD", "LLC",
+]);
 export class PressReleaseScraper extends BaseScraper {
   constructor() {
     // RSS feeds are typically static and can be cached longer
@@ -211,18 +219,7 @@ export class PressReleaseScraper extends BaseScraper {
     const standaloneTickers = text.match(/\b[A-Z]{2,5}\b/g);
     if (standaloneTickers) {
       // Filter out common words
-      const commonWords = new Set([
-        "THE",
-        "AND",
-        "FOR",
-        "WITH",
-        "FROM",
-        "INC",
-        "CORP",
-        "LTD",
-        "LLC",
-      ]);
-      const filtered = standaloneTickers.filter((t) => !commonWords.has(t));
+      const filtered = standaloneTickers.filter((t) => !TICKER_BLOCKLIST.has(t));
       mentions.push(...filtered);
     }
 

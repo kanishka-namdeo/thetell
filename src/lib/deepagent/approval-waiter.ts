@@ -21,48 +21,53 @@ const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
  * 1. Orphaned timeouts: timeout exists but resolver was deleted (stream closed)
  * 2. Orphaned resolvers: resolver exists but timeout was cleared (e.g., manual cancel)
  */
-setInterval(() => {
-  const staleTimeouts: string[] = [];
-  const staleResolvers: string[] = [];
+const globalKey = "__approvalCleanupInterval";
+if (!(globalKey in globalThis)) {
+  const intervalId = setInterval(() => {
+    const staleTimeouts: string[] = [];
+    const staleResolvers: string[] = [];
 
-  // Find orphaned timeouts (no corresponding resolver)
-  for (const id of approvalTimeouts.keys()) {
-    if (!approvalResolvers.has(id)) {
-      staleTimeouts.push(id);
+    // Find orphaned timeouts (no corresponding resolver)
+    for (const id of approvalTimeouts.keys()) {
+      if (!approvalResolvers.has(id)) {
+        staleTimeouts.push(id);
+      }
     }
-  }
 
-  // Find orphaned resolvers (no corresponding timeout)
-  // This is the reverse case - resolver exists but timeout was cleared
-  for (const id of approvalResolvers.keys()) {
-    if (!approvalTimeouts.has(id)) {
-      staleResolvers.push(id);
+    // Find orphaned resolvers (no corresponding timeout)
+    // This is the reverse case - resolver exists but timeout was cleared
+    for (const id of approvalResolvers.keys()) {
+      if (!approvalTimeouts.has(id)) {
+        staleResolvers.push(id);
+      }
     }
-  }
 
-  // Clean up orphaned timeouts
-  for (const id of staleTimeouts) {
-    const timeout = approvalTimeouts.get(id);
-    if (timeout) {
-      clearTimeout(timeout);
+    // Clean up orphaned timeouts
+    for (const id of staleTimeouts) {
+      const timeout = approvalTimeouts.get(id);
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      approvalTimeouts.delete(id);
+      logger.debug("approval_waiter.cleanup.orphaned_timeout", { approvalId: id });
     }
-    approvalTimeouts.delete(id);
-    logger.debug("approval_waiter.cleanup.orphaned_timeout", { approvalId: id });
-  }
 
-  // Clean up orphaned resolvers
-  for (const id of staleResolvers) {
-    approvalResolvers.delete(id);
-    logger.debug("approval_waiter.cleanup.orphaned_resolver", { approvalId: id });
-  }
+    // Clean up orphaned resolvers
+    for (const id of staleResolvers) {
+      approvalResolvers.delete(id);
+      logger.debug("approval_waiter.cleanup.orphaned_resolver", { approvalId: id });
+    }
 
-  if (staleTimeouts.length > 0 || staleResolvers.length > 0) {
-    logger.info("approval_waiter.cleanup.completed", {
-      orphanedTimeouts: staleTimeouts.length,
-      orphanedResolvers: staleResolvers.length,
-    });
-  }
-}, 60 * 1000).unref(); // unref() prevents timer from keeping process alive
+    if (staleTimeouts.length > 0 || staleResolvers.length > 0) {
+      logger.info("approval_waiter.cleanup.completed", {
+        orphanedTimeouts: staleTimeouts.length,
+        orphanedResolvers: staleResolvers.length,
+      });
+    }
+  }, 60 * 1000);
+  intervalId.unref(); // unref() prevents timer from keeping process alive
+  (globalThis as Record<string, unknown>)[globalKey] = intervalId;
+}
 
 /**
  * Wait for an approval decision.

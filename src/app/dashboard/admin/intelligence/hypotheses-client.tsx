@@ -83,7 +83,8 @@ export function HypothesesClient({
     controllerRef.current = controller;
     setIsLoading(true);
     try {
-      const res = await fetch("/api/v1/admin/hypotheses", { signal: controller.signal });
+      const res = await fetch("/api/v1/admin/hypotheses", {
+credentials: "include", signal: controller.signal });
       if (!res.ok) throw new Error("Failed to fetch hypotheses");
       const data = await res.json();
       setHypotheses(data.data);
@@ -120,6 +121,7 @@ export function HypothesesClient({
     setIsCreating(true);
     try {
       const res = await fetch("/api/v1/admin/hypotheses", {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -149,6 +151,7 @@ export function HypothesesClient({
   async function handleStatusChange(id: string, status: string) {
     try {
       const res = await fetch(`/api/v1/admin/hypotheses/${id}`, {
+credentials: "include",
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
@@ -168,6 +171,7 @@ export function HypothesesClient({
   async function handleArchive(id: string) {
     try {
       const res = await fetch(`/api/v1/admin/hypotheses/${id}`, {
+credentials: "include",
         method: "DELETE",
       });
 

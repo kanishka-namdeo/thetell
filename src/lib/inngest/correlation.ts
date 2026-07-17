@@ -101,12 +101,23 @@ export async function clusterThemes(
   const uniqueLabels = [...new Set(allThemes.map((t) => t.label))];
   const labelEmbeddings = new Map<string, number[]>();
 
-  for (const label of uniqueLabels) {
-    try {
-      const embedding = await generateEmbedding(label);
-      labelEmbeddings.set(label, embedding);
-    } catch {
-      // Skip themes that fail embedding generation
+  // Generate embeddings for each unique theme label in parallel
+  const embeddingResults = await Promise.all(
+    uniqueLabels.map(async (label) => {
+      try {
+        const embedding = await generateEmbedding(label);
+        return { label, embedding };
+      } catch {
+        // Skip themes that fail embedding generation
+        return null;
+      }
+    })
+  );
+
+  // Build map from successful results
+  for (const result of embeddingResults) {
+    if (result) {
+      labelEmbeddings.set(result.label, result.embedding);
     }
   }
 
@@ -148,6 +159,9 @@ export async function clusterThemes(
 
     clusters.push(cluster);
   }
+
+  // Free embedding map — no longer needed after clustering
+  labelEmbeddings.clear();
 
   return clusters;
 }

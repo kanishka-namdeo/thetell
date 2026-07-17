@@ -37,7 +37,8 @@ export function DeepAgentModelSelector({
 
     async function fetchModels() {
       try {
-        const res = await fetch("/api/v1/admin/deepagent/models", { signal: controller.signal });
+        const res = await fetch("/api/v1/admin/deepagent/models", {
+credentials: "include", signal: controller.signal });
         if (res.ok) {
           const data = await res.json();
           setModels(data.data || []);

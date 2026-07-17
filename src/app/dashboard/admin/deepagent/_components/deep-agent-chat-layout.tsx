@@ -42,6 +42,7 @@ export function DeepAgentChatLayout({
     setIsProcessingApproval(true);
     try {
       const response = await fetch(`/api/v1/admin/deepagent/approvals/${approvalId}`, {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decision: "approved" }),
@@ -63,6 +64,7 @@ export function DeepAgentChatLayout({
     setIsProcessingApproval(true);
     try {
       const response = await fetch(`/api/v1/admin/deepagent/approvals/${approvalId}`, {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decision: "rejected" }),

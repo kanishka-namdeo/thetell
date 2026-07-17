@@ -56,7 +56,8 @@ export function DeepAgentShareButton({
 
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/v1/admin/deepagent/sessions/${sessionId}/share`, { signal: controller.signal });
+      const response = await fetch(`/api/v1/admin/deepagent/sessions/${sessionId}/share`, {
+credentials: "include", signal: controller.signal });
       if (response.ok) {
         const data = await response.json();
         setShareLinks(data.data);
@@ -75,6 +76,7 @@ export function DeepAgentShareButton({
     setIsCreating(true);
     try {
       const response = await fetch(`/api/v1/admin/deepagent/sessions/${sessionId}/share`, {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ expiresInHours }),
@@ -96,7 +98,8 @@ export function DeepAgentShareButton({
     try {
       const response = await fetch(
         `/api/v1/admin/deepagent/sessions/${sessionId}/share?shareId=${shareId}`,
-        { method: "DELETE" }
+        {
+credentials: "include", method: "DELETE" }
       );
 
       if (response.ok) {

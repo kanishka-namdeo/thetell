@@ -35,7 +35,8 @@ export function DeepAgentSkillBrowser({ className }: { className?: string }) {
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const res = await fetch("/api/v1/admin/deepagent/skills", { signal: controller.signal });
+      const res = await fetch("/api/v1/admin/deepagent/skills", {
+credentials: "include", signal: controller.signal });
       if (res.ok) {
         const data = await res.json();
         setSkills(data.data);
@@ -55,7 +56,8 @@ export function DeepAgentSkillBrowser({ className }: { className?: string }) {
     try {
       const res = await fetch(
         `/api/v1/admin/deepagent/skills?path=${encodeURIComponent(skill.path)}`,
-        { signal: controller.signal }
+        {
+credentials: "include", signal: controller.signal }
       );
       if (res.ok) {
         const data = await res.json();

@@ -96,6 +96,7 @@ export function PipelineSessionsClient() {
 
       const res = await fetch(`/api/v1/admin/pipelines/sessions?${params}`, {
         signal: controller.signal,
+        credentials: "include",
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();

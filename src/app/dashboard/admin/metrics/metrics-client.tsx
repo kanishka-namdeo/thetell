@@ -199,8 +199,8 @@ export function MetricsClient() {
     setError(null);
     try {
       const [overviewRes, routingRes] = await Promise.all([
-        fetch(`/api/v1/admin/metrics/overview?days=${d}`),
-        fetch(`/api/v1/admin/metrics/routing?days=${d}`),
+        fetch(`/api/v1/admin/metrics/overview?days=${d}`, { credentials: "include" }),
+        fetch(`/api/v1/admin/metrics/routing?days=${d}`, { credentials: "include" }),
       ]);
 
       if (!overviewRes.ok || !routingRes.ok) {
@@ -217,7 +217,7 @@ export function MetricsClient() {
       // The overview API doesn't expose bySourceType directly, so we build it from
       // the quality API's source type data if available, or show empty.
       // For now, we fetch the quality endpoint for source breakdown.
-      const qualityRes = await fetch(`/api/v1/admin/metrics/quality?days=${d}`);
+      const qualityRes = await fetch(`/api/v1/admin/metrics/quality?days=${d}`, { credentials: "include" });
       if (qualityRes.ok) {
         const qualityData = await qualityRes.json();
         // quality API doesn't have source breakdown; we'll show a placeholder

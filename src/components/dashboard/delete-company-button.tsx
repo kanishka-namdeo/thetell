@@ -34,6 +34,7 @@ export function DeleteCompanyButton({
     try {
       const res = await fetch(`/api/v1/companies/${companyId}`, {
         method: "DELETE",
+        credentials: "include",
       });
 
       if (!res.ok) {

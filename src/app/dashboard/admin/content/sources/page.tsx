@@ -148,6 +148,7 @@ export default function SourcesManagementPage() {
       if (companyIdFilter) params.set("companyId", companyIdFilter);
 
       const response = await fetch(`/api/v1/admin/sources?${params}`, {
+credentials: "include",
         signal: controller.signal,
       });
 
@@ -177,7 +178,7 @@ export default function SourcesManagementPage() {
 
   useEffect(() => {
     if (companyIdFilter) {
-      fetch(`/api/v1/companies/${companyIdFilter}`)
+      fetch(`/api/v1/companies/${companyIdFilter}`, { credentials: "include" })
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (data?.name) setFilterCompanyName(data.name);
@@ -192,6 +193,7 @@ export default function SourcesManagementPage() {
     setIsVerifying(sourceId);
     try {
       const response = await fetch(`/api/v1/admin/sources/${sourceId}/verify`, {
+credentials: "include",
         method: "POST",
       });
 
@@ -214,6 +216,7 @@ export default function SourcesManagementPage() {
     setIsToggling(source.id);
     try {
       const response = await fetch(`/api/v1/admin/sources/${source.id}`, {
+credentials: "include",
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isActive: !source.isActive }),
@@ -240,6 +243,7 @@ export default function SourcesManagementPage() {
     setIsDeleting(deleteDialog.sourceId);
     try {
       const response = await fetch(`/api/v1/admin/sources/${deleteDialog.sourceId}`, {
+credentials: "include",
         method: "DELETE",
       });
 
@@ -270,7 +274,8 @@ export default function SourcesManagementPage() {
     try {
       const results = await Promise.allSettled(
         Array.from(selectedIds).map((id) =>
-          fetch(`/api/v1/admin/sources/${id}/verify`, { method: "POST" }).then((r) => r.json())
+          fetch(`/api/v1/admin/sources/${id}/verify`, {
+credentials: "include", method: "POST" }).then((r) => r.json())
         )
       );
 
@@ -295,6 +300,7 @@ export default function SourcesManagementPage() {
       const results = await Promise.allSettled(
         selectedSources.map((source) =>
           fetch(`/api/v1/admin/sources/${source.id}`, {
+credentials: "include",
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ isActive: !source.isActive }),
@@ -321,7 +327,8 @@ export default function SourcesManagementPage() {
     try {
       const results = await Promise.allSettled(
         Array.from(selectedIds).map((id) =>
-          fetch(`/api/v1/admin/sources/${id}`, { method: "DELETE" }).then((r) => r.json())
+          fetch(`/api/v1/admin/sources/${id}`, {
+credentials: "include", method: "DELETE" }).then((r) => r.json())
         )
       );
 

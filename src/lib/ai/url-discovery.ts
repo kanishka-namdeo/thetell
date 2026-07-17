@@ -289,19 +289,22 @@ function generateFallbackQueries(company: Company): SearchQuery[] {
 /**
  * Extract top keywords from a description string.
  */
+/**
+ * Common English stopwords to filter out during keyword extraction.
+ * Hoisted to module scope to avoid recreating the Set on every call.
+ */
+const STOP_WORDS = new Set([
+  "the", "a", "an", "is", "are", "was", "were", "and", "or", "but",
+  "in", "on", "at", "to", "for", "of", "with", "by", "from", "that",
+  "this", "it", "its", "as", "be", "has", "had", "have", "company",
+  "which", "their", "there", "they", "been", "than", "into", "we",
+]);
 function extractKeywords(description: string): string[] {
-  const stopWords = new Set([
-    "the", "a", "an", "is", "are", "was", "were", "and", "or", "but",
-    "in", "on", "at", "to", "for", "of", "with", "by", "from", "that",
-    "this", "it", "its", "as", "be", "has", "had", "have", "company",
-    "which", "their", "there", "they", "been", "than", "into", "we",
-  ]);
-
   return description
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, "")
     .split(/\s+/)
-    .filter((w) => w.length > 3 && !stopWords.has(w))
+    .filter((w) => w.length > 3 && !STOP_WORDS.has(w))
     .slice(0, 5);
 }
 

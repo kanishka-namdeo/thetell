@@ -57,7 +57,7 @@ export function AnalyticsClient() {
     controllerRef.current = controller;
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/v1/admin/analytics?dateRange=${dateRange}`, { signal: controller.signal });
+      const response = await fetch(`/api/v1/admin/analytics?dateRange=${dateRange}`, { signal: controller.signal, credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch analytics");
       const result = await response.json();
       setData(result);

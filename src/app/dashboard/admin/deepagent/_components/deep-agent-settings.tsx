@@ -45,7 +45,8 @@ export function DeepAgentSettings() {
       const controller = new AbortController();
       controllerRef.current = controller;
       try {
-        const response = await fetch("/api/v1/admin/deepagent/settings", { signal: controller.signal });
+        const response = await fetch("/api/v1/admin/deepagent/settings", {
+credentials: "include", signal: controller.signal });
         if (response.ok) {
           const data = await response.json();
           setSettings(data.settings);
@@ -64,6 +65,7 @@ export function DeepAgentSettings() {
     setIsSaving(true);
     try {
       const response = await fetch("/api/v1/admin/deepagent/settings", {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings),

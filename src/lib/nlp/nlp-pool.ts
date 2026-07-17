@@ -362,4 +362,22 @@ class NlpWorkerPool {
 
 const _poolParsed = parseInt(process.env.NLP_WORKER_COUNT || "2", 10);
 const POOL_SIZE = Number.isNaN(_poolParsed) || _poolParsed < 1 ? 2 : Math.min(_poolParsed, 16);
-export const nlpPool = new NlpWorkerPool(POOL_SIZE);
+
+// Use globalThis pattern to prevent worker leak on hot-reload (Next.js dev mode)
+const globalForNlp = globalThis as unknown as {
+  nlpPool: NlpWorkerPool | undefined;
+};
+
+export const nlpPool = globalForNlp.nlpPool ?? new NlpWorkerPool(POOL_SIZE);
+globalForNlp.nlpPool = nlpPool;
+
+// Graceful shutdown: terminate worker threads on process exit
+// to prevent orphaned OS threads
+if (typeof process !== "undefined" && process.on) {
+  const shutdownHandler = () => {
+    nlpPool.shutdown().catch(() => {});
+  };
+  process.on("beforeExit", shutdownHandler);
+  process.on("SIGTERM", shutdownHandler);
+  process.on("SIGINT", shutdownHandler);
+}

@@ -38,7 +38,8 @@ export default function SignalsPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/v1/clusters?limit=50", { signal: controller.signal })
+    fetch("/api/v1/clusters?limit=50", {
+credentials: "include", signal: controller.signal })
       .then((res) => res.json())
       .then((data) => {
         const items = data.items ?? data;

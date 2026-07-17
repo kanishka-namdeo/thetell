@@ -57,6 +57,7 @@ export function useAdminTable<T>({
 
       const response = await fetch(`${endpoint}?${params}`, {
         signal: controller.signal,
+        credentials: "include",
       });
 
       if (!response.ok) {

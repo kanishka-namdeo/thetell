@@ -84,6 +84,18 @@ class ClusterCache {
     this.store.clear();
   }
 
+  purgeExpired(): number {
+    const now = Date.now();
+    let removed = 0;
+    for (const [key, entry] of this.store.entries()) {
+      if (entry.expiresAt < now) {
+        this.store.delete(key);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
   stats(): ClusterCacheStats {
     return {
       hits: this.hits,
@@ -96,18 +108,44 @@ class ClusterCache {
 
   private evictOldest(): void {
     const toEvict = Math.max(1, Math.ceil(this.maxEntries * 0.1));
-    const entries = Array.from(this.store.entries())
-      .sort((a, b) => a[1].expiresAt - b[1].expiresAt)
-      .slice(0, toEvict);
+    const now = Date.now();
+    let evicted = 0;
 
-    for (const [key] of entries) {
-      this.store.delete(key);
-      this.evictions++;
+    // First pass: remove all expired entries (O(n) single pass, no allocation)
+    for (const [key, entry] of this.store) {
+      if (entry.expiresAt < now) {
+        this.store.delete(key);
+        this.evictions++;
+        evicted++;
+      }
+    }
+
+    // Second pass: if still over capacity, remove oldest entries
+    // Uses Map iteration order (insertion order) as a proxy for age —
+    // older entries are at the front of the Map
+    if (evicted < toEvict) {
+      for (const [key] of this.store) {
+        if (evicted >= toEvict) break;
+        this.store.delete(key);
+        this.evictions++;
+        evicted++;
+      }
     }
   }
 }
 
 export const clusterCache = new ClusterCache();
+
+if (typeof globalThis.setInterval !== "undefined") {
+  const globalKey = "__clusterCacheCleanupInterval";
+  if (!(globalKey in globalThis)) {
+    const timer = setInterval(() => {
+      clusterCache.purgeExpired();
+    }, 5 * 60 * 1000);
+    timer.unref?.();
+    (globalThis as Record<string, unknown>)[globalKey] = timer;
+  }
+}
 
 // TTL constants in milliseconds
 export const CLUSTER_CACHE_TTL = {

@@ -24,6 +24,11 @@ export interface KeyPhrase {
  * - Noun + noun compounds (e.g., "revenue growth", "market share")
  * - Proper noun sequences (e.g., "Apple Inc", "John Smith")
  */
+/**
+ * Common English stopwords to filter out during keyphrase extraction.
+ * Hoisted to module scope to avoid recreating the Set on every call.
+ */
+const STOPWORDS = new Set(["the", "a", "an", "is", "was", "are", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "can", "shall", "to", "of", "in", "for", "on", "with", "at", "by", "from", "as", "into", "through", "during", "before", "after", "and", "but", "or", "nor", "not", "so", "yet", "both", "either", "neither", "each", "every", "all", "any", "few", "more", "most", "other", "some", "such", "no", "only", "own", "same", "than", "too", "very", "just", "because", "this", "that", "these", "those", "it", "its"]);
 function extractCandidatePhrases(text: string): string[] {
   const candidates = new Set<string>();
 
@@ -60,9 +65,8 @@ function extractCandidatePhrases(text: string): string[] {
   while ((match = generalNounPattern.exec(cleanText)) !== null) {
     const phrase = match[1].trim();
     // Skip common stopword-only phrases
-    const stopwords = new Set(["the", "a", "an", "is", "was", "are", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "can", "shall", "to", "of", "in", "for", "on", "with", "at", "by", "from", "as", "into", "through", "during", "before", "after", "and", "but", "or", "nor", "not", "so", "yet", "both", "either", "neither", "each", "every", "all", "any", "few", "more", "most", "other", "some", "such", "no", "only", "own", "same", "than", "too", "very", "just", "because", "this", "that", "these", "those", "it", "its"]);
     const words = phrase.toLowerCase().split(/\s+/);
-    const meaningful = words.filter(w => !stopwords.has(w));
+    const meaningful = words.filter(w => !STOPWORDS.has(w));
     if (meaningful.length >= 1 && phrase.length <= 50) {
       candidates.add(phrase);
     }

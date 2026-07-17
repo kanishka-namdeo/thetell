@@ -75,7 +75,8 @@ export function JobsClient() {
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (typeFilter !== "all") params.set("type", typeFilter);
 
-      const res = await fetch(`/api/v1/admin/jobs?${params}`, { signal: controller.signal });
+      const res = await fetch(`/api/v1/admin/jobs?${params}`, {
+credentials: "include", signal: controller.signal });
       if (!res.ok) throw new Error("Failed to fetch jobs");
       const data = await res.json();
       setJobs(Array.isArray(data.jobs) ? data.jobs : []);
@@ -98,6 +99,7 @@ export function JobsClient() {
     setRetrying(jobId);
     try {
       const res = await fetch(`/api/v1/admin/jobs/${jobId}/retry`, {
+credentials: "include",
         method: "POST",
       });
 
@@ -121,6 +123,7 @@ export function JobsClient() {
     setCancelling(jobId);
     try {
       const res = await fetch(`/api/v1/admin/jobs/${jobId}/cancel`, {
+credentials: "include",
         method: "POST",
       });
 

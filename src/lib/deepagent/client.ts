@@ -131,6 +131,9 @@ export class DeepAgentClient {
       }
     } finally {
       reader.releaseLock();
+      // Cancel the underlying stream to release the HTTP connection
+      // when the generator is abandoned (e.g., client disconnect)
+      response.body?.cancel().catch(() => {});
     }
   }
 

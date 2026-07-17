@@ -47,6 +47,7 @@ export function SentimentTrends({ companyId, days = 30 }: SentimentTrendsProps) 
         if (companyId) params.append("companyId", companyId);
 
         const res = await fetch(`/api/v1/analytics/overview?${params}`, {
+credentials: "include",
           signal: controller.signal,
         });
 

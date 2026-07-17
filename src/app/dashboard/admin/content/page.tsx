@@ -136,16 +136,21 @@ export default function ContentPage() {
       params.set("limit", "50");
 
       const [signalsRes, articlesRes] = await Promise.all([
-        fetch(`/api/v1/admin/moderation/signals?${params}`, { signal: controller.signal }),
-        fetch(`/api/v1/admin/moderation/articles?${params}`, { signal: controller.signal }),
+        fetch(`/api/v1/admin/moderation/signals?${params}`, {
+          credentials: "include", signal: controller.signal }),
+        fetch(`/api/v1/admin/moderation/articles?${params}`, {
+          credentials: "include", signal: controller.signal }),
       ]);
 
-      if (!signalsRes.ok || !articlesRes.ok) {
-        throw new Error("Failed to fetch content");
+      if (!signalsRes.ok) {
+        throw new Error("Failed to fetch signals");
       }
 
       const signalsData = await signalsRes.json();
-      const articlesData = await articlesRes.json();
+      // Articles endpoint may not exist yet - treat 404 as empty
+      const articlesData = articlesRes.ok
+        ? await articlesRes.json()
+        : { items: [] };
 
       setRawSignalsData(signalsData);
       setRawArticlesData(articlesData);
@@ -211,6 +216,7 @@ export default function ContentPage() {
           : `/api/v1/admin/content/articles/${itemId}`;
       const statusValue = itemType === "signal" ? "ANALYZED" : "PUBLISHED";
       const response = await fetch(endpoint, {
+credentials: "include",
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: statusValue }),
@@ -252,6 +258,7 @@ export default function ContentPage() {
           : `/api/v1/admin/content/articles/${rejectDialog.itemId}`;
       const statusValue = rejectDialog.itemType === "signal" ? "REJECTED" : "DRAFT";
       const response = await fetch(endpoint, {
+credentials: "include",
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: statusValue }),
@@ -291,6 +298,7 @@ export default function ContentPage() {
           ? `/api/v1/admin/content/signals/${editDialog.item.id}`
           : `/api/v1/admin/content/articles/${editDialog.item.id}`;
       const response = await fetch(endpoint, {
+credentials: "include",
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: editTitle }),
@@ -324,7 +332,8 @@ export default function ContentPage() {
         deleteDialog.item.type === "signal"
           ? `/api/v1/admin/content/signals/${deleteDialog.item.id}`
           : `/api/v1/admin/content/articles/${deleteDialog.item.id}`;
-      const response = await fetch(endpoint, { method: "DELETE" });
+      const response = await fetch(endpoint, {
+credentials: "include", method: "DELETE" });
       if (!response.ok) throw new Error("Failed to delete content");
       if (deleteDialog.item.type === "signal") {
         setRawSignalsData((prev) => ({
@@ -350,6 +359,7 @@ export default function ContentPage() {
     setIsBulkApproving(true);
     try {
       const response = await fetch(`/api/v1/admin/moderation/bulk?action=approve`, {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: Array.from(selectedIds) }),
@@ -373,6 +383,7 @@ export default function ContentPage() {
     setIsBulkRejecting(true);
     try {
       const response = await fetch(`/api/v1/admin/moderation/bulk?action=reject`, {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: Array.from(selectedIds), reason }),
@@ -402,7 +413,8 @@ export default function ContentPage() {
           item.type === "signal"
             ? `/api/v1/admin/content/signals/${id}`
             : `/api/v1/admin/content/articles/${id}`;
-        return fetch(endpoint, { method: "DELETE" });
+        return fetch(endpoint, {
+credentials: "include", method: "DELETE" });
       });
       await Promise.all(deletePromises);
       await fetchData();

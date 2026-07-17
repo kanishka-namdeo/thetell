@@ -26,7 +26,8 @@ export function DeepAgentInterpreterToggle() {
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const res = await fetch("/api/v1/admin/deepagent/interpreter", { signal: controller.signal });
+      const res = await fetch("/api/v1/admin/deepagent/interpreter", {
+credentials: "include", signal: controller.signal });
       if (res.ok) {
         const data = await res.json();
         if (mountedRef.current) {
@@ -48,6 +49,7 @@ export function DeepAgentInterpreterToggle() {
     setIsToggling(true);
     try {
       const res = await fetch("/api/v1/admin/deepagent/interpreter", {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled }),

@@ -122,6 +122,7 @@ export default function PipelineSessionDetailPage({
     abortRef.current = controller;
     try {
       const res = await fetch(`/api/v1/admin/pipelines/sessions/${sessionId}`, {
+credentials: "include",
         signal: controller.signal,
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -148,6 +149,7 @@ export default function PipelineSessionDetailPage({
     setApplyResult(null);
     try {
       const res = await fetch("/api/v1/admin/pipelines/apply", {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

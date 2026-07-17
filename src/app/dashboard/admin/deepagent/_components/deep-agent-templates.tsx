@@ -56,7 +56,7 @@ export function DeepAgentTemplates({
   const loadTemplates = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch("/api/v1/admin/deepagent/templates");
+      const response = await fetch("/api/v1/admin/deepagent/templates", { credentials: "include" });
       if (response.ok) {
         const data = await response.json();
         setTemplates(data.data);
@@ -122,6 +122,7 @@ export function DeepAgentTemplates({
       const method = editingId ? "PUT" : "POST";
 
       const response = await fetch(url, {
+credentials: "include",
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -146,6 +147,7 @@ export function DeepAgentTemplates({
 
     try {
       const response = await fetch(`/api/v1/admin/deepagent/templates/${id}`, {
+credentials: "include",
         method: "DELETE",
       });
 

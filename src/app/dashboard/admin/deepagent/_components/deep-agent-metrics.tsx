@@ -243,6 +243,7 @@ export function DeepAgentMetrics({ sessionId }: DeepAgentMetricsProps) {
         if (sessionId) params.append("sessionId", sessionId);
 
         const response = await fetch(`/api/v1/admin/deepagent/metrics?${params}`, {
+credentials: "include",
           signal: controller.signal,
         });
 

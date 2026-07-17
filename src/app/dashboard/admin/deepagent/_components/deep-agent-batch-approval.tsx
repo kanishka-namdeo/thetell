@@ -94,7 +94,8 @@ export function DeepAgentBatchApproval({
       try {
         const response = await fetch(
           `/api/v1/admin/deepagent/approvals?sessionId=${encodeURIComponent(sessionId)}`,
-          { signal: controller.signal }
+          {
+credentials: "include", signal: controller.signal }
         );
         if (response.ok) {
           const data = await response.json();
@@ -144,6 +145,7 @@ export function DeepAgentBatchApproval({
     setIsProcessing(true);
     try {
       const response = await fetch("/api/v1/admin/deepagent/approvals/batch", {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

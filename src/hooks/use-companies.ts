@@ -22,7 +22,7 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
       params.set("limit", String(options.limit || 20));
       if (cursor) params.set("cursor", cursor);
 
-      const res = await fetch(`/api/v1/companies?${params.toString()}`, { signal });
+      const res = await fetch(`/api/v1/companies?${params.toString()}`, { signal, credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch companies");
 
       const json: PaginatedApiResponse<CompanyWithCounts> = await res.json();

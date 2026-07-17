@@ -44,7 +44,8 @@ export function TrackedSubredditsSection({
     try {
       const res = await fetch(
         `/api/v1/companies/${companyId}/subreddits/discover`,
-        { method: "POST" }
+        {
+credentials: "include", method: "POST" }
       );
       if (!res.ok) {
         throw new Error("Failed to trigger discovery");

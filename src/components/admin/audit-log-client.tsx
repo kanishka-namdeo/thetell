@@ -67,7 +67,7 @@ export function AuditLogClient() {
       if (cursor) params.set("cursor", cursor);
       params.set("limit", "50");
 
-      const response = await fetch(`/api/v1/admin/audit?${params}`, { signal: controller.signal });
+      const response = await fetch(`/api/v1/admin/audit?${params}`, { signal: controller.signal, credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch audit logs");
 
       const data = await response.json();

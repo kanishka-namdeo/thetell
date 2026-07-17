@@ -59,7 +59,8 @@ export function ScrapersClient() {
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const res = await fetch("/api/v1/admin/scrapers", { signal: controller.signal });
+      const res = await fetch("/api/v1/admin/scrapers", {
+credentials: "include", signal: controller.signal });
       if (!res.ok) throw new Error("Failed to fetch scrapers");
       const data = await res.json();
       setScrapers(data.scrapers);
@@ -80,6 +81,7 @@ export function ScrapersClient() {
   async function toggleEnabled(scraperName: string, enabled: boolean) {
     try {
       const res = await fetch(`/api/v1/admin/scrapers/${scraperName}`, {
+credentials: "include",
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled }),
@@ -104,6 +106,7 @@ export function ScrapersClient() {
     setSaving(scraperName);
     try {
       const res = await fetch(`/api/v1/admin/scrapers/${scraperName}`, {
+credentials: "include",
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),

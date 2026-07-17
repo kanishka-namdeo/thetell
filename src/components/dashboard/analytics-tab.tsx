@@ -39,7 +39,7 @@ function CompanyMetricsTable() {
     controllerRef.current = controller;
     setLoading(true);
     try {
-      const res = await fetch("/api/v1/companies?limit=100", { signal: controller.signal });
+      const res = await fetch("/api/v1/companies?limit=100", { signal: controller.signal, credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch companies");
       const json = await res.json();
       const companies = json.items;

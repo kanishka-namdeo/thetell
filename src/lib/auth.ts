@@ -8,6 +8,34 @@ import { logger } from "@/lib/logger";
 
 const roleCache = new Map<string, { role: string; status: string; fetchedAt: number }>();
 const ROLE_CACHE_TTL = 60_000;
+const ROLE_CACHE_MAX_SIZE = 1_000;
+
+function cleanupRoleCache(): void {
+  const now = Date.now();
+  for (const [key, entry] of roleCache.entries()) {
+    if (now - entry.fetchedAt > ROLE_CACHE_TTL) {
+      roleCache.delete(key);
+    }
+  }
+  if (roleCache.size > ROLE_CACHE_MAX_SIZE) {
+    const excess = roleCache.size - ROLE_CACHE_MAX_SIZE;
+    const keys = roleCache.keys();
+    for (let i = 0; i < excess; i++) {
+      const result = keys.next();
+      if (result.done) break;
+      roleCache.delete(result.value);
+    }
+  }
+}
+
+if (typeof globalThis.setInterval !== "undefined") {
+  const globalKey = "__roleCacheCleanupInterval";
+  if (!(globalKey in globalThis)) {
+    const timer = setInterval(cleanupRoleCache, 5 * 60 * 1000);
+    timer.unref?.();
+    (globalThis as Record<string, unknown>)[globalKey] = timer;
+  }
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -149,6 +177,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           const dbUser = await Promise.race([dbPromise, timeoutPromise]);
           if (dbUser) {
             token.role = dbUser.role;
+            if (roleCache.size >= ROLE_CACHE_MAX_SIZE) cleanupRoleCache();
             roleCache.set(token.userId as string, {
               role: dbUser.role,
               status: dbUser.status,

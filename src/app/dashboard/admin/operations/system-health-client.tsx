@@ -122,7 +122,8 @@ export function SystemHealthClient() {
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const res = await fetch("/api/v1/admin/system/health", { signal: controller.signal });
+      const res = await fetch("/api/v1/admin/system/health", {
+credentials: "include", signal: controller.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: HealthData = await res.json();
       setData(json);
@@ -455,7 +456,7 @@ export function SystemHealthClient() {
             ) : data ? (
               <div className="grid grid-cols-2 gap-4">
                 <TotalStat label="Total Signals" value={data.metrics.totalSignals} />
-                <TotalStat label="Total Articles" value={data.metrics.totalArticles} />
+                <TotalStat label="Total Articles" value={data.metrics.totalArticles ?? 0} />
                 <TotalStat label="Total Users" value={data.metrics.totalUsers} />
                 <TotalStat label="Companies" value={data.metrics.totalCompanies} />
                 <TotalStat label="Processed" value={data.metrics.totalProcessed} />
@@ -498,11 +499,11 @@ export function SystemHealthClient() {
               </div>
               <div>
                 <p className="text-xs uppercase tracking-widest font-sans text-muted-foreground mb-1">Cluster Articles</p>
-                <p className="text-2xl font-serif font-bold">{data.metrics.cluster.clusterArticles}</p>
+                <p className="text-2xl font-serif font-bold">{data.metrics.cluster.clusterArticles?.toLocaleString() ?? 0}</p>
               </div>
               <div>
                 <p className="text-xs uppercase tracking-widest font-sans text-muted-foreground mb-1">LLM Calls Saved</p>
-                <p className="text-2xl font-serif font-bold text-success">{data.metrics.cluster.llmCallsSaved.toLocaleString()}</p>
+                <p className="text-2xl font-serif font-bold text-success">{data.metrics.cluster.llmCallsSaved?.toLocaleString() ?? 0}</p>
                 <p className="text-xs text-muted-foreground">vs full dual-agent analysis</p>
               </div>
             </div>

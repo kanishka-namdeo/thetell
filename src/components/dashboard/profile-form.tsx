@@ -29,6 +29,7 @@ export function ProfileForm({ user }: ProfileFormProps) {
 
     try {
       const response = await fetch("/api/v1/profile", {
+credentials: "include",
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",

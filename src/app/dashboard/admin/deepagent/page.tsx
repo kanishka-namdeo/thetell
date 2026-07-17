@@ -91,7 +91,7 @@ export default function DeepAgentPage() {
 
   const loadSessions = useCallback(async () => {
     try {
-      const response = await fetch("/api/v1/admin/deepagent/sessions");
+      const response = await fetch("/api/v1/admin/deepagent/sessions", { credentials: "include" });
       if (response.ok) {
         const data = await response.json();
         setSessions(data.data);
@@ -107,7 +107,8 @@ export default function DeepAgentPage() {
       if (cursor) params.set("cursor", cursor);
       
       const response = await fetch(
-        `/api/v1/admin/deepagent/sessions/${sessionId}/messages?${params}`
+        `/api/v1/admin/deepagent/sessions/${sessionId}/messages?${params}`,
+        { credentials: "include" }
       );
       if (response.ok) {
         const data = await response.json();
@@ -204,6 +205,7 @@ export default function DeepAgentPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decision: "approved" }),
+        credentials: "include",
       });
       setPendingApproval(null);
     } catch (error) {
@@ -220,6 +222,7 @@ export default function DeepAgentPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decision: "rejected" }),
+        credentials: "include",
       });
       setPendingApproval(null);
     } catch (error) {
@@ -257,6 +260,7 @@ export default function DeepAgentPage() {
   const handleNewSession = useCallback(async () => {
     try {
       const response = await fetch("/api/v1/admin/deepagent/sessions", {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: "New Chat", model: selectedModel }),
@@ -350,7 +354,8 @@ export default function DeepAgentPage() {
       try {
         const response = await fetch(
           `/api/v1/admin/deepagent/sessions/${sessionId}`,
-          { method: "DELETE" }
+          {
+credentials: "include", method: "DELETE" }
         );
 
         if (response.ok) {
@@ -471,7 +476,8 @@ export default function DeepAgentPage() {
       try {
         await fetch(
           `/api/v1/admin/deepagent/sessions/${selectedSessionId}/messages/${messageId}`,
-          { method: "DELETE" }
+          {
+credentials: "include", method: "DELETE" }
         );
       } catch (error) {
         logger.error("deepagent.message_delete_failed", { messageId, error: String(error) });
@@ -509,7 +515,8 @@ export default function DeepAgentPage() {
         try {
           await fetch(
             `/api/v1/admin/deepagent/sessions/${selectedSessionId}/messages/${msg.id}`,
-            { method: "DELETE" }
+            {
+credentials: "include", method: "DELETE" }
           );
         } catch (error) {
           logger.error("deepagent.message_delete_failed", { messageId: msg.id, error: String(error) });
@@ -560,7 +567,8 @@ export default function DeepAgentPage() {
       try {
         await fetch(
           `/api/v1/admin/deepagent/sessions/${selectedSessionId}/messages/${messageId}`,
-          { method: "DELETE" }
+          {
+credentials: "include", method: "DELETE" }
         );
       } catch (error) {
         logger.error("deepagent.message_delete_failed", { messageId, error: String(error) });

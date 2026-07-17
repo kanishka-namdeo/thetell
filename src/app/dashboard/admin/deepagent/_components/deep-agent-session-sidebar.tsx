@@ -94,6 +94,7 @@ export function DeepAgentSessionSidebar({
     if (editTitle.trim()) {
       try {
         await fetch(`/api/v1/admin/deepagent/sessions/${sessionId}`, {
+credentials: "include",
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title: editTitle.trim() }),

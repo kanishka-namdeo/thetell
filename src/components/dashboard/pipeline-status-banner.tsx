@@ -38,6 +38,7 @@ export function PipelineStatusBanner({ companyId, show }: PipelineStatusBannerPr
       abortController = new AbortController();
       try {
         const res = await fetch(`/api/v1/admin/pipelines/${companyId}`, {
+credentials: "include",
           signal: abortController.signal,
         });
         if (!res.ok) return;

@@ -65,7 +65,8 @@ export function DeepAgentMemorySearch({
       try {
         const res = await fetch(
           `/api/v1/admin/deepagent/memory/search?q=${encodeURIComponent(searchQuery)}`,
-          { signal: controller.signal }
+          {
+credentials: "include", signal: controller.signal }
         );
         if (!res.ok) {
           throw new Error(`Search failed: ${res.status}`);

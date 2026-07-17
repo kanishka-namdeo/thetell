@@ -33,6 +33,7 @@ export function ModerationSettingsClient() {
     setIsLoading(true);
     try {
       const response = await fetch("/api/v1/admin/moderation/settings", {
+credentials: "include",
         signal: controller.signal,
       });
       if (!response.ok) throw new Error("Failed to fetch settings");
@@ -86,6 +87,7 @@ export function ModerationSettingsClient() {
       };
 
       const response = await fetch("/api/v1/admin/moderation/settings", {
+credentials: "include",
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

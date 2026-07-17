@@ -269,7 +269,8 @@ export function DeepAgentTraceViewer({ sessionId }: DeepAgentTraceViewerProps) {
       try {
         const response = await fetch(
           `/api/v1/admin/deepagent/trace?sessionId=${encodeURIComponent(sessionId)}`,
-          { signal: controller.signal }
+          {
+credentials: "include", signal: controller.signal }
         );
 
         if (!response.ok) {

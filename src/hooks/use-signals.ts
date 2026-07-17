@@ -36,7 +36,7 @@ export function useSignals(options: UseSignalsOptions = {}) {
       if (options.includeInferences) params.set("includeInferences", "true");
       if (options.includeCorrelations) params.set("includeCorrelations", "true");
 
-      const res = await fetch(`/api/v1/signals?${params.toString()}`, { signal });
+      const res = await fetch(`/api/v1/signals?${params.toString()}`, { signal, credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch signals");
 
       const json: PaginatedApiResponse<SignalWithRelations> = await res.json();

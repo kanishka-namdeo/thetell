@@ -105,6 +105,7 @@ export function PipelineDetailClient({ companyId }: Props) {
     controllerRef.current = controller;
     try {
       const res = await fetch(`/api/v1/admin/pipelines/${companyId}`, {
+credentials: "include",
         signal: controller.signal,
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -171,6 +172,7 @@ export function PipelineDetailClient({ companyId }: Props) {
         ? Array.from(selectedScrapers)
         : undefined;
       const res = await fetch(`/api/v1/admin/pipelines/${companyId}/run`, {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scrapers }),
@@ -192,6 +194,7 @@ export function PipelineDetailClient({ companyId }: Props) {
     setReanalyzeMessage(null);
     try {
       const res = await fetch("/api/v1/admin/signals/reanalyze", {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ companyId }),

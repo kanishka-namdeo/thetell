@@ -78,13 +78,40 @@ async function getModel(): Promise<LanguageIdentificationModel> {
   return modelLoadPromise;
 }
 
+/**
+ * Properly dispose the WASM model to free heap memory.
+ * FastText WASM allocates a large linear memory that is NOT freed
+ * by simply dropping the JS reference — the model must be explicitly
+ * disposed/unloaded.
+ */
+function disposeModel(model: LanguageIdentificationModel): void {
+  try {
+    // Try common disposal methods (API varies by fasttext.wasm.js version)
+    if (typeof (model as unknown as { dispose?: () => void }).dispose === "function") {
+      (model as unknown as { dispose: () => void }).dispose();
+    } else if (typeof (model as unknown as { free?: () => void }).free === "function") {
+      (model as unknown as { free: () => void }).free();
+    } else if (typeof (model as unknown as { unload?: () => void }).unload === "function") {
+      (model as unknown as { unload: () => void }).unload();
+    }
+  } catch (err) {
+    logger.warn("nlp.language.model.dispose_failed", { error: String(err) });
+  }
+}
+
 function startIdleCheck(): void {
   if (idleCheckInterval) return;
   idleCheckInterval = setInterval(() => {
     if (lidModel && lastAccessTime > 0 && Date.now() - lastAccessTime > MODEL_IDLE_TIMEOUT_MS) {
       logger.info("nlp.language.model.unloaded_idle");
+      disposeModel(lidModel);
       lidModel = null;
       modelLoadPromise = null;
+      // Clear the interval — it will be restarted if the model is reloaded
+      if (idleCheckInterval) {
+        clearInterval(idleCheckInterval);
+        idleCheckInterval = null;
+      }
     }
   }, 5 * 60 * 1000);
   idleCheckInterval.unref?.();
@@ -96,8 +123,14 @@ function startIdleCheck(): void {
  */
 export function unloadLanguageModel(): void {
   if (lidModel && lastAccessTime > 0 && Date.now() - lastAccessTime > MODEL_IDLE_TIMEOUT_MS) {
+    disposeModel(lidModel);
     lidModel = null;
     modelLoadPromise = null;
+    // Clear the idle check interval when unloading to prevent leak
+    if (idleCheckInterval) {
+      clearInterval(idleCheckInterval);
+      idleCheckInterval = null;
+    }
     logger.info("nlp.language.model.unloaded");
   }
 }

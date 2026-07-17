@@ -36,7 +36,8 @@ export function DeepAgentMemoryBrowser({ className }: { className?: string }) {
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const res = await fetch("/api/v1/admin/deepagent/memories", { signal: controller.signal });
+      const res = await fetch("/api/v1/admin/deepagent/memories", {
+credentials: "include", signal: controller.signal });
       if (res.ok) {
         const data = await res.json();
         setFiles(data.data);
@@ -56,7 +57,8 @@ export function DeepAgentMemoryBrowser({ className }: { className?: string }) {
     try {
       const res = await fetch(
         `/api/v1/admin/deepagent/memories?file=${encodeURIComponent(filename)}`,
-        { signal: controller.signal }
+        {
+credentials: "include", signal: controller.signal }
       );
       if (res.ok) {
         const data = await res.json();
@@ -75,6 +77,7 @@ export function DeepAgentMemoryBrowser({ className }: { className?: string }) {
     if (!selectedFile) return;
     try {
       const res = await fetch("/api/v1/admin/deepagent/memories", {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ file: selectedFile, content: editContent }),
@@ -93,7 +96,8 @@ export function DeepAgentMemoryBrowser({ className }: { className?: string }) {
     try {
       const res = await fetch(
         `/api/v1/admin/deepagent/memories?file=${encodeURIComponent(filename)}`,
-        { method: "DELETE" }
+        {
+credentials: "include", method: "DELETE" }
       );
       if (res.ok) {
         setFiles((prev) => prev.filter((f) => f !== filename));
@@ -119,6 +123,7 @@ export function DeepAgentMemoryBrowser({ className }: { className?: string }) {
 
     try {
       const res = await fetch("/api/v1/admin/deepagent/memories", {
+credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ file: filename, content: "" }),

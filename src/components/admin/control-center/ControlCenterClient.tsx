@@ -327,6 +327,7 @@ export function ControlCenterClient({
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: "include",
       });
 
       if (!response.ok) {
@@ -411,6 +412,7 @@ export function ControlCenterClient({
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: "include",
         body: JSON.stringify({ companyId: enrichCompanyId }),
       });
 

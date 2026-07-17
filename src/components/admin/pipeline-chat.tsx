@@ -32,7 +32,7 @@ export function PipelineChat({
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/v1/admin/companies/list")
+    fetch("/api/v1/admin/companies/list", { credentials: "include" })
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => {
         if (!cancelled && Array.isArray(data)) {

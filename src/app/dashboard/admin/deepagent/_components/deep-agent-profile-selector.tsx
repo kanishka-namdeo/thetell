@@ -39,7 +39,8 @@ export function DeepAgentProfileSelector({ className }: DeepAgentProfileSelector
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const res = await fetch("/api/v1/admin/deepagent/profiles", { signal: controller.signal });
+      const res = await fetch("/api/v1/admin/deepagent/profiles", {
+credentials: "include", signal: controller.signal });
       if (res.ok) {
         const data = await res.json();
         setProfiles(data.data);

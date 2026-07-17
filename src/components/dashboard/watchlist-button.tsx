@@ -28,6 +28,7 @@ export function WatchlistButton({
       if (previousState) {
         // Remove from watchlist
         const response = await fetch(`/api/v1/watchlist/${companyId}`, {
+credentials: "include",
           method: "DELETE",
         });
 
@@ -37,6 +38,7 @@ export function WatchlistButton({
       } else {
         // Add to watchlist
         const response = await fetch("/api/v1/watchlist", {
+credentials: "include",
           method: "POST",
           headers: {
             "Content-Type": "application/json",

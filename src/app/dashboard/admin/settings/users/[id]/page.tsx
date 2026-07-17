@@ -74,7 +74,7 @@ export default function AdminSettingsUserDetailPage() {
     let cancelled = false;
     async function loadUser() {
       try {
-        const response = await fetch(`/api/v1/admin/users/${userId}`);
+        const response = await fetch(`/api/v1/admin/users/${userId}`, { credentials: "include" });
         if (!response.ok) throw new Error("Failed to fetch user");
         const data = await response.json();
         if (!cancelled) setUser(data);
@@ -97,6 +97,7 @@ export default function AdminSettingsUserDetailPage() {
     setIsSaving(true);
     try {
       const response = await fetch(`/api/v1/admin/users/${userId}`, {
+credentials: "include",
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: newRole }),
@@ -120,6 +121,7 @@ export default function AdminSettingsUserDetailPage() {
     setIsSaving(true);
     try {
       const response = await fetch(`/api/v1/admin/users/${userId}`, {
+credentials: "include",
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
@@ -143,7 +145,8 @@ export default function AdminSettingsUserDetailPage() {
     try {
       const response = await fetch(
         `/api/v1/admin/users/${userId}/reset-password`,
-        { method: "POST" }
+        {
+credentials: "include", method: "POST" }
       );
       if (!response.ok) {
         const data = await response.json();
@@ -164,6 +167,7 @@ export default function AdminSettingsUserDetailPage() {
     setIsDeleting(true);
     try {
       const response = await fetch(`/api/v1/admin/users/${userId}`, {
+credentials: "include",
         method: "DELETE",
       });
       if (!response.ok) {

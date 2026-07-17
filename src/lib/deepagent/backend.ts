@@ -273,7 +273,12 @@ export type StreamEvent =
 /**
  * Merge multiple async iterables into a single async generator.
  * Events are yielded in the order they arrive from any source.
+ *
+ * Includes a max queue size to prevent unbounded memory growth
+ * if one source produces events faster than the consumer reads them.
  */
+const MAX_MERGE_QUEUE = 1000;
+
 async function* mergeAsyncIterables<T>(
   iterables: AsyncIterable<T>[]
 ): AsyncGenerator<T> {
@@ -284,6 +289,16 @@ async function* mergeAsyncIterables<T>(
   const drainSource = async (source: AsyncIterable<T>) => {
     try {
       for await (const item of source) {
+        if (queue.length >= MAX_MERGE_QUEUE) {
+          // Backpressure: wait until consumer drains some items
+          await new Promise<void>((r) => {
+            const check = () => {
+              if (queue.length < MAX_MERGE_QUEUE) r();
+              else setTimeout(check, 10);
+            };
+            check();
+          });
+        }
         queue.push(item);
         if (resolve) {
           const r = resolve;

@@ -178,7 +178,8 @@ export function PipelinesClient() {
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const res = await fetch("/api/v1/admin/pipelines", { signal: controller.signal });
+      const res = await fetch("/api/v1/admin/pipelines", {
+credentials: "include", signal: controller.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: PipelinesData = await res.json();
       setData(json);
@@ -201,7 +202,8 @@ export function PipelinesClient() {
       const params = new URLSearchParams({ limit: "20" });
       if (sessionStatusFilter) params.set("status", sessionStatusFilter);
 
-      const res = await fetch(`/api/v1/admin/pipelines/sessions?${params}`, { signal: controller.signal });
+      const res = await fetch(`/api/v1/admin/pipelines/sessions?${params}`, {
+credentials: "include", signal: controller.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: SessionsData = await res.json();
       setSessions(json);

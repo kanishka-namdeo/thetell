@@ -121,7 +121,8 @@ export function SubredditsClient({ companies }: SubredditsClientProps) {
     try {
       const res = await fetch(
         `/api/v1/companies/${selectedCompanyId}/subreddits`,
-        { signal: controller.signal }
+        {
+credentials: "include", signal: controller.signal }
       );
       if (!res.ok) throw new Error("Failed to fetch subreddits");
       const data = await res.json();
@@ -148,6 +149,7 @@ export function SubredditsClient({ companies }: SubredditsClientProps) {
       const res = await fetch(
         `/api/v1/companies/${selectedCompanyId}/subreddits`,
         {
+credentials: "include",
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ subreddit: newSubreddit.trim() }),
@@ -174,6 +176,7 @@ export function SubredditsClient({ companies }: SubredditsClientProps) {
       const res = await fetch(
         `/api/v1/companies/${selectedCompanyId}/subreddits/${sub.id}`,
         {
+credentials: "include",
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ isActive: !sub.isActive }),
@@ -200,7 +203,8 @@ export function SubredditsClient({ companies }: SubredditsClientProps) {
     try {
       const res = await fetch(
         `/api/v1/companies/${selectedCompanyId}/subreddits/${sub.id}`,
-        { method: "DELETE" }
+        {
+credentials: "include", method: "DELETE" }
       );
       if (!res.ok) throw new Error("Failed to delete");
       setSubreddits((prev) => prev.filter((s) => s.id !== sub.id));

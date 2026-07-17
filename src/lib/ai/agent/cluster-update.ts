@@ -254,14 +254,20 @@ export async function updateClusterWithSignal(
 
   // Generate embeddings for novel facts and cache them alongside facts
   const novelFactEmbeddings = await Promise.all(
-    novelFacts.map((f) =>
-      Promise.race([
-        generateEmbedding(f.text),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Embedding timeout for fact: ${f.text.slice(0, 50)}`)), 35000)
-        )
-      ])
-    )
+    novelFacts.map(async (f) => {
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error(`Embedding timeout for fact: ${f.text.slice(0, 50)}`)), 35000);
+        });
+        return await Promise.race([
+          generateEmbedding(f.text),
+          timeoutPromise
+        ]);
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
+    })
   ).catch((err) => {
     log.warn("cluster_update.embedding_timeout", { error: String(err) });
     return [];
@@ -358,14 +364,20 @@ async function deduplicateFacts(
   if (existingFacts.length === 0) return newFacts;
 
   const newEmbeddings = await Promise.all(
-    newFacts.map((f) =>
-      Promise.race([
-        generateEmbedding(f.text),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Embedding timeout for fact: ${f.text.slice(0, 50)}`)), 35000)
-        )
-      ])
-    )
+    newFacts.map(async (f) => {
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error(`Embedding timeout for fact: ${f.text.slice(0, 50)}`)), 35000);
+        });
+        return await Promise.race([
+          generateEmbedding(f.text),
+          timeoutPromise
+        ]);
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
+    })
   ).catch(() => []);
 
   return newFacts.filter((newFact, newIdx) => {

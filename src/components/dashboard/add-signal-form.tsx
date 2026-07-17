@@ -57,6 +57,7 @@ export function AddSignalForm({ companies }: AddSignalFormProps) {
       const res = await fetch("/api/v1/signals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           sourceUrl,
           sourceType,
@@ -109,6 +110,7 @@ export function AddSignalForm({ companies }: AddSignalFormProps) {
       const res = await fetch("/api/v1/signals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           sourceUrl,
           sourceType,

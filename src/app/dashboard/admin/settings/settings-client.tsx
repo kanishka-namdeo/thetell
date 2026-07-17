@@ -84,7 +84,8 @@ export function SettingsClient() {
     controllerRef.current = controller;
     setError(null);
     try {
-      const response = await fetch("/api/v1/admin/settings", { signal: controller.signal });
+      const response = await fetch("/api/v1/admin/settings", {
+credentials: "include", signal: controller.signal });
       if (!response.ok) throw new Error("Failed to fetch settings");
       const data = await response.json();
       setSettings(data.system);
@@ -118,6 +119,7 @@ export function SettingsClient() {
 
     try {
       const response = await fetch("/api/v1/admin/settings", {
+credentials: "include",
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings),

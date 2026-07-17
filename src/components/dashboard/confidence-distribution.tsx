@@ -37,6 +37,7 @@ export function ConfidenceDistribution({ companyId, days = 30 }: ConfidenceDistr
 
         const res = await fetch(`/api/v1/analytics/overview?${params}`, {
           signal: controller.signal,
+          credentials: "include",
         });
 
         if (!res.ok) {
